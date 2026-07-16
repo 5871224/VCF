@@ -1,0 +1,36 @@
+{
+  "name": "vcf-analyzer",
+  "version": "1.0.0",
+  "description": "VCF Analyzer",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable --x64"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.vcf.analyzer",
+    "productName": "VCF Analyzer",
+    "asar": false,
+    "directories": {
+      "output": "C:/vcf_dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      { "from": "../makevcf.html", "to": "makevcf.html" },
+      { "from": "../eval",         "to": "eval" },
+      { "from": "../emoji",        "to": "emoji" }
+    ],
+    "extraFiles": [
+      { "from": "engine.exe", "to": "engine.exe" },
+      { "from": "engine_node.js", "to": "engine_node.js" }
+    ],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }]
+    }
+  }
+}

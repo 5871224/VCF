@@ -1,0 +1,22 @@
+# Local dependency and build outputs
+app/node_modules/
+cpp/build/
+cpp/build_webparity/
+cpp/vcf_build/
+cpp/*.obj
+*.pdb
+*.ilk
+*.user
+.vs/
+
+# Local assistant and browser artifacts
+.claude/
+.agents/
+.codex/
+.playwright-cli/
+output/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini

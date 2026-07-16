@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>VCF Web UI</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="title">
+          <div class="h1">VCF Web UI</div>
+          <div class="sub">點棋盤擺題（空→黑→白），按 Solve 取得 `yxvcf` 座標序列。</div>
+        </div>
+        <div class="actions">
+          <button id="btnClear" class="btn secondary">清空</button>
+          <button id="btnSolve" class="btn primary">Solve (yxvcf)</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <section class="boardWrap">
+          <div id="board" class="board" aria-label="board"></div>
+          <div class="hint">
+            <div><b>操作</b>：左鍵循環（空→黑→白），右鍵清空。</div>
+            <div><b>攻方</b>：目前引擎固定當黑棋求解。</div>
+          </div>
+        </section>
+
+        <aside class="side">
+          <div class="panel">
+            <div class="panelTitle">結果</div>
+            <div class="row">
+              <div class="label">MESSAGE</div>
+              <div id="message" class="mono"></div>
+            </div>
+            <div class="row">
+              <div class="label">座標序列</div>
+              <div id="coords" class="mono"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panelTitle">後端/引擎</div>
+            <div class="row">
+              <div class="label">health</div>
+              <div id="health" class="mono"></div>
+            </div>
+            <div class="row">
+              <div class="label">engine</div>
+              <div id="enginePath" class="mono"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panelTitle">引擎原始輸出</div>
+            <pre id="raw" class="raw"></pre>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
+
