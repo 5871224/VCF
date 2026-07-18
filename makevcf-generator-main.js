@@ -46,11 +46,15 @@ async function genGenerateTwoStep() {
           const addedAttack = result.addedAttackers.length;
           const reused = result.reusedAttackers.length + 1; // 包含 A
           const addedDefense = result.addedDefenders.length;
+          const repairText = result.liveThreeExtensions.length
+            ? `新死四原產生活三，已在 X 補守子 ${addedDefense} 顆`
+            : "新死四未產生活三";
           genSetStatus(`產生成功：${attacker === GEN_BLACK ? "黑" : "白"}方 2 步 VCF（驗證 ${attempts} 個候選）`);
           genSetDetails(
-            `A=${genName(result.anchor)}，五點=${genName(result.fivePoint)}，模板 ${result.templateId}，` +
-            `${result.direction.name}${result.sign < 0 ? "反向" : "正向"}；沿用攻子 ${reused} 顆、新增攻子 ${addedAttack} 顆、` +
-            `補守子 ${addedDefense} 顆；多組 VCF 搜尋取得 ${result.groupCount} 組。`
+            `初始${result.base.patternName}（${result.base.patternText}）；A=${genName(result.anchor)}，五點=${genName(result.fivePoint)}，` +
+            `模板 ${result.templateId}，${result.direction.name}${result.sign < 0 ? "反向" : "正向"}；` +
+            `沿用攻子 ${reused} 顆、新增攻子 ${addedAttack} 顆；${repairText}；` +
+            `多組 VCF 搜尋取得 ${result.groupCount} 組。`
           );
           return;
         }
