@@ -31,8 +31,6 @@ function genGetNewLiveThreeExtensions(board, scanPoints, lineDirection, attacker
 }
 
 function genBuildRepairVariants(board, scanPoints, xPoints, direction, attacker, defender, rules, nMask) {
-  // 套入死四並拿掉 A 後，掃描整個新死四範圍，而不是只試兩個 X。
-  // 只要其中任一空點能讓攻方形成合法活四，就表示新材料仍是一個活三。
   const beforeExtensions = genGetNewLiveThreeExtensions(
     board,
     scanPoints,
@@ -51,7 +49,6 @@ function genBuildRepairVariants(board, scanPoints, xPoints, direction, attacker,
   );
   const valid = [];
 
-  // 活三只能在 X 補守方棋；左、右及兩邊都補都實際試算。
   for (let mask = 1; mask < (1 << addable.length); mask++) {
     const repaired = genCloneBoard(board);
     const addedDefenders = [];
@@ -150,7 +147,6 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
 
   const candidates = [];
   for (const repair of repairVariants) {
-    // A 必須是合法攻擊手，且在指定方向形成死四，唯一防點必須就是「五」。
     if (rules === 2 && attacker === GEN_BLACK && isFoul(anchor, repair.board)) continue;
     const lineInfo = testLineFour(anchor, direction.line, attacker, repair.board);
     if ((lineInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE) continue;
@@ -164,6 +160,7 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
       defender,
       rules,
       base,
+      rootBase: base.rootBase || base,
       anchor,
       fivePoint,
       direction,
@@ -186,8 +183,8 @@ function genEnumerateLayerCandidates(base, attacker, rules, options) {
   const results = [];
   for (const anchor of base.anchorCandidates) {
     for (const direction of GEN_DIRECTIONS) {
-      // 第一版要求新死四與初始活三使用不同方向。
-      if (direction.line === base.direction.line) continue;
+      // 初始材料不得在同一方向再建立新死四；後續延伸則不限制方向。
+      if (Number.isInteger(base.skipDirectionLine) && direction.line === base.skipDirectionLine) continue;
       for (const sign of [-1, 1]) {
         for (const template of GEN_NEW_FOUR_TEMPLATES) {
           for (const anchorSlot of template.stoneSlots) {
@@ -208,7 +205,6 @@ function genEnumerateLayerCandidates(base, attacker, rules, options) {
     }
   }
 
-  // 同一最終盤面只保留權重最高的生成方式，避免重複做昂貴的 VCF 搜尋。
   const dedup = new Map();
   for (const candidate of results) {
     const key = `${candidate.board.slice(0, 225).join("")}|${candidate.anchor}|${candidate.fivePoint}`;
