@@ -8,7 +8,99 @@ function genPickInitialPlacement(placements) {
   return genWeightedPick(selectedGroup);
 }
 
-async function genGenerateTwoStep() {
+function genOptions() {
+  return {
+    reuseBonus: document.getElementById("opt-reuse").checked,
+    centerBonus: document.getElementById("opt-center").checked,
+  };
+}
+
+async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
+  const basePlacements = genBuildBasePlacements(attacker, rules);
+
+  while (!genCancelled) {
+    counters.baseRounds++;
+    const base = genPickInitialPlacement(basePlacements);
+    const candidates = genWeightedOrder(genEnumerateLayerCandidates(base, attacker, rules, options));
+    if (!candidates.length) {
+      if (counters.baseRounds % 20 === 0) await genTick();
+      continue;
+    }
+
+    for (const candidate of candidates) {
+      if (genCancelled) return null;
+      counters.attempts++;
+      genSetStatus(
+        `正在建立 2/${targetSteps} 步基礎……已驗證 ${counters.attempts} 個候選`
+      );
+      const result = await genValidateCandidate(candidate);
+      if (result) return result;
+      if (counters.attempts % 8 === 0) await genTick();
+    }
+  }
+  return null;
+}
+
+async function genExtendToTarget(current, targetSteps, attacker, rules, options, counters) {
+  if (genCancelled) return null;
+  if (current.steps >= targetSteps) return current;
+
+  const nextStep = current.steps + 1;
+  const extensionBase = genMakeExtensionBase(current);
+  if (!extensionBase.anchorCandidates.length) return null;
+
+  const candidates = genWeightedOrder(
+    genEnumerateLayerCandidates(extensionBase, attacker, rules, options)
+  );
+  if (!candidates.length) return null;
+
+  for (const candidate of candidates) {
+    if (genCancelled) return null;
+    counters.attempts++;
+    genSetStatus(
+      `正在延伸到 ${nextStep}/${targetSteps} 步……已驗證 ${counters.attempts} 個候選，重建 ${counters.restarts} 次`
+    );
+
+    const next = await genValidateExtensionCandidate(candidate, current, nextStep);
+    if (next) {
+      const completed = await genExtendToTarget(
+        next,
+        targetSteps,
+        attacker,
+        rules,
+        options,
+        counters
+      );
+      if (completed) return completed;
+    }
+
+    if (counters.attempts % 8 === 0) await genTick();
+  }
+
+  return null;
+}
+
+function genShowResult(result, targetSteps, attacker, counters) {
+  genCurrent = result;
+  window.genDraw(genCurrent);
+
+  const root = result.rootBase || result.base;
+  const repairedLayers = result.layers.filter(layer => layer.addedDefenders.length > 0).length;
+  const latest = result.layers[result.layers.length - 1];
+  const latestFive = latest ? genName(latest.fivePoint) : "—";
+
+  genSetStatus(
+    `產生成功：${attacker === GEN_BLACK ? "黑" : "白"}方 ${targetSteps} 步 VCF（共驗證 ${counters.attempts} 個候選）`
+  );
+  genSetDetails(
+    `初始${root.patternName}（${root.patternText}）；共反向新增 ${result.layers.length} 層死四，` +
+    `永久新增攻子 ${result.totalAddedAttackers} 顆、補守子 ${result.totalAddedDefenders} 顆，` +
+    `${repairedLayers} 層曾產生活三並在 X 封閉；最外層 A=${genName(latest.anchor)}，五點=${latestFive}；` +
+    `最終多組 VCF 搜尋取得 ${result.groupCount} 組。`
+  );
+}
+
+async function genGenerate() {
   if (genBusy) return;
   genCancelled = false;
   genCurrent = null;
@@ -22,55 +114,32 @@ async function genGenerateTwoStep() {
 
   const attacker = genGetAttacker();
   const rules = genGetRules();
-  const options = {
-    reuseBonus: document.getElementById("opt-reuse").checked,
-    centerBonus: document.getElementById("opt-center").checked,
-  };
+  const targetSteps = genGetTargetSteps();
+  const options = genOptions();
+  const counters = { attempts: 0, baseRounds: 0, restarts: 0 };
 
   try {
     setGameRules(rules);
     await genEngine.setRules(rules);
-    const basePlacements = genBuildBasePlacements(attacker, rules);
-    let attempts = 0;
-    let baseRounds = 0;
 
     while (!genCancelled) {
-      baseRounds++;
-      const base = genPickInitialPlacement(basePlacements);
-      const candidates = genWeightedOrder(genEnumerateLayerCandidates(base, attacker, rules, options));
-      if (!candidates.length) {
-        if (baseRounds % 20 === 0) await genTick();
-        continue;
+      counters.restarts++;
+      const seed = await genFindTwoStep(attacker, rules, options, counters, targetSteps);
+      if (!seed || genCancelled) break;
+
+      const result = targetSteps === 2
+        ? seed
+        : await genExtendToTarget(seed, targetSteps, attacker, rules, options, counters);
+
+      if (result) {
+        genShowResult(result, targetSteps, attacker, counters);
+        return;
       }
 
-      for (const candidate of candidates) {
-        if (genCancelled) break;
-        attempts++;
-        genSetStatus(`正在產生 ${attacker === GEN_BLACK ? "黑" : "白"}方 2 步 VCF……已驗證 ${attempts} 個候選`);
-        const result = await genValidateCandidate(candidate);
-        if (result) {
-          genCurrent = result;
-          window.genDraw(genCurrent);
-          const addedAttack = result.addedAttackers.length;
-          const reused = result.reusedAttackers.length + 1; // 包含 A
-          const addedDefense = result.addedDefenders.length;
-          const repairText = result.liveThreeExtensions.length
-            ? `新死四原產生活三，已在 X 補守子 ${addedDefense} 顆`
-            : "新死四未產生活三";
-          const finishText = result.base.materialType === "deadFour"
-            ? `；A 下回同時完成原死四與新死四，形成四四`
-            : "";
-          genSetStatus(`產生成功：${attacker === GEN_BLACK ? "黑" : "白"}方 2 步 VCF（驗證 ${attempts} 個候選）`);
-          genSetDetails(
-            `初始${result.base.patternName}（${result.base.patternText}）；A=${genName(result.anchor)}，五點=${genName(result.fivePoint)}，` +
-            `模板 ${result.templateId}，${result.direction.name}${result.sign < 0 ? "反向" : "正向"}；` +
-            `沿用攻子 ${reused} 顆、新增攻子 ${addedAttack} 顆；${repairText}${finishText}；` +
-            `多組 VCF 搜尋取得 ${result.groupCount} 組。`
-          );
-          return;
-        }
-        if (attempts % 8 === 0) await genTick();
-      }
+      genSetStatus(
+        `目前基礎無法延伸到 ${targetSteps} 步，正在重新建立……已驗證 ${counters.attempts} 個候選`
+      );
+      await genTick();
     }
 
     genSetStatus("已停止產生");
@@ -87,7 +156,14 @@ function genName(idx) {
   return "ABCDEFGHJKLMNOP"[genX(idx)] + (15 - genY(idx));
 }
 
-document.getElementById("btn-generate").addEventListener("click", genGenerateTwoStep);
+function genRefreshGenerateLabel() {
+  const steps = genGetTargetSteps();
+  document.getElementById("btn-generate").textContent = `產生 ${steps} 步 VCF`;
+}
+
+document.getElementById("btn-generate").addEventListener("click", genGenerate);
+document.getElementById("target-steps").addEventListener("change", genRefreshGenerateLabel);
+document.getElementById("target-steps").addEventListener("input", genRefreshGenerateLabel);
 document.getElementById("btn-stop").addEventListener("click", async () => {
   if (!genBusy) return;
   genCancelled = true;
@@ -107,6 +183,7 @@ document.getElementById("btn-npoints").addEventListener("click", () => {
   window.genDraw(genCurrent);
 });
 
+genRefreshGenerateLabel();
 genEngine.ready
-  .then(() => genSetStatus("就緒，按「產生 2 步 VCF」開始"))
+  .then(() => genSetStatus("就緒，設定步數後按「產生 VCF」開始"))
   .catch(error => genSetStatus(`引擎初始化失敗：${error.message}`));
