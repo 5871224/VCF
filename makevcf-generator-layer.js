@@ -22,14 +22,26 @@ function genCenterDirectionBonus(anchor, relevantPoints) {
   return Math.max(0, (gx * cx + gy * cy) / (gl * cl));
 }
 
-function genHasNewLiveThree(board, xPoints, lineDirection, attacker, rules) {
-  return xPoints.some(idx => genCreatesLegalFreeFour(board, idx, lineDirection, attacker, rules));
+function genGetNewLiveThreeExtensions(board, scanPoints, lineDirection, attacker, rules) {
+  const result = [];
+  for (const idx of scanPoints) {
+    if (genCreatesLegalFreeFour(board, idx, lineDirection, attacker, rules)) result.push(idx);
+  }
+  return result;
 }
 
-function genBuildRepairVariants(board, xPoints, direction, attacker, defender, rules, nMask) {
-  // 沒有新活三時不可任意補守方棋，只保留原盤面。
-  if (!genHasNewLiveThree(board, xPoints, direction.line, attacker, rules)) {
-    return [{ board, addedDefenders: [] }];
+function genBuildRepairVariants(board, scanPoints, xPoints, direction, attacker, defender, rules, nMask) {
+  // 套入死四並拿掉 A 後，掃描整個新死四範圍，而不是只試兩個 X。
+  // 只要其中任一空點能讓攻方形成合法活四，就表示新材料仍是一個活三。
+  const beforeExtensions = genGetNewLiveThreeExtensions(
+    board,
+    scanPoints,
+    direction.line,
+    attacker,
+    rules
+  );
+  if (!beforeExtensions.length) {
+    return [{ board, addedDefenders: [], liveThreeExtensions: [] }];
   }
 
   const addable = xPoints.filter(idx =>
@@ -39,7 +51,7 @@ function genBuildRepairVariants(board, xPoints, direction, attacker, defender, r
   );
   const valid = [];
 
-  // 左、右及兩邊都補都要實際試算；如此一側是守方 N 點時，仍可能由另一側完成封閉。
+  // 活三只能在 X 補守方棋；左、右及兩邊都補都實際試算。
   for (let mask = 1; mask < (1 << addable.length); mask++) {
     const repaired = genCloneBoard(board);
     const addedDefenders = [];
@@ -49,8 +61,15 @@ function genBuildRepairVariants(board, xPoints, direction, attacker, defender, r
         addedDefenders.push(addable[i]);
       }
     }
-    if (!genHasNewLiveThree(repaired, xPoints, direction.line, attacker, rules)) {
-      valid.push({ board: repaired, addedDefenders });
+    const afterExtensions = genGetNewLiveThreeExtensions(
+      repaired,
+      scanPoints,
+      direction.line,
+      attacker,
+      rules
+    );
+    if (!afterExtensions.length) {
+      valid.push({ board: repaired, addedDefenders, liveThreeExtensions: beforeExtensions });
     }
   }
 
@@ -104,11 +123,13 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
 
   const fivePoint = mapped[template.fiveSlot];
   const xPoints = template.xSlots.map(slot => mapped[slot]);
+  const liveThreeScanPoints = Array.from(new Set(mapped.filter(idx => idx !== GEN_OUT)));
   if (board[anchor] !== attacker) return [];
   board[anchor] = GEN_EMPTY;
 
   const repairVariants = genBuildRepairVariants(
     board,
+    liveThreeScanPoints,
     xPoints,
     direction,
     attacker,
@@ -150,6 +171,7 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
       templateId: template.id,
       anchorSlot,
       xPoints,
+      liveThreeExtensions: Array.from(repair.liveThreeExtensions || []),
       addedAttackers: uniqueAdded,
       reusedAttackers: uniqueReused,
       removedDefenders,
