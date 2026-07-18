@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>VCF 題目產生器（2 步版）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  min-height: 100vh;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: #f0e8d0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #2d281e;
+}
+h1 { font-size: 20px; }
+.panel {
+  width: min(100%, 760px);
+  padding: 10px;
+  border: 1px solid #cdbb84;
+  border-radius: 7px;
+  background: #fffdf5;
+  box-shadow: 0 2px 8px #0001;
+}
+.controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: center; }
+fieldset { border: 0; display: flex; gap: 10px; align-items: center; }
+legend { display: inline; font-weight: 700; margin-right: 4px; }
+label { cursor: pointer; white-space: nowrap; }
+button {
+  padding: 8px 14px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+button:hover { background: #e8f0ff; }
+button:disabled { opacity: .45; cursor: default; }
+#board-svg {
+  width: min(94vw, 520px);
+  height: min(94vw, 520px);
+  background: #dcb97a;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px #0003;
+  display: block;
+}
+#status {
+  min-height: 32px;
+  padding: 7px 10px;
+  border: 1px solid #c8b870;
+  border-radius: 4px;
+  background: #fffbe6;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.35;
+}
+#details { margin-top: 8px; font-size: 12px; line-height: 1.55; color: #625334; }
+#details:empty { display: none; }
+.note { font-size: 12px; line-height: 1.55; color: #675a3d; }
+.badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #e9e0c4;
+  font-size: 12px;
+}
+a { color: #174ea6; }
+</style>
+</head>
+<body>
+<h1>VCF 題目產生器 <span class="badge">2 步試作版</span></h1>
+
+<div class="panel controls">
+  <fieldset>
+    <legend>攻方</legend>
+    <label><input type="radio" name="attacker" value="1" checked> 黑</label>
+    <label><input type="radio" name="attacker" value="2"> 白</label>
+  </fieldset>
+  <fieldset>
+    <legend>規則</legend>
+    <label><input type="radio" name="rules" value="2" checked> 有禁手</label>
+    <label><input type="radio" name="rules" value="1"> 無禁手</label>
+  </fieldset>
+  <label><input id="opt-reuse" type="checkbox" checked> 沿用既有攻子小幅加成</label>
+  <label><input id="opt-center" type="checkbox" checked> 朝天元方向小幅加成</label>
+</div>
+
+<svg id="board-svg" aria-label="15×15 棋盤"></svg>
+
+<div class="panel">
+  <div class="controls">
+    <button id="btn-generate">產生 2 步 VCF</button>
+    <button id="btn-stop" disabled>停止</button>
+    <button id="btn-answer" disabled>顯示答案</button>
+    <button id="btn-npoints" disabled>顯示 N 點</button>
+    <a href="makevcf.html">回分析工具</a>
+  </div>
+  <div id="status">引擎初始化中……</div>
+  <div id="details"></div>
+</div>
+
+<div class="panel note">
+  目前固定以「留、留、攻、攻、攻、留」建立初始活三，再選既有攻子為 A，於另一方向套入三種死四模板。
+  生成後會用現有「多組 VCF」搜尋驗證：目標路線必須為 2 步、第一手為 A、第二手為新死四的「五」點，且不得存在更短 VCF。
+  多步生成與初始死四會等 N 點重算規則完成後再開放。
+</div>
+
+<script src="emoji/emoji.js"></script>
+<script src="eval/EvaluatorJScript.js"></script>
+<script src="eval/Evaluator.js"></script>
+<script src="makevcf-generator-core.js"></script>
+<script src="makevcf-generator-board.js"></script>
+<script src="makevcf-generator-base.js"></script>
+<script src="makevcf-generator-layer.js"></script>
+<script src="makevcf-generator-validate.js"></script>
+<script src="makevcf-generator-main.js"></script>
+</body>
+</html>
