@@ -30,6 +30,9 @@ jobs:
           mkdir -p _site
           cp makevcf.html _site/index.html
           cp makevcf.html _site/makevcf.html
+          cp makevcf-generator.html _site/
+          cp makevcf-generator-*.js _site/
+          cp README.md 規格書.MD 題目產生器規格.MD _site/
           cp -R eval emoji _site/
           touch _site/.nojekyll
 
