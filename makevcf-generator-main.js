@@ -1,5 +1,13 @@
 "use strict";
 
+function genPickInitialPlacement(placements) {
+  const liveThree = placements.filter(item => item.materialType === "liveThree");
+  const deadFour = placements.filter(item => item.materialType === "deadFour");
+  const availableGroups = [liveThree, deadFour].filter(group => group.length);
+  const selectedGroup = availableGroups[genRand(availableGroups.length)];
+  return genWeightedPick(selectedGroup);
+}
+
 async function genGenerateTwoStep() {
   if (genBusy) return;
   genCancelled = false;
@@ -22,13 +30,13 @@ async function genGenerateTwoStep() {
   try {
     setGameRules(rules);
     await genEngine.setRules(rules);
-    const basePlacements = genBuildBasePlacements(attacker);
+    const basePlacements = genBuildBasePlacements(attacker, rules);
     let attempts = 0;
     let baseRounds = 0;
 
     while (!genCancelled) {
       baseRounds++;
-      const base = genWeightedPick(basePlacements);
+      const base = genPickInitialPlacement(basePlacements);
       const candidates = genWeightedOrder(genEnumerateLayerCandidates(base, attacker, rules, options));
       if (!candidates.length) {
         if (baseRounds % 20 === 0) await genTick();
@@ -49,11 +57,14 @@ async function genGenerateTwoStep() {
           const repairText = result.liveThreeExtensions.length
             ? `新死四原產生活三，已在 X 補守子 ${addedDefense} 顆`
             : "新死四未產生活三";
+          const finishText = result.base.materialType === "deadFour"
+            ? `；A 下回同時完成原死四與新死四，形成四四`
+            : "";
           genSetStatus(`產生成功：${attacker === GEN_BLACK ? "黑" : "白"}方 2 步 VCF（驗證 ${attempts} 個候選）`);
           genSetDetails(
             `初始${result.base.patternName}（${result.base.patternText}）；A=${genName(result.anchor)}，五點=${genName(result.fivePoint)}，` +
             `模板 ${result.templateId}，${result.direction.name}${result.sign < 0 ? "反向" : "正向"}；` +
-            `沿用攻子 ${reused} 顆、新增攻子 ${addedAttack} 顆；${repairText}；` +
+            `沿用攻子 ${reused} 顆、新增攻子 ${addedAttack} 顆；${repairText}${finishText}；` +
             `多組 VCF 搜尋取得 ${result.groupCount} 組。`
           );
           return;
