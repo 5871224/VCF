@@ -110,13 +110,14 @@ async function genGenerate() {
   document.getElementById("btn-npoints").textContent = "顯示 N 點";
   window.genDraw(null);
   genSetDetails("");
-  genSetBusy(true);
 
   const attacker = genGetAttacker();
   const rules = genGetRules();
   const targetSteps = genGetTargetSteps();
   const options = genOptions();
   const counters = { attempts: 0, baseRounds: 0, restarts: 0 };
+  genRefreshGenerateLabel();
+  genSetBusy(true);
 
   try {
     setGameRules(rules);
@@ -156,14 +157,26 @@ function genName(idx) {
   return "ABCDEFGHJKLMNOP"[genX(idx)] + (15 - genY(idx));
 }
 
+function genPreviewTargetSteps() {
+  const raw = Math.round(Number(document.getElementById("target-steps").value));
+  return Number.isFinite(raw)
+    ? Math.min(GEN_MAX_STEPS, Math.max(GEN_MIN_STEPS, raw))
+    : GEN_MIN_STEPS;
+}
+
 function genRefreshGenerateLabel() {
+  const steps = genPreviewTargetSteps();
+  document.getElementById("btn-generate").textContent = `產生 ${steps} 步 VCF`;
+}
+
+function genCommitTargetSteps() {
   const steps = genGetTargetSteps();
   document.getElementById("btn-generate").textContent = `產生 ${steps} 步 VCF`;
 }
 
 document.getElementById("btn-generate").addEventListener("click", genGenerate);
-document.getElementById("target-steps").addEventListener("change", genRefreshGenerateLabel);
 document.getElementById("target-steps").addEventListener("input", genRefreshGenerateLabel);
+document.getElementById("target-steps").addEventListener("change", genCommitTargetSteps);
 document.getElementById("btn-stop").addEventListener("click", async () => {
   if (!genBusy) return;
   genCancelled = true;
