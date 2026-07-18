@@ -18,4 +18,7 @@ python -m http.server 8000
 - <http://127.0.0.1:8000/makevcf.html>
 - <http://127.0.0.1:8000/makevcf-generator.html>
 
-完整功能與架構請參考 [規格書.MD](規格書.MD)。
+文件：
+
+- [分析工具規格書](規格書.MD)
+- [VCF 題目產生器規格](題目產生器規格.MD)
