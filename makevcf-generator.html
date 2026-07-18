@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <meta http-equiv="Cache-Control" content="no-store">
-<title>VCF 題目產生器（2 步版）</title>
+<title>VCF 題目產生器</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -31,6 +31,14 @@ h1 { font-size: 20px; }
 fieldset { border: 0; display: flex; gap: 10px; align-items: center; }
 legend { display: inline; font-weight: 700; margin-right: 4px; }
 label { cursor: pointer; white-space: nowrap; }
+input[type="number"] {
+  width: 68px;
+  padding: 5px 7px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  font-size: 14px;
+  text-align: center;
+}
 button {
   padding: 8px 14px;
   border: 1px solid #aaa;
@@ -69,11 +77,17 @@ button:disabled { opacity: .45; cursor: default; }
   background: #e9e0c4;
   font-size: 12px;
 }
+.legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 14px; margin-top: 7px; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.legend-mark { width: 14px; height: 14px; border-radius: 2px; display: inline-block; }
+.legend-both { background: #2e9f45; border: 2px solid #176729; }
+.legend-black { background: #222; border: 2px solid #d02020; }
+.legend-white { background: #f8f8f8; border: 2px solid #d02020; }
 a { color: #174ea6; }
 </style>
 </head>
 <body>
-<h1>VCF 題目產生器 <span class="badge">2 步試作版</span></h1>
+<h1>VCF 題目產生器 <span class="badge">指定步數版</span></h1>
 
 <div class="panel controls">
   <fieldset>
@@ -86,6 +100,7 @@ a { color: #174ea6; }
     <label><input type="radio" name="rules" value="2" checked> 有禁手</label>
     <label><input type="radio" name="rules" value="1"> 無禁手</label>
   </fieldset>
+  <label>生成步數 <input id="target-steps" type="number" min="2" max="10" step="1" value="2"> 步</label>
   <label><input id="opt-reuse" type="checkbox" checked> 沿用既有攻子小幅加成</label>
   <label><input id="opt-center" type="checkbox" checked> 朝天元方向小幅加成</label>
 </div>
@@ -102,14 +117,17 @@ a { color: #174ea6; }
   </div>
   <div id="status">引擎初始化中……</div>
   <div id="details"></div>
+  <div class="legend">
+    <span class="legend-item"><span class="legend-mark legend-both"></span>雙方 N 點</span>
+    <span class="legend-item"><span class="legend-mark legend-black"></span>黑方 N 點</span>
+    <span class="legend-item"><span class="legend-mark legend-white"></span>白方 N 點</span>
+  </div>
 </div>
 
 <div class="panel note">
-  初始材料會在兩種活三與三種死四中隨機選擇。死四為「X 攻 攻 攻 攻 留」、「攻 攻 攻 留 攻」、「攻 攻 留 攻 攻」；第一種的 X 必須是盤端或守方棋。
-  初始死四的紅色限制已套用：第一種靠近 X 的攻子不能作 A，第二、三種最外兩顆攻子不能作 A。
-  A 下回同時形成原死四與新死四時屬四四，步數按兩個四計算，因此仍是 2 步 VCF。
-  有禁手且黑方進攻時，四四屬禁手，所以初始死四會自動排除；白方或無禁手模式仍可使用。
-  套入新死四並移除 A 後，若形成合法活三，只能在 X 點補守方棋；補完後仍有活三的候選會淘汰。
+  可指定產生 2～10 步 VCF。程式會先建立合格的 2 步題目，再逐層在外側新增死四，直到達到指定步數；某一層無法延伸時會回溯其他候選，整個基礎都無法完成時才重新建立題目。
+  每次延伸都會使用多組 VCF 搜尋：目標 VCF 必須比上一層增加 1 步，不能存在更短 VCF，且標準完成盤面只能增加本層永久新增的攻方棋與 X 點守方棋。
+  初始材料會在兩種活三與三種死四中隨機選擇；有禁手且黑方進攻時，初始死四因形成四四禁手而自動排除。
 </div>
 
 <script src="emoji/emoji.js"></script>
