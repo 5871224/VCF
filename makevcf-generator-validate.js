@@ -109,7 +109,15 @@ function genBuildExpectedExtendedBoard(previousResult, candidate) {
     expected[idx] = candidate.defender;
   }
 
-  // A 與五點若原本已有棋子，完成盤面仍沿用原棋，不列入差異。
+  // 五點原本是空點時，守方的被迫防守手是本層完成盤面的新增棋。
+  // 五點原本已有守方棋時，生成時只是暫時移除，完成後仍屬沿用舊棋。
+  const fiveWasDefender = candidate.removedDefenders.includes(candidate.fivePoint);
+  if (!fiveWasDefender) {
+    if (expected[candidate.fivePoint] !== GEN_EMPTY && expected[candidate.fivePoint] !== candidate.defender) return null;
+    expected[candidate.fivePoint] = candidate.defender;
+  }
+
+  // A 原本就是攻方棋，VCF 過程中下回後仍屬沿用舊棋。
   return expected;
 }
 
