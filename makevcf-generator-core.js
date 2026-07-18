@@ -12,6 +12,8 @@ const GEN_FOUR_FREE = 9;
 const GEN_FIVE = 10;
 const GEN_LINE_MASK = 0x1f;
 const GEN_CENTER = { x: 7, y: 7 };
+const GEN_MIN_STEPS = 2;
+const GEN_MAX_STEPS = 10;
 
 const GEN_DIRECTIONS = [
   { dx: 1, dy: 0, line: 0, name: "橫" },
@@ -68,12 +70,12 @@ class GeneratorVCFEngine {
     await this.post("setGameRules", { rules });
   }
 
-  async findVCF(arr, color) {
+  async findVCF(arr, color, maxVCF = 64) {
     await this.ready;
     return (await this.post("findVCF", {
       arr: arr.slice(),
       color,
-      maxVCF: 20,
+      maxVCF,
       maxDepth: 200,
       maxNode: 5000000,
     })) || { winMoves: [], nodeCount: 0 };
@@ -139,11 +141,19 @@ function genGetRules() {
   return Number(document.querySelector('input[name="rules"]:checked').value);
 }
 
+function genGetTargetSteps() {
+  const input = document.getElementById("target-steps");
+  const value = Math.round(Number(input.value));
+  const steps = Math.min(GEN_MAX_STEPS, Math.max(GEN_MIN_STEPS, Number.isFinite(value) ? value : GEN_MIN_STEPS));
+  input.value = String(steps);
+  return steps;
+}
+
 function genSetBusy(value) {
   genBusy = value;
   document.getElementById("btn-generate").disabled = value;
   document.getElementById("btn-stop").disabled = !value;
-  document.querySelectorAll('input[name="attacker"], input[name="rules"], #opt-reuse, #opt-center')
+  document.querySelectorAll('input[name="attacker"], input[name="rules"], #target-steps, #opt-reuse, #opt-center')
     .forEach(input => { input.disabled = value; });
   document.getElementById("btn-answer").disabled = value || !genCurrent;
   document.getElementById("btn-npoints").disabled = value || !genCurrent;
