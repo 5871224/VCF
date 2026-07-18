@@ -22,43 +22,79 @@ function genCenterDirectionBonus(anchor, relevantPoints) {
   return Math.max(0, (gx * cx + gy * cy) / (gl * cl));
 }
 
-function genBuildLayerCandidate(base, anchor, direction, sign, template, anchorSlot, attacker, rules, options) {
+function genHasNewLiveThree(board, xPoints, lineDirection, attacker, rules) {
+  return xPoints.some(idx => genCreatesLegalFreeFour(board, idx, lineDirection, attacker, rules));
+}
+
+function genBuildRepairVariants(board, xPoints, direction, attacker, defender, rules, nMask) {
+  // 沒有新活三時不可任意補守方棋，只保留原盤面。
+  if (!genHasNewLiveThree(board, xPoints, direction.line, attacker, rules)) {
+    return [{ board, addedDefenders: [] }];
+  }
+
+  const addable = xPoints.filter(idx =>
+    idx !== GEN_OUT &&
+    board[idx] === GEN_EMPTY &&
+    !genIsNFor(nMask, idx, defender)
+  );
+  const valid = [];
+
+  // 左、右及兩邊都補都要實際試算；如此一側是守方 N 點時，仍可能由另一側完成封閉。
+  for (let mask = 1; mask < (1 << addable.length); mask++) {
+    const repaired = genCloneBoard(board);
+    const addedDefenders = [];
+    for (let i = 0; i < addable.length; i++) {
+      if (mask & (1 << i)) {
+        repaired[addable[i]] = defender;
+        addedDefenders.push(addable[i]);
+      }
+    }
+    if (!genHasNewLiveThree(repaired, xPoints, direction.line, attacker, rules)) {
+      valid.push({ board: repaired, addedDefenders });
+    }
+  }
+
+  if (!valid.length) return [];
+  const minAdded = Math.min(...valid.map(item => item.addedDefenders.length));
+  return valid.filter(item => item.addedDefenders.length === minAdded);
+}
+
+function genBuildLayerCandidates(base, anchor, direction, sign, template, anchorSlot, attacker, rules, options) {
   const defender = genOther(attacker);
   const mapped = template.cells.map((_, slot) => genPointFrom(anchor, slot - anchorSlot, direction, sign));
-  if (mapped[anchorSlot] !== anchor) return null;
+  if (mapped[anchorSlot] !== anchor) return [];
 
   for (let slot = 0; slot < template.cells.length; slot++) {
-    if (template.cells[slot] !== "X" && mapped[slot] === GEN_OUT) return null;
+    if (template.cells[slot] !== "X" && mapped[slot] === GEN_OUT) return [];
   }
 
   const board = genCloneBoard(base.board);
   const addedAttackers = [];
   const reusedAttackers = [];
   const removedDefenders = [];
-  const addedDefenders = [];
 
   for (let slot = 0; slot < template.cells.length; slot++) {
     const type = template.cells[slot];
     const idx = mapped[slot];
     if (type === "X") {
-      if (idx !== GEN_OUT && board[idx] === attacker) return null;
+      if (idx !== GEN_OUT && board[idx] === attacker) return [];
       continue;
     }
     if (type === "S") {
-      if (idx === anchor && slot !== anchorSlot) return null;
+      if (idx === anchor && slot !== anchorSlot) return [];
       if (board[idx] === attacker) {
         reusedAttackers.push(idx);
       } else if (board[idx] === GEN_EMPTY && !genIsNFor(base.nMask, idx, attacker)) {
         board[idx] = attacker;
         addedAttackers.push(idx);
       } else {
-        return null;
+        return [];
       }
       continue;
     }
     if (type === "F") {
-      if (genIsNFor(base.nMask, idx, attacker)) return null;
-      if (board[idx] === attacker) return null;
+      if (genIsNFor(base.nMask, idx, attacker)) return [];
+      if (board[idx] === attacker) return [];
       if (board[idx] === defender) {
         board[idx] = GEN_EMPTY;
         removedDefenders.push(idx);
@@ -67,55 +103,61 @@ function genBuildLayerCandidate(base, anchor, direction, sign, template, anchorS
   }
 
   const fivePoint = mapped[template.fiveSlot];
-  if (board[anchor] !== attacker) return null;
+  const xPoints = template.xSlots.map(slot => mapped[slot]);
+  if (board[anchor] !== attacker) return [];
   board[anchor] = GEN_EMPTY;
 
-  // 移除 A 後，只在兩個 X 檢查新方向是否留下合法活三；必要時補守方棋。
-  for (const xSlot of template.xSlots) {
-    const xPoint = mapped[xSlot];
-    if (xPoint === GEN_OUT || board[xPoint] === defender) continue;
-    if (board[xPoint] === attacker) return null;
-    if (genCreatesLegalFreeFour(board, xPoint, direction.line, attacker, rules)) {
-      if (genIsNFor(base.nMask, xPoint, defender)) return null;
-      board[xPoint] = defender;
-      addedDefenders.push(xPoint);
-    }
-  }
-
-  // A 必須是合法攻擊手，且在指定方向形成死四，唯一防點必須就是「五」。
-  if (rules === 2 && attacker === GEN_BLACK && isFoul(anchor, board)) return null;
-  const lineInfo = testLineFour(anchor, direction.line, attacker, board);
-  if ((lineInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE) return null;
-  const actualFive = getBlockFourPoint(anchor, board, lineInfo);
-  if (actualFive !== fivePoint) return null;
-
-  const uniqueAdded = Array.from(new Set(addedAttackers));
-  const uniqueReused = Array.from(new Set(reusedAttackers.filter(idx => idx !== anchor)));
-  const relevant = uniqueAdded.length ? uniqueAdded : mapped.filter((idx, slot) => template.cells[slot] === "S" && idx !== anchor);
-  let weight = 1;
-  if (options.reuseBonus) weight += uniqueReused.length * 0.10;
-  if (options.centerBonus) weight += genCenterDirectionBonus(anchor, relevant) * 0.15;
-
-  return {
+  const repairVariants = genBuildRepairVariants(
     board,
-    nMask: base.nMask.slice(),
+    xPoints,
+    direction,
     attacker,
     defender,
     rules,
-    base,
-    anchor,
-    fivePoint,
-    direction,
-    sign,
-    templateId: template.id,
-    anchorSlot,
-    xPoints: template.xSlots.map(slot => mapped[slot]),
-    addedAttackers: uniqueAdded,
-    reusedAttackers: uniqueReused,
-    removedDefenders,
-    addedDefenders: Array.from(new Set(addedDefenders)),
-    weight,
-  };
+    base.nMask
+  );
+  if (!repairVariants.length) return [];
+
+  const uniqueAdded = Array.from(new Set(addedAttackers));
+  const uniqueReused = Array.from(new Set(reusedAttackers.filter(idx => idx !== anchor)));
+  const relevant = uniqueAdded.length
+    ? uniqueAdded
+    : mapped.filter((idx, slot) => template.cells[slot] === "S" && idx !== anchor);
+  let baseWeight = 1;
+  if (options.reuseBonus) baseWeight += uniqueReused.length * 0.10;
+  if (options.centerBonus) baseWeight += genCenterDirectionBonus(anchor, relevant) * 0.15;
+
+  const candidates = [];
+  for (const repair of repairVariants) {
+    // A 必須是合法攻擊手，且在指定方向形成死四，唯一防點必須就是「五」。
+    if (rules === 2 && attacker === GEN_BLACK && isFoul(anchor, repair.board)) continue;
+    const lineInfo = testLineFour(anchor, direction.line, attacker, repair.board);
+    if ((lineInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE) continue;
+    const actualFive = getBlockFourPoint(anchor, repair.board, lineInfo);
+    if (actualFive !== fivePoint) continue;
+
+    candidates.push({
+      board: repair.board,
+      nMask: base.nMask.slice(),
+      attacker,
+      defender,
+      rules,
+      base,
+      anchor,
+      fivePoint,
+      direction,
+      sign,
+      templateId: template.id,
+      anchorSlot,
+      xPoints,
+      addedAttackers: uniqueAdded,
+      reusedAttackers: uniqueReused,
+      removedDefenders,
+      addedDefenders: Array.from(new Set(repair.addedDefenders)),
+      weight: baseWeight,
+    });
+  }
+  return candidates;
 }
 
 function genEnumerateLayerCandidates(base, attacker, rules, options) {
@@ -127,8 +169,17 @@ function genEnumerateLayerCandidates(base, attacker, rules, options) {
       for (const sign of [-1, 1]) {
         for (const template of GEN_NEW_FOUR_TEMPLATES) {
           for (const anchorSlot of template.stoneSlots) {
-            const candidate = genBuildLayerCandidate(base, anchor, direction, sign, template, anchorSlot, attacker, rules, options);
-            if (candidate) results.push(candidate);
+            results.push(...genBuildLayerCandidates(
+              base,
+              anchor,
+              direction,
+              sign,
+              template,
+              anchorSlot,
+              attacker,
+              rules,
+              options
+            ));
           }
         }
       }
