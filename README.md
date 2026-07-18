@@ -1,8 +1,9 @@
 # VCF Analyzer
 
-15×15 連珠／五子棋 VCF 局面分析工具，支援 VCF 路線、防守點、候選點、多組 VCF 與棋盤圖片匯入。
+15×15 連珠／五子棋 VCF 局面分析工具，支援 VCF 路線、防守點、候選點、多組 VCF、棋盤圖片匯入，以及 2 步 VCF 題目試作產生器。
 
-網站：<https://5871224.github.io/VCF/>
+- 分析工具：<https://5871224.github.io/VCF/makevcf.html>
+- 2 步題目產生器：<https://5871224.github.io/VCF/makevcf-generator.html>
 
 ## Web 執行
 
@@ -12,6 +13,9 @@
 python -m http.server 8000
 ```
 
-然後開啟 <http://127.0.0.1:8000/makevcf.html>。
+然後開啟：
+
+- <http://127.0.0.1:8000/makevcf.html>
+- <http://127.0.0.1:8000/makevcf-generator.html>
 
 完整功能與架構請參考 [規格書.MD](規格書.MD)。
