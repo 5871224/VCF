@@ -186,7 +186,7 @@ function genSetBusy(value) {
 
   genInputs("attacker").forEach(input => { input.disabled = value; });
   genInputs("rules").forEach(input => { input.disabled = value; });
-  ["target-steps", "opt-reuse", "opt-center"].forEach(id => {
+  ["target-steps", "bonus-reuse", "bonus-center"].forEach(id => {
     const input = genEl(id);
     if (input) input.disabled = value;
   });
