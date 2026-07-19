@@ -56,65 +56,58 @@ function genAnalyzeVCFGroup(initialBoard, moves, attacker) {
   };
 }
 
-function genMatchesLiveThreeContinuation(candidate, moves) {
-  if (moves[0] !== candidate.anchor || moves[1] !== candidate.fivePoint) return false;
-  if (moves.length < 3 || moves[2] !== candidate.base.activeFourPoint) return false;
-  if (moves.length >= 4 && !candidate.base.finalPoints.includes(moves[3])) return false;
-  if (moves.length >= 5) {
-    const expected = candidate.base.finalPoints.find(idx => idx !== moves[3]);
-    if (moves[4] !== expected) return false;
-  }
-  return true;
-}
-
-function genMatchesDeadFourContinuation(candidate, moves, analysis) {
-  if (!moves.length || moves[0] !== candidate.anchor) return false;
-  if (!analysis.rawLevels.length || !(analysis.rawLevels[0] & 0x60)) return false;
-
-  const sameLine = candidate.base.direction.line === candidate.direction.line;
-  if (sameLine) {
-    const lineInfo = testLineFour(
-      candidate.anchor,
-      candidate.direction.line,
-      candidate.attacker,
-      candidate.board
-    );
-    if ((lineInfo & GEN_LINE_MASK) !== GEN_LINE_DOUBLE_FOUR) return false;
-    if (candidate.base.finishPoint === candidate.fivePoint) return false;
-
-    const fivePoints = genGetLineFivePointsAfterAnchor(
-      candidate.board,
-      candidate.anchor,
-      candidate.direction,
-      candidate.attacker
-    );
-    return genPointSetEquals(fivePoints, [candidate.base.finishPoint, candidate.fivePoint]);
-  }
-
-  const oldInfo = testLineFour(candidate.anchor, candidate.base.direction.line, candidate.attacker, candidate.board);
-  if ((oldInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE) return false;
-  if (getBlockFourPoint(candidate.anchor, candidate.board, oldInfo) !== candidate.base.finishPoint) return false;
-
-  const newInfo = testLineFour(candidate.anchor, candidate.direction.line, candidate.attacker, candidate.board);
-  if ((newInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE) return false;
-  if (getBlockFourPoint(candidate.anchor, candidate.board, newInfo) !== candidate.fivePoint) return false;
-
-  return true;
-}
-
-function genMatchesBaseContinuation(candidate, moves, analysis) {
-  if (candidate.base.materialType === "deadFour") {
-    return genMatchesDeadFourContinuation(candidate, moves, analysis);
-  }
-  return genMatchesLiveThreeContinuation(candidate, moves);
-}
-
 function genBoardsEqual(a, b) {
   if (!a || !b) return false;
   for (let idx = 0; idx < 225; idx++) {
     if (a[idx] !== b[idx]) return false;
   }
   return true;
+}
+
+function genHasPreservedBaseLiveThree(candidate, board) {
+  const base = candidate.base;
+  if (!base || base.materialType !== "liveThree") return true;
+
+  const continuationPoints = Array.from(new Set(base.points || []));
+  return continuationPoints.some(idx =>
+    idx !== GEN_OUT &&
+    board[idx] === GEN_EMPTY &&
+    genCreatesLegalFreeFour(
+      board,
+      idx,
+      base.direction.line,
+      candidate.attacker,
+      candidate.rules
+    )
+  );
+}
+
+function genBuildExpectedBaseBoard(candidate) {
+  const expected = genCloneBoard(candidate.board);
+  if (
+    candidate.anchor < 0 ||
+    candidate.anchor >= 225 ||
+    expected[candidate.anchor] !== GEN_EMPTY
+  ) {
+    return null;
+  }
+  expected[candidate.anchor] = candidate.attacker;
+
+  if (candidate.base.materialType === "liveThree") {
+    if (candidate.fivePoint < 0 || candidate.fivePoint >= 225) return null;
+    if (
+      expected[candidate.fivePoint] !== GEN_EMPTY &&
+      expected[candidate.fivePoint] !== candidate.defender
+    ) {
+      return null;
+    }
+    expected[candidate.fivePoint] = candidate.defender;
+
+    // 不限定活三後續從哪一側下出活四，但原活三必須仍至少保留一個合法活四延伸點。
+    if (!genHasPreservedBaseLiveThree(candidate, expected)) return null;
+  }
+
+  return expected;
 }
 
 function genBuildExpectedExtendedBoard(previousResult, candidate) {
@@ -205,6 +198,9 @@ async function genFindAnalyzedGroups(candidate) {
 }
 
 async function genValidateCandidate(candidate, expectedSteps) {
+  const expectedBoard = genBuildExpectedBaseBoard(candidate);
+  if (!expectedBoard) return null;
+
   const found = await genFindAnalyzedGroups(candidate);
   if (!found) return null;
   const { info, groups } = found;
@@ -217,10 +213,11 @@ async function genValidateCandidate(candidate, expectedSteps) {
     // 基礎題也不得存在比該材料應有步數更短的 VCF。
     if (analysis.steps < expectedSteps) return null;
 
+    // 不限定 VCF 落子順序；只要其中一組在指定步數到達預期黑白棋盤面即可。
     if (
       !target &&
       analysis.steps === expectedSteps &&
-      genMatchesBaseContinuation(candidate, moves, analysis)
+      genBoardsEqual(analysis.standardBoard, expectedBoard)
     ) {
       target = { moves: Array.from(moves), analysis };
     }
