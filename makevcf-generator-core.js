@@ -13,7 +13,7 @@ const GEN_FIVE = 10;
 const GEN_LINE_DOUBLE_FOUR = 24;
 const GEN_LINE_MASK = 0x1f;
 const GEN_CENTER = { x: 7, y: 7 };
-const GEN_MIN_STEPS = 2;
+const GEN_MIN_STEPS = 1;
 const GEN_MAX_STEPS = 10;
 
 const GEN_DIRECTIONS = [
