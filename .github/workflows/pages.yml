@@ -42,6 +42,7 @@ jobs:
           <!-- VCF 題目產生器：與主分析頁共用同一棋盤 -->
           <script src="emoji/emoji.js"></script>
           <script src="eval/EvaluatorJScript.js"></script>
+          <script src="eval/EvaluatorCore.js"></script>
           <script src="eval/Evaluator.js"></script>
           <script src="makevcf-generator-core.js"></script>
           <script src="makevcf-generator-base.js"></script>
