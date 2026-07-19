@@ -10,6 +10,7 @@ const GEN_OUT = 225;
 const GEN_FOUR_NOFREE = 8;
 const GEN_FOUR_FREE = 9;
 const GEN_FIVE = 10;
+const GEN_LINE_DOUBLE_FOUR = 24;
 const GEN_LINE_MASK = 0x1f;
 const GEN_CENTER = { x: 7, y: 7 };
 const GEN_MIN_STEPS = 2;
