@@ -71,6 +71,26 @@ function genMatchesDeadFourContinuation(candidate, moves, analysis) {
   if (!moves.length || moves[0] !== candidate.anchor) return false;
   if (!analysis.rawLevels.length || !(analysis.rawLevels[0] & 0x60)) return false;
 
+  const sameLine = candidate.base.direction.line === candidate.direction.line;
+  if (sameLine) {
+    const lineInfo = testLineFour(
+      candidate.anchor,
+      candidate.direction.line,
+      candidate.attacker,
+      candidate.board
+    );
+    if ((lineInfo & GEN_LINE_MASK) !== GEN_LINE_DOUBLE_FOUR) return false;
+    if (candidate.base.finishPoint === candidate.fivePoint) return false;
+
+    const fivePoints = genGetLineFivePointsAfterAnchor(
+      candidate.board,
+      candidate.anchor,
+      candidate.direction,
+      candidate.attacker
+    );
+    return genPointSetEquals(fivePoints, [candidate.base.finishPoint, candidate.fivePoint]);
+  }
+
   const oldInfo = testLineFour(candidate.anchor, candidate.base.direction.line, candidate.attacker, candidate.board);
   if ((oldInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE) return false;
   if (getBlockFourPoint(candidate.anchor, candidate.board, oldInfo) !== candidate.base.finishPoint) return false;
@@ -143,6 +163,8 @@ function genLayerRecord(candidate, step) {
     sign: candidate.sign,
     templateId: candidate.templateId,
     xPoints: Array.from(candidate.xPoints),
+    sameLineDoubleFour: Boolean(candidate.sameLineDoubleFour),
+    lineFivePoints: Array.from(candidate.lineFivePoints || []),
     addedAttackers: Array.from(candidate.addedAttackers),
     addedDefenders: Array.from(candidate.addedDefenders),
     removedDefenders: Array.from(candidate.removedDefenders),
@@ -255,7 +277,6 @@ function genMakeExtensionBase(result) {
     rootBase,
     anchorCandidates,
     forbiddenAnchorPoints: Array.from(forbidden),
-    skipDirectionLine: null,
     weight: 1,
   };
 }
