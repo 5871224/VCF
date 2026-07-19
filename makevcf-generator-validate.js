@@ -204,7 +204,7 @@ async function genFindAnalyzedGroups(candidate) {
   return { info, groups };
 }
 
-async function genValidateCandidate(candidate) {
+async function genValidateCandidate(candidate, expectedSteps) {
   const found = await genFindAnalyzedGroups(candidate);
   if (!found) return null;
   const { info, groups } = found;
@@ -213,8 +213,15 @@ async function genValidateCandidate(candidate) {
   for (const moves of groups) {
     const analysis = genAnalyzeVCFGroup(candidate.board, moves, candidate.attacker);
     if (!analysis.valid) continue;
-    if (analysis.steps < 2) return null;
-    if (!target && analysis.steps === 2 && genMatchesBaseContinuation(candidate, moves, analysis)) {
+
+    // 基礎題也不得存在比該材料應有步數更短的 VCF。
+    if (analysis.steps < expectedSteps) return null;
+
+    if (
+      !target &&
+      analysis.steps === expectedSteps &&
+      genMatchesBaseContinuation(candidate, moves, analysis)
+    ) {
       target = { moves: Array.from(moves), analysis };
     }
   }
