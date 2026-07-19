@@ -14,18 +14,24 @@ function genOptions() {
   const reuseRaw = Number(reuseInput?.value);
   const centerRaw = Number(centerInput?.value);
   const reuseBonusPercent = Number.isFinite(reuseRaw)
-    ? Math.min(500, Math.max(0, reuseRaw))
+    ? Math.min(100, Math.max(0, reuseRaw))
     : 10;
   const centerBonusPercent = Number.isFinite(centerRaw)
-    ? Math.min(500, Math.max(0, centerRaw))
+    ? Math.min(100, Math.max(0, centerRaw))
     : 15;
   if (reuseInput) reuseInput.value = String(reuseBonusPercent);
   if (centerInput) centerInput.value = String(centerBonusPercent);
+
+  // 0% = 權重不變；100% = 完整加成時由 1 倍提高為 100 倍，因此增量為 99。
+  const reuseBonus = 99 * reuseBonusPercent / 100;
+  const centerBonus = 99 * centerBonusPercent / 100;
   return {
-    reuseBonus: reuseBonusPercent / 100,
-    centerBonus: centerBonusPercent / 100,
+    reuseBonus,
+    centerBonus,
     reuseBonusPercent,
     centerBonusPercent,
+    reuseFullMultiplier: 1 + reuseBonus,
+    centerFullMultiplier: 1 + centerBonus,
   };
 }
 
@@ -89,13 +95,16 @@ function genShowResult(result, targetSteps, attacker, counters, options) {
   const repairedLayers = result.layers.filter(layer => layer.addedDefenders.length > 0).length;
   const latest = result.layers[result.layers.length - 1];
   const latestFive = latest ? genName(latest.fivePoint) : "—";
+  const reuseMultiplier = options.reuseFullMultiplier.toFixed(2).replace(/\.00$/, "");
+  const centerMultiplier = options.centerFullMultiplier.toFixed(2).replace(/\.00$/, "");
 
   genSetStatus(`產生成功：${attacker === GEN_BLACK ? "黑" : "白"}方 ${targetSteps} 步 VCF（共驗證 ${counters.attempts} 個候選）`);
   genSetDetails(
     `初始${root.patternName}（${root.patternText}）；共反向新增 ${result.layers.length} 層死四，` +
     `永久新增攻子 ${result.totalAddedAttackers} 顆、補守子 ${result.totalAddedDefenders} 顆，` +
     `${repairedLayers} 層曾產生活三並在 X 封閉；最外層 A=${genName(latest.anchor)}，五點=${latestFive}；` +
-    `權重設定：沿用攻子每顆 +${options.reuseBonusPercent}%，朝天元最高 +${options.centerBonusPercent}%；` +
+    `偏好設定：沿用攻子每顆 ${options.reuseBonusPercent}%（完整加成 ${reuseMultiplier} 倍），` +
+    `朝天元 ${options.centerBonusPercent}%（方向與平均距離滿分時 ${centerMultiplier} 倍）；` +
     `最終多組 VCF 搜尋取得 ${result.groupCount} 組。`
   );
 }
