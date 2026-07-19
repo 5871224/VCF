@@ -36,7 +36,9 @@ function genOptions() {
 }
 
 async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
-  const basePlacements = genBuildBasePlacements(attacker, rules);
+  // 四四依攻方實際落子只算 1 步；目前 2～10 步基礎只使用初始活三。
+  const basePlacements = genBuildBasePlacements(attacker, rules)
+    .filter(item => item.materialType === "liveThree");
 
   while (!genCancelled) {
     counters.baseRounds++;
