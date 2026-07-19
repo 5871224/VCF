@@ -127,12 +127,13 @@ a { color: #174ea6; }
 <div class="panel note">
   可指定產生 1～10 步 VCF。1 步限定使用初始死四，再加一層死四形成四四；2 步以上會在活三與合法死四基礎中隨機選擇，死四基礎會比活三基礎多加一層死四後才達到相同步數。
   每次延伸都會使用多組 VCF 搜尋：目標 VCF 必須比上一層增加 1 步，不能存在更短 VCF，且標準完成盤面只能增加本層永久新增的攻方棋與 X 點守方棋。
-  兩項偏好強度範圍為 0～100%。沿用攻子以每顆計算；朝天元會同時計算方向與四顆攻子平均位置距離。設定 100% 且取得完整加成時，候選權重為未加成候選的 100 倍。
+  黑方在有禁手規則下，兩種活三基礎會額外加入攻方 N 點保護；這些 N 點可以落在盤端。兩項偏好強度範圍為 0～100%。
   有禁手且黑方進攻時，死四基礎會形成四四禁手，因此 1 步模式無合法題目，2 步以上只會使用活三基礎。
 </div>
 
 <script src="emoji/emoji.js"></script>
 <script src="eval/EvaluatorJScript.js"></script>
+<script src="eval/EvaluatorCore.js"></script>
 <script src="eval/Evaluator.js"></script>
 <script src="makevcf-generator-core.js"></script>
 <script src="makevcf-generator-board.js"></script>
