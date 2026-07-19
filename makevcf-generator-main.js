@@ -10,8 +10,8 @@ function genPickInitialPlacement(placements) {
 
 function genOptions() {
   return {
-    reuseBonus: document.getElementById("opt-reuse").checked,
-    centerBonus: document.getElementById("opt-center").checked,
+    reuseBonus: Boolean(genEl("opt-reuse")?.checked),
+    centerBonus: Boolean(genEl("opt-center")?.checked),
   };
 }
 
@@ -30,9 +30,7 @@ async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
     for (const candidate of candidates) {
       if (genCancelled) return null;
       counters.attempts++;
-      genSetStatus(
-        `正在建立 2/${targetSteps} 步基礎……已驗證 ${counters.attempts} 個候選`
-      );
+      genSetStatus(`正在建立 2/${targetSteps} 步基礎……已驗證 ${counters.attempts} 個候選`);
       const result = await genValidateCandidate(candidate);
       if (result) return result;
       if (counters.attempts % 8 === 0) await genTick();
@@ -49,28 +47,17 @@ async function genExtendToTarget(current, targetSteps, attacker, rules, options,
   const extensionBase = genMakeExtensionBase(current);
   if (!extensionBase.anchorCandidates.length) return null;
 
-  const candidates = genWeightedOrder(
-    genEnumerateLayerCandidates(extensionBase, attacker, rules, options)
-  );
+  const candidates = genWeightedOrder(genEnumerateLayerCandidates(extensionBase, attacker, rules, options));
   if (!candidates.length) return null;
 
   for (const candidate of candidates) {
     if (genCancelled) return null;
     counters.attempts++;
-    genSetStatus(
-      `正在延伸到 ${nextStep}/${targetSteps} 步……已驗證 ${counters.attempts} 個候選，重建 ${counters.restarts} 次`
-    );
+    genSetStatus(`正在延伸到 ${nextStep}/${targetSteps} 步……已驗證 ${counters.attempts} 個候選，重建 ${counters.restarts} 次`);
 
     const next = await genValidateExtensionCandidate(candidate, current, nextStep);
     if (next) {
-      const completed = await genExtendToTarget(
-        next,
-        targetSteps,
-        attacker,
-        rules,
-        options,
-        counters
-      );
+      const completed = await genExtendToTarget(next, targetSteps, attacker, rules, options, counters);
       if (completed) return completed;
     }
 
@@ -89,9 +76,7 @@ function genShowResult(result, targetSteps, attacker, counters) {
   const latest = result.layers[result.layers.length - 1];
   const latestFive = latest ? genName(latest.fivePoint) : "—";
 
-  genSetStatus(
-    `產生成功：${attacker === GEN_BLACK ? "黑" : "白"}方 ${targetSteps} 步 VCF（共驗證 ${counters.attempts} 個候選）`
-  );
+  genSetStatus(`產生成功：${attacker === GEN_BLACK ? "黑" : "白"}方 ${targetSteps} 步 VCF（共驗證 ${counters.attempts} 個候選）`);
   genSetDetails(
     `初始${root.patternName}（${root.patternText}）；共反向新增 ${result.layers.length} 層死四，` +
     `永久新增攻子 ${result.totalAddedAttackers} 顆、補守子 ${result.totalAddedDefenders} 顆，` +
@@ -106,8 +91,12 @@ async function genGenerate() {
   genCurrent = null;
   genShowAnswer = false;
   genShowNPoints = false;
-  document.getElementById("btn-answer").textContent = "顯示答案";
-  document.getElementById("btn-npoints").textContent = "顯示 N 點";
+
+  const answerButton = genEl("btn-answer");
+  const nButton = genEl("btn-npoints");
+  if (answerButton) answerButton.textContent = "顯示答案";
+  if (nButton) nButton.textContent = "顯示 N 點";
+
   window.genDraw(null);
   genSetDetails("");
 
@@ -137,9 +126,7 @@ async function genGenerate() {
         return;
       }
 
-      genSetStatus(
-        `目前基礎無法延伸到 ${targetSteps} 步，正在重新建立……已驗證 ${counters.attempts} 個候選`
-      );
+      genSetStatus(`目前基礎無法延伸到 ${targetSteps} 步，正在重新建立……已驗證 ${counters.attempts} 個候選`);
       await genTick();
     }
 
@@ -158,43 +145,57 @@ function genName(idx) {
 }
 
 function genPreviewTargetSteps() {
-  const raw = Math.round(Number(document.getElementById("target-steps").value));
+  const raw = Math.round(Number(genEl("target-steps")?.value));
   return Number.isFinite(raw)
     ? Math.min(GEN_MAX_STEPS, Math.max(GEN_MIN_STEPS, raw))
     : GEN_MIN_STEPS;
 }
 
 function genRefreshGenerateLabel() {
-  const steps = genPreviewTargetSteps();
-  document.getElementById("btn-generate").textContent = `產生 ${steps} 步 VCF`;
+  const button = genEl("btn-generate");
+  if (button) button.textContent = `產生 ${genPreviewTargetSteps()} 步 VCF`;
 }
 
 function genCommitTargetSteps() {
-  const steps = genGetTargetSteps();
-  document.getElementById("btn-generate").textContent = `產生 ${steps} 步 VCF`;
+  const button = genEl("btn-generate");
+  if (button) button.textContent = `產生 ${genGetTargetSteps()} 步 VCF`;
 }
 
-document.getElementById("btn-generate").addEventListener("click", genGenerate);
-document.getElementById("target-steps").addEventListener("input", genRefreshGenerateLabel);
-document.getElementById("target-steps").addEventListener("change", genCommitTargetSteps);
-document.getElementById("btn-stop").addEventListener("click", async () => {
-  if (!genBusy) return;
-  genCancelled = true;
-  genSetStatus("正在停止……");
-  await genEngine.cancel();
-});
-document.getElementById("btn-answer").addEventListener("click", () => {
-  if (!genCurrent) return;
-  genShowAnswer = !genShowAnswer;
-  document.getElementById("btn-answer").textContent = genShowAnswer ? "隱藏答案" : "顯示答案";
-  window.genDraw(genCurrent);
-});
-document.getElementById("btn-npoints").addEventListener("click", () => {
-  if (!genCurrent) return;
-  genShowNPoints = !genShowNPoints;
-  document.getElementById("btn-npoints").textContent = genShowNPoints ? "隱藏 N 點" : "顯示 N 點";
-  window.genDraw(genCurrent);
-});
+const genGenerateButton = genEl("btn-generate");
+const genTargetInput = genEl("target-steps");
+const genStopButton = genEl("btn-stop");
+const genAnswerButton = genEl("btn-answer");
+const genNButton = genEl("btn-npoints");
+
+if (genGenerateButton) genGenerateButton.addEventListener("click", genGenerate);
+if (genTargetInput) {
+  genTargetInput.addEventListener("input", genRefreshGenerateLabel);
+  genTargetInput.addEventListener("change", genCommitTargetSteps);
+}
+if (genStopButton) {
+  genStopButton.addEventListener("click", async () => {
+    if (!genBusy) return;
+    genCancelled = true;
+    genSetStatus("正在停止……");
+    await genEngine.cancel();
+  });
+}
+if (genAnswerButton) {
+  genAnswerButton.addEventListener("click", () => {
+    if (!genCurrent) return;
+    genShowAnswer = !genShowAnswer;
+    genAnswerButton.textContent = genShowAnswer ? "隱藏答案" : "顯示答案";
+    window.genDraw(genCurrent);
+  });
+}
+if (genNButton) {
+  genNButton.addEventListener("click", () => {
+    if (!genCurrent) return;
+    genShowNPoints = !genShowNPoints;
+    genNButton.textContent = genShowNPoints ? "隱藏 N 點" : "顯示 N 點";
+    window.genDraw(genCurrent);
+  });
+}
 
 genRefreshGenerateLabel();
 genEngine.ready
