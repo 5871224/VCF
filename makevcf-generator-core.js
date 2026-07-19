@@ -28,6 +28,20 @@ const GEN_NEW_FOUR_TEMPLATES = [
   { id: 3, cells: ["X", "S", "S", "F", "S", "S", "X"], stoneSlots: [1, 2, 4, 5], fiveSlot: 3, xSlots: [0, 6] },
 ];
 
+function genEl(id) {
+  return document.getElementById(`gen-${id}`) || document.getElementById(id);
+}
+
+function genChecked(name) {
+  return document.querySelector(`input[name="gen-${name}"]:checked`) ||
+    document.querySelector(`input[name="${name}"]:checked`);
+}
+
+function genInputs(name) {
+  const prefixed = document.querySelectorAll(`input[name="gen-${name}"]`);
+  return prefixed.length ? prefixed : document.querySelectorAll(`input[name="${name}"]`);
+}
+
 class GeneratorVCFEngine {
   constructor() {
     this.rules = 2;
@@ -126,23 +140,25 @@ function genPointFrom(anchor, delta, direction, sign) {
 }
 
 function genSetStatus(text) {
-  document.getElementById("status").textContent = text;
+  const element = genEl("status");
+  if (element) element.textContent = text;
 }
 
 function genSetDetails(text) {
-  document.getElementById("details").textContent = text;
+  const element = genEl("details");
+  if (element) element.textContent = text;
 }
 
 function genGetAttacker() {
-  return Number(document.querySelector('input[name="attacker"]:checked').value);
+  return Number(genChecked("attacker").value);
 }
 
 function genGetRules() {
-  return Number(document.querySelector('input[name="rules"]:checked').value);
+  return Number(genChecked("rules").value);
 }
 
 function genGetTargetSteps() {
-  const input = document.getElementById("target-steps");
+  const input = genEl("target-steps");
   const value = Math.round(Number(input.value));
   const steps = Math.min(GEN_MAX_STEPS, Math.max(GEN_MIN_STEPS, Number.isFinite(value) ? value : GEN_MIN_STEPS));
   input.value = String(steps);
@@ -151,10 +167,24 @@ function genGetTargetSteps() {
 
 function genSetBusy(value) {
   genBusy = value;
-  document.getElementById("btn-generate").disabled = value;
-  document.getElementById("btn-stop").disabled = !value;
-  document.querySelectorAll('input[name="attacker"], input[name="rules"], #target-steps, #opt-reuse, #opt-center')
-    .forEach(input => { input.disabled = value; });
-  document.getElementById("btn-answer").disabled = value || !genCurrent;
-  document.getElementById("btn-npoints").disabled = value || !genCurrent;
+  const generateButton = genEl("btn-generate");
+  const stopButton = genEl("btn-stop");
+  if (generateButton) generateButton.disabled = value;
+  if (stopButton) stopButton.disabled = !value;
+
+  genInputs("attacker").forEach(input => { input.disabled = value; });
+  genInputs("rules").forEach(input => { input.disabled = value; });
+  ["target-steps", "opt-reuse", "opt-center"].forEach(id => {
+    const input = genEl(id);
+    if (input) input.disabled = value;
+  });
+
+  const answerButton = genEl("btn-answer");
+  const nButton = genEl("btn-npoints");
+  if (answerButton) answerButton.disabled = value || !genCurrent;
+  if (nButton) nButton.disabled = value || !genCurrent;
+
+  if (typeof window.genIntegrationSetBusy === "function") {
+    window.genIntegrationSetBusy(value);
+  }
 }
