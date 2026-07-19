@@ -25,9 +25,13 @@ function genAnalyzeVCFGroup(initialBoard, moves, attacker) {
       levels.push(level);
       rawLevels.push(rawLevel);
 
-      if (level === GEN_FOUR_NOFREE || level === GEN_FOUR_FREE) {
-        steps += isDoubleFour ? 2 : 1;
+      // 步數定義：連五前攻方實際落子的手數。
+      // 最後連五那手不計；同一手形成四四仍只算 1 步。
+      if (level >= GEN_FIVE) {
+        standardBoard = genCloneBoard(board);
+        break;
       }
+      steps++;
 
       // 標準完成盤面：四四記到四四；活四記到攻方下活四之前。
       if (isDoubleFour) {
@@ -36,10 +40,6 @@ function genAnalyzeVCFGroup(initialBoard, moves, attacker) {
       }
       if (level === GEN_FOUR_FREE) {
         standardBoard = beforeMove;
-        break;
-      }
-      if (level >= GEN_FIVE) {
-        standardBoard = genCloneBoard(board);
         break;
       }
     }
