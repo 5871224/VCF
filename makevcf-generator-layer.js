@@ -8,18 +8,38 @@ function genCreatesLegalFreeFour(board, idx, lineDirection, attacker, rules) {
   return (info & GEN_LINE_MASK) === GEN_FOUR_FREE;
 }
 
-function genCenterDirectionBonus(anchor, relevantPoints) {
-  if (!relevantPoints.length) return 0;
+// 朝天元綜合分數 = 朝向分數 × 攻子平均位置接近天元分數，範圍 0～1。
+function genCenterDirectionBonus(anchor, attackPoints) {
+  if (!attackPoints.length) return 0;
+
   const ax = genX(anchor);
   const ay = genY(anchor);
-  const gx = relevantPoints.reduce((sum, idx) => sum + genX(idx), 0) / relevantPoints.length - ax;
-  const gy = relevantPoints.reduce((sum, idx) => sum + genY(idx), 0) / relevantPoints.length - ay;
-  const cx = GEN_CENTER.x - ax;
-  const cy = GEN_CENTER.y - ay;
-  const gl = Math.hypot(gx, gy);
-  const cl = Math.hypot(cx, cy);
-  if (!gl || !cl) return 0;
-  return Math.max(0, (gx * cx + gy * cy) / (gl * cl));
+  const meanX = attackPoints.reduce((sum, idx) => sum + genX(idx), 0) / attackPoints.length;
+  const meanY = attackPoints.reduce((sum, idx) => sum + genY(idx), 0) / attackPoints.length;
+
+  const attackDx = meanX - ax;
+  const attackDy = meanY - ay;
+  const centerDx = GEN_CENTER.x - ax;
+  const centerDy = GEN_CENTER.y - ay;
+  const attackLength = Math.hypot(attackDx, attackDy);
+  const centerLength = Math.hypot(centerDx, centerDy);
+
+  let directionScore = 0;
+  if (!centerLength) {
+    // A 已在天元時沒有可比較的朝向，將方向視為中性滿分，交由距離分數決定。
+    directionScore = 1;
+  } else if (attackLength) {
+    directionScore = Math.max(
+      0,
+      (attackDx * centerDx + attackDy * centerDy) / (attackLength * centerLength)
+    );
+  }
+
+  const maxCenterDistance = Math.hypot(GEN_CENTER.x, GEN_CENTER.y);
+  const averageDistance = Math.hypot(meanX - GEN_CENTER.x, meanY - GEN_CENTER.y);
+  const distanceScore = Math.max(0, 1 - Math.min(1, averageDistance / maxCenterDistance));
+
+  return directionScore * distanceScore;
 }
 
 function genGetNewLiveThreeExtensions(board, scanPoints, lineDirection, attacker, rules) {
@@ -147,6 +167,7 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
 
   const fivePoint = mapped[template.fiveSlot];
   const xPoints = template.xSlots.map(slot => mapped[slot]);
+  const attackPoints = mapped.filter((idx, slot) => template.cells[slot] === "S" && idx !== GEN_OUT);
   const liveThreeScanPoints = Array.from(new Set(mapped.filter(idx => idx !== GEN_OUT)));
   if (board[anchor] !== attacker) return [];
   board[anchor] = GEN_EMPTY;
@@ -165,12 +186,13 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
 
   const uniqueAdded = Array.from(new Set(addedAttackers));
   const uniqueReused = Array.from(new Set(reusedAttackers.filter(idx => idx !== anchor)));
-  const relevant = uniqueAdded.length
-    ? uniqueAdded
-    : mapped.filter((idx, slot) => template.cells[slot] === "S" && idx !== anchor);
-  let baseWeight = 1;
-  baseWeight += uniqueReused.length * options.reuseBonus;
-  baseWeight += genCenterDirectionBonus(anchor, relevant) * options.centerBonus;
+  const centerPreference = genCenterDirectionBonus(anchor, attackPoints);
+
+  // options.reuseBonus / centerBonus 已換算成 0～99 的權重增量。
+  // 設定 100% 時，一顆沿用攻子或滿分朝天元候選的權重會由 1 變成 100。
+  const baseWeight = 1
+    + uniqueReused.length * options.reuseBonus
+    + centerPreference * options.centerBonus;
 
   const candidates = [];
   for (const repair of repairVariants) {
@@ -211,8 +233,10 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
       templateId: template.id,
       anchorSlot,
       xPoints,
+      attackPoints,
       sameLineDoubleFour,
       lineFivePoints,
+      centerPreference,
       liveThreeExtensions: Array.from(repair.liveThreeExtensions || []),
       addedAttackers: uniqueAdded,
       reusedAttackers: uniqueReused,
