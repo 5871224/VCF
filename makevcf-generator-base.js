@@ -6,9 +6,14 @@ const GEN_BASE_THREE_PATTERNS = [
     id: "straight",
     materialType: "liveThree",
     name: "連續活三",
-    text: "留 留 攻 攻 攻 留",
+    plainText: "留 留 攻 攻 攻 留",
+    protectedText: "留 留 攻 攻 攻 留 N",
+    slotCount: 7,
+    referenceSlot: 0,
+    requiredSlots: [0, 1, 2, 3, 4, 5],
     attackSlots: [2, 3, 4],
     nSlots: [0, 1, 5],
+    attackerNSlots: [6],
     activeFourSlot: 1,
     finalSlots: [0, 5],
   },
@@ -16,11 +21,16 @@ const GEN_BASE_THREE_PATTERNS = [
     id: "jump",
     materialType: "liveThree",
     name: "跳活三",
-    text: "留 攻 留 攻 攻 留",
-    attackSlots: [1, 3, 4],
-    nSlots: [0, 2, 5],
-    activeFourSlot: 2,
-    finalSlots: [0, 5],
+    plainText: "留 攻 留 攻 攻 留",
+    protectedText: "N 留 攻 留 攻 攻 留 N",
+    slotCount: 8,
+    referenceSlot: 1,
+    requiredSlots: [1, 2, 3, 4, 5, 6],
+    attackSlots: [2, 4, 5],
+    nSlots: [1, 3, 6],
+    attackerNSlots: [0, 7],
+    activeFourSlot: 3,
+    finalSlots: [1, 6],
   },
 ];
 
@@ -71,25 +81,33 @@ function genBaseWeight(points) {
   return 1 / (1 + centerDistance * 0.18);
 }
 
-function genBuildLiveThreePlacements(attacker) {
+function genBuildLiveThreePlacements(attacker, rules) {
   const placements = [];
+  const protectWithAttackerN = attacker === GEN_BLACK && rules === 2;
+
   for (const pattern of GEN_BASE_THREE_PATTERNS) {
     for (const direction of GEN_DIRECTIONS) {
       for (const sign of [-1, 1]) {
-        for (let start = 0; start < 225; start++) {
-          const points = [];
-          let valid = true;
-          for (let offset = 0; offset < 6; offset++) {
-            const idx = genPointFrom(start, offset, direction, sign);
-            if (idx === GEN_OUT) { valid = false; break; }
-            points.push(idx);
-          }
-          if (!valid) continue;
+        for (let reference = 0; reference < 225; reference++) {
+          const points = Array.from({ length: pattern.slotCount }, (_, slot) =>
+            genPointFrom(reference, slot - pattern.referenceSlot, direction, sign)
+          );
+
+          if (pattern.requiredSlots.some(slot => points[slot] === GEN_OUT)) continue;
 
           const board = genBoard();
           const nMask = new Uint8Array(225);
           for (const slot of pattern.attackSlots) board[points[slot]] = attacker;
           for (const slot of pattern.nSlots) nMask[points[slot]] = GEN_NO_BLACK | GEN_NO_WHITE;
+
+          // 額外 N 只用於「黑方＋有禁手」，且允許落在盤端。
+          if (protectWithAttackerN) {
+            for (const slot of pattern.attackerNSlots) {
+              const idx = points[slot];
+              if (idx !== GEN_OUT) nMask[idx] |= genNoMask(attacker);
+            }
+          }
+
           const attackPoints = pattern.attackSlots.map(slot => points[slot]);
 
           placements.push({
@@ -102,7 +120,7 @@ function genBuildLiveThreePlacements(attacker) {
             points,
             patternId: pattern.id,
             patternName: pattern.name,
-            patternText: pattern.text,
+            patternText: protectWithAttackerN ? pattern.protectedText : pattern.plainText,
             attackPoints,
             anchorCandidates: attackPoints.slice(),
             forbiddenAnchorPoints: [],
@@ -193,7 +211,7 @@ function genBuildDeadFourPlacements(attacker, rules) {
 
 function genBuildBasePlacements(attacker, rules) {
   return [
-    ...genBuildLiveThreePlacements(attacker),
+    ...genBuildLiveThreePlacements(attacker, rules),
     ...genBuildDeadFourPlacements(attacker, rules),
   ];
 }
