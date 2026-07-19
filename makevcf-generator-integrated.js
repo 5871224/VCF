@@ -16,8 +16,8 @@
         <label><input type="radio" name="gen-attacker" value="2"> 白</label>
       </fieldset>
       <label>生成步數 <input id="gen-target-steps" type="number" min="2" max="10" step="1" value="2"> 步</label>
-      <label><input id="gen-opt-reuse" type="checkbox" checked> 沿用攻子加成</label>
-      <label><input id="gen-opt-center" type="checkbox" checked> 朝天元加成</label>
+      <label title="每沿用一顆既有攻方棋，候選權重增加的百分比">沿用攻子每顆加成 <input id="gen-bonus-reuse" type="number" min="0" max="500" step="1" value="10">%</label>
+      <label title="候選完全朝向天元時，權重增加的最高百分比">朝天元最高加成 <input id="gen-bonus-center" type="number" min="0" max="500" step="1" value="15">%</label>
     </div>
     <div class="gen-actions">
       <button id="gen-btn-generate">產生 2 步 VCF</button>
@@ -32,7 +32,7 @@
       <span><i class="gen-mark gen-black"></i>黑方 N 點</span>
       <span><i class="gen-mark gen-white"></i>白方 N 點</span>
     </div>
-    <p class="gen-note">使用上方選擇的「有禁手／無禁手」規則。產生完成後，可直接使用原頁面的 VCF 防守、多組 VCF、VCT 點等分析功能。</p>
+    <p class="gen-note">使用上方選擇的「有禁手／無禁手」規則。兩項加成輸入 0 即關閉；產生完成後，可直接使用原頁面的 VCF 防守、多組 VCF、VCT 點等分析功能。</p>
   `;
   importPanel.parentNode.insertBefore(panel, importPanel);
 
@@ -65,7 +65,7 @@
     .gen-controls fieldset { border: 0; display: flex; align-items: center; gap: 9px; }
     .gen-controls legend { display: inline; margin-right: 2px; font-weight: 700; }
     .gen-controls label { white-space: nowrap; cursor: pointer; font-size: 14px; }
-    #gen-target-steps {
+    #gen-target-steps, #gen-bonus-reuse, #gen-bonus-center {
       width: 65px;
       padding: 5px 7px;
       border: 1px solid #aaa;
@@ -220,7 +220,7 @@
   if (typeof originalMainSetBusy === "function") {
     const wrappedMainSetBusy = function wrappedMainSetBusy(value) {
       originalMainSetBusy(value);
-      ["btn-generate", "btn-stop", "btn-answer", "btn-npoints", "target-steps", "opt-reuse", "opt-center"].forEach(id => {
+      ["btn-generate", "btn-stop", "btn-answer", "btn-npoints", "target-steps", "bonus-reuse", "bonus-center"].forEach(id => {
         const element = genEl(id);
         if (!element) return;
         if (id === "btn-stop") element.disabled = true;
