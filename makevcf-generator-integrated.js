@@ -15,7 +15,7 @@
         <label><input type="radio" name="gen-attacker" value="1" checked> 黑</label>
         <label><input type="radio" name="gen-attacker" value="2"> 白</label>
       </fieldset>
-      <label>生成步數 <input id="gen-target-steps" type="number" min="2" max="10" step="1" value="2"> 步</label>
+      <label>生成步數 <input id="gen-target-steps" type="number" min="1" max="10" step="1" value="2"> 步</label>
       <label title="0% 不加權；100% 時每沿用一顆攻子，該候選相對未加成候選提高到 100 倍權重">沿用攻子每顆加成 <input id="gen-bonus-reuse" type="number" min="0" max="100" step="1" value="10">%</label>
       <label title="綜合朝向天元與四顆攻子平均位置距離；100% 且綜合分數滿分時提高到 100 倍權重">朝天元綜合加成 <input id="gen-bonus-center" type="number" min="0" max="100" step="1" value="15">%</label>
     </div>
@@ -32,7 +32,7 @@
       <span><i class="gen-mark gen-black"></i>黑方 N 點</span>
       <span><i class="gen-mark gen-white"></i>白方 N 點</span>
     </div>
-    <p class="gen-note">兩項偏好強度範圍為 0～100%；0% 不加權，100% 完整加成為未加成候選的 100 倍權重。朝天元會同時計算方向與攻子平均位置距離。產生完成後，可直接使用原頁面的分析功能。</p>
+    <p class="gen-note">可產生 1～10 步。1 步限定死四基礎；2 步以上可使用活三或合法死四基礎，死四路線會多加一層。黑方有禁手時死四基礎因四四禁手而排除。兩項偏好 0% 不加權，100% 完整加成為 100 倍權重。</p>
   `;
   importPanel.parentNode.insertBefore(panel, importPanel);
 
