@@ -30,6 +30,33 @@ function genGetNewLiveThreeExtensions(board, scanPoints, lineDirection, attacker
   return result;
 }
 
+function genPointSetEquals(actual, expected) {
+  const left = Array.from(new Set(actual)).sort((a, b) => a - b);
+  const right = Array.from(new Set(expected)).sort((a, b) => a - b);
+  return left.length === right.length && left.every((idx, i) => idx === right[i]);
+}
+
+function genGetLineFivePointsAfterAnchor(board, anchor, direction, attacker) {
+  if (anchor < 0 || anchor >= 225 || board[anchor] !== GEN_EMPTY) return [];
+
+  const withAnchor = genCloneBoard(board);
+  withAnchor[anchor] = attacker;
+  const result = [];
+  const seen = new Set();
+
+  for (let delta = -14; delta <= 14; delta++) {
+    const idx = genPointFrom(anchor, delta, direction, 1);
+    if (idx === GEN_OUT || seen.has(idx)) continue;
+    seen.add(idx);
+    if (withAnchor[idx] !== GEN_EMPTY) continue;
+
+    const info = testLineFour(idx, direction.line, attacker, withAnchor);
+    if ((info & GEN_LINE_MASK) === GEN_FIVE) result.push(idx);
+  }
+
+  return result;
+}
+
 function genBuildRepairVariants(board, scanPoints, xPoints, direction, attacker, defender, rules, nMask) {
   const beforeExtensions = genGetNewLiveThreeExtensions(
     board,
@@ -148,10 +175,26 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
   const candidates = [];
   for (const repair of repairVariants) {
     if (rules === 2 && attacker === GEN_BLACK && isFoul(anchor, repair.board)) continue;
+
     const lineInfo = testLineFour(anchor, direction.line, attacker, repair.board);
-    if ((lineInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE) continue;
-    const actualFive = getBlockFourPoint(anchor, repair.board, lineInfo);
-    if (actualFive !== fivePoint) continue;
+    const lineType = lineInfo & GEN_LINE_MASK;
+    const sameLineDoubleFour =
+      base.materialType === "deadFour" &&
+      base.direction &&
+      direction.line === base.direction.line;
+    let lineFivePoints;
+
+    if (sameLineDoubleFour) {
+      if (lineType !== GEN_LINE_DOUBLE_FOUR) continue;
+      if (base.finishPoint === fivePoint) continue;
+      lineFivePoints = genGetLineFivePointsAfterAnchor(repair.board, anchor, direction, attacker);
+      if (!genPointSetEquals(lineFivePoints, [base.finishPoint, fivePoint])) continue;
+    } else {
+      if (lineType !== GEN_FOUR_NOFREE) continue;
+      const actualFive = getBlockFourPoint(anchor, repair.board, lineInfo);
+      if (actualFive !== fivePoint) continue;
+      lineFivePoints = [actualFive];
+    }
 
     candidates.push({
       board: repair.board,
@@ -168,6 +211,8 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
       templateId: template.id,
       anchorSlot,
       xPoints,
+      sameLineDoubleFour,
+      lineFivePoints,
       liveThreeExtensions: Array.from(repair.liveThreeExtensions || []),
       addedAttackers: uniqueAdded,
       reusedAttackers: uniqueReused,
@@ -183,8 +228,6 @@ function genEnumerateLayerCandidates(base, attacker, rules, options) {
   const results = [];
   for (const anchor of base.anchorCandidates) {
     for (const direction of GEN_DIRECTIONS) {
-      // 初始材料不得在同一方向再建立新死四；後續延伸則不限制方向。
-      if (Number.isInteger(base.skipDirectionLine) && direction.line === base.skipDirectionLine) continue;
       for (const sign of [-1, 1]) {
         for (const template of GEN_NEW_FOUR_TEMPLATES) {
           for (const anchorSlot of template.stoneSlots) {
