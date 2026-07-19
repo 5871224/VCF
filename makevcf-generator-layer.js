@@ -169,8 +169,8 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
     ? uniqueAdded
     : mapped.filter((idx, slot) => template.cells[slot] === "S" && idx !== anchor);
   let baseWeight = 1;
-  if (options.reuseBonus) baseWeight += uniqueReused.length * 0.10;
-  if (options.centerBonus) baseWeight += genCenterDirectionBonus(anchor, relevant) * 0.15;
+  baseWeight += uniqueReused.length * options.reuseBonus;
+  baseWeight += genCenterDirectionBonus(anchor, relevant) * options.centerBonus;
 
   const candidates = [];
   for (const repair of repairVariants) {
