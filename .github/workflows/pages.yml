@@ -34,6 +34,31 @@ jobs:
           cp makevcf-generator-*.js _site/
           cp README.md 規格書.MD 題目產生器規格.MD _site/
           cp -R eval emoji _site/
+
+          python - <<'PY'
+          from pathlib import Path
+
+          scripts = '''
+          <!-- VCF 題目產生器：與主分析頁共用同一棋盤 -->
+          <script src="emoji/emoji.js"></script>
+          <script src="eval/EvaluatorJScript.js"></script>
+          <script src="eval/Evaluator.js"></script>
+          <script src="makevcf-generator-core.js"></script>
+          <script src="makevcf-generator-base.js"></script>
+          <script src="makevcf-generator-layer.js"></script>
+          <script src="makevcf-generator-validate.js"></script>
+          <script src="makevcf-generator-integrated.js"></script>
+          <script src="makevcf-generator-main.js"></script>
+          '''
+
+          for filename in ("index.html", "makevcf.html"):
+              path = Path("_site") / filename
+              text = path.read_text(encoding="utf-8")
+              if "makevcf-generator-integrated.js" not in text:
+                  text = text.replace("</body>", scripts + "\n</body>")
+              path.write_text(text, encoding="utf-8")
+          PY
+
           touch _site/.nojekyll
 
       - name: Upload Pages artifact
