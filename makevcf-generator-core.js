@@ -51,6 +51,10 @@ class GeneratorVCFEngine {
   }
 
   async start() {
+    if (window.engineAPI) {
+      await window.engineAPI.send("setGameRules", { rules: this.rules });
+      return;
+    }
     if (this.worker) this.worker.terminate();
     this.worker = new Worker("eval/worker.js");
     this.worker.onmessage = event => {
@@ -72,6 +76,7 @@ class GeneratorVCFEngine {
   }
 
   post(cmd, param) {
+    if (window.engineAPI) return window.engineAPI.send(cmd, param);
     return new Promise(resolve => {
       this.resolve = resolve;
       this.worker.postMessage({ cmd, param });
@@ -105,6 +110,12 @@ class GeneratorVCFEngine {
   }
 
   async cancel() {
+    if (window.engineAPI) {
+      await window.engineAPI.cancel();
+      this.ready = this.start();
+      await this.ready;
+      return;
+    }
     if (this.resolve) {
       const done = this.resolve;
       this.resolve = null;
