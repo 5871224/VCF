@@ -8,10 +8,24 @@ function genPickInitialPlacement(placements) {
   return genWeightedPick(selectedGroup);
 }
 
+function genReadBonusPercent(id, defaultValue) {
+  const input = genEl(id);
+  const raw = Number(input?.value);
+  const percent = Number.isFinite(raw)
+    ? Math.min(500, Math.max(0, raw))
+    : defaultValue;
+  if (input) input.value = String(percent);
+  return percent;
+}
+
 function genOptions() {
+  const reuseBonusPercent = genReadBonusPercent("bonus-reuse", 10);
+  const centerBonusPercent = genReadBonusPercent("bonus-center", 15);
   return {
-    reuseBonus: Boolean(genEl("opt-reuse")?.checked),
-    centerBonus: Boolean(genEl("opt-center")?.checked),
+    reuseBonus: reuseBonusPercent / 100,
+    centerBonus: centerBonusPercent / 100,
+    reuseBonusPercent,
+    centerBonusPercent,
   };
 }
 
@@ -67,7 +81,7 @@ async function genExtendToTarget(current, targetSteps, attacker, rules, options,
   return null;
 }
 
-function genShowResult(result, targetSteps, attacker, counters) {
+function genShowResult(result, targetSteps, attacker, counters, options) {
   genCurrent = result;
   window.genDraw(genCurrent);
 
@@ -81,6 +95,7 @@ function genShowResult(result, targetSteps, attacker, counters) {
     `初始${root.patternName}（${root.patternText}）；共反向新增 ${result.layers.length} 層死四，` +
     `永久新增攻子 ${result.totalAddedAttackers} 顆、補守子 ${result.totalAddedDefenders} 顆，` +
     `${repairedLayers} 層曾產生活三並在 X 封閉；最外層 A=${genName(latest.anchor)}，五點=${latestFive}；` +
+    `權重設定：沿用攻子每顆 +${options.reuseBonusPercent}%，朝天元最高 +${options.centerBonusPercent}%；` +
     `最終多組 VCF 搜尋取得 ${result.groupCount} 組。`
   );
 }
@@ -122,7 +137,7 @@ async function genGenerate() {
         : await genExtendToTarget(seed, targetSteps, attacker, rules, options, counters);
 
       if (result) {
-        genShowResult(result, targetSteps, attacker, counters);
+        genShowResult(result, targetSteps, attacker, counters, options);
         return;
       }
 
