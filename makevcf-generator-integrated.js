@@ -117,6 +117,7 @@
 
   function showNPoints(nMask) {
     clearNPoints();
+    const markSize = 13;
     for (let idx = 0; idx < 225; idx++) {
       const mask = nMask[idx];
       if (!mask) continue;
@@ -124,10 +125,10 @@
       const cx = 22 + (idx % 15) * 34;
       const cy = 22 + Math.floor(idx / 15) * 34;
       const rect = document.createElementNS(ns, "rect");
-      rect.setAttribute("x", cx + 3);
-      rect.setAttribute("y", cy - 16);
-      rect.setAttribute("width", 13);
-      rect.setAttribute("height", 13);
+      rect.setAttribute("x", cx - markSize / 2);
+      rect.setAttribute("y", cy - markSize / 2);
+      rect.setAttribute("width", markSize);
+      rect.setAttribute("height", markSize);
       rect.setAttribute("rx", 2);
       rect.setAttribute("fill", both ? "#2e9f45" : (mask & GEN_NO_BLACK) ? "#222" : "#f8f8f8");
       rect.setAttribute("stroke", both ? "#176729" : "#d02020");
