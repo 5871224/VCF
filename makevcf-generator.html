@@ -100,7 +100,7 @@ a { color: #174ea6; }
     <label><input type="radio" name="rules" value="2" checked> 有禁手</label>
     <label><input type="radio" name="rules" value="1"> 無禁手</label>
   </fieldset>
-  <label>生成步數 <input id="target-steps" type="number" min="2" max="10" step="1" value="2"> 步</label>
+  <label>生成步數 <input id="target-steps" type="number" min="1" max="10" step="1" value="2"> 步</label>
   <label title="0% 不加權；100% 時每沿用一顆攻子，該候選相對未加成候選提高到 100 倍權重">沿用攻子每顆加成 <input id="bonus-reuse" type="number" min="0" max="100" step="1" value="10">%</label>
   <label title="綜合朝向天元與四顆攻子平均位置距離；100% 且綜合分數滿分時提高到 100 倍權重">朝天元綜合加成 <input id="bonus-center" type="number" min="0" max="100" step="1" value="15">%</label>
 </div>
@@ -125,10 +125,10 @@ a { color: #174ea6; }
 </div>
 
 <div class="panel note">
-  可指定產生 2～10 步 VCF。程式會先建立合格的 2 步題目，再逐層在外側新增死四，直到達到指定步數；某一層無法延伸時會回溯其他候選，整個基礎都無法完成時才重新建立題目。
+  可指定產生 1～10 步 VCF。1 步限定使用初始死四，再加一層死四形成四四；2 步以上會在活三與合法死四基礎中隨機選擇，死四基礎會比活三基礎多加一層死四後才達到相同步數。
   每次延伸都會使用多組 VCF 搜尋：目標 VCF 必須比上一層增加 1 步，不能存在更短 VCF，且標準完成盤面只能增加本層永久新增的攻方棋與 X 點守方棋。
   兩項偏好強度範圍為 0～100%。沿用攻子以每顆計算；朝天元會同時計算方向與四顆攻子平均位置距離。設定 100% 且取得完整加成時，候選權重為未加成候選的 100 倍。
-  初始材料會在兩種活三與三種死四中隨機選擇；有禁手且黑方進攻時，初始死四因形成四四禁手而自動排除。
+  有禁手且黑方進攻時，死四基礎會形成四四禁手，因此 1 步模式無合法題目，2 步以上只會使用活三基礎。
 </div>
 
 <script src="emoji/emoji.js"></script>
