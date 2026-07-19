@@ -101,8 +101,8 @@ a { color: #174ea6; }
     <label><input type="radio" name="rules" value="1"> 無禁手</label>
   </fieldset>
   <label>生成步數 <input id="target-steps" type="number" min="2" max="10" step="1" value="2"> 步</label>
-  <label><input id="opt-reuse" type="checkbox" checked> 沿用既有攻子小幅加成</label>
-  <label><input id="opt-center" type="checkbox" checked> 朝天元方向小幅加成</label>
+  <label title="每沿用一顆既有攻方棋，候選權重增加的百分比">沿用攻子每顆加成 <input id="bonus-reuse" type="number" min="0" max="500" step="1" value="10">%</label>
+  <label title="候選完全朝向天元時，權重增加的最高百分比">朝天元最高加成 <input id="bonus-center" type="number" min="0" max="500" step="1" value="15">%</label>
 </div>
 
 <svg id="board-svg" aria-label="15×15 棋盤"></svg>
@@ -127,6 +127,7 @@ a { color: #174ea6; }
 <div class="panel note">
   可指定產生 2～10 步 VCF。程式會先建立合格的 2 步題目，再逐層在外側新增死四，直到達到指定步數；某一層無法延伸時會回溯其他候選，整個基礎都無法完成時才重新建立題目。
   每次延伸都會使用多組 VCF 搜尋：目標 VCF 必須比上一層增加 1 步，不能存在更短 VCF，且標準完成盤面只能增加本層永久新增的攻方棋與 X 點守方棋。
+  沿用攻子加成是每沿用一顆既有攻方棋增加的權重；朝天元加成是方向完全朝向天元時的最高權重。兩者輸入 0 即關閉，預設分別為 10% 與 15%。
   初始材料會在兩種活三與三種死四中隨機選擇；有禁手且黑方進攻時，初始死四因形成四四禁手而自動排除。
 </div>
 
