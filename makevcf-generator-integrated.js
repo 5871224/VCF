@@ -140,6 +140,36 @@
     }
   }
 
+  function updateGeneratorButtons() {
+    const answerButton = genEl("btn-answer");
+    const nButton = genEl("btn-npoints");
+    if (answerButton) {
+      answerButton.disabled = !genCurrent || genBusy;
+      answerButton.textContent = genShowAnswer ? "隱藏答案" : "顯示答案";
+    }
+    if (nButton) {
+      nButton.disabled = !genCurrent || genBusy;
+      nButton.textContent = genShowNPoints ? "隱藏 N 點" : "顯示 N 點";
+    }
+  }
+
+  function invalidateGeneratedResult(message) {
+    genCurrent = null;
+    genShowAnswer = false;
+    genShowNPoints = false;
+    clearNPoints();
+    window._clearVCF();
+    updateGeneratorButtons();
+    if (message) genSetStatus(message);
+  }
+
+  function hideGeneratedOverlays() {
+    genShowAnswer = false;
+    genShowNPoints = false;
+    clearNPoints();
+    updateGeneratorButtons();
+  }
+
   function resetMainAnalysisState(result) {
     if (typeof resetVcfGroups === "function") resetVcfGroups();
     lastParam = null;
@@ -183,9 +213,7 @@
     document.getElementById("btn-stop").disabled = true;
     svg.classList.toggle("gen-locked", value);
 
-    if (!value && typeof setBusy === "function") {
-      setBusy(false);
-    }
+    if (!value && typeof setBusy === "function") setBusy(false);
   };
 
   const originalMainSetBusy = window.setBusy;
@@ -206,21 +234,14 @@
 
   svg.addEventListener("click", () => {
     if (!genCurrent || genBusy) return;
-    genCurrent = null;
-    genShowAnswer = false;
-    genShowNPoints = false;
-    clearNPoints();
-    window._clearVCF();
-    const answerButton = genEl("btn-answer");
-    const nButton = genEl("btn-npoints");
-    if (answerButton) {
-      answerButton.disabled = true;
-      answerButton.textContent = "顯示答案";
-    }
-    if (nButton) {
-      nButton.disabled = true;
-      nButton.textContent = "顯示 N 點";
-    }
-    genSetStatus("棋盤已手動修改；原產生題目的答案與 N 點已清除");
+    invalidateGeneratedResult("棋盤已手動修改；原產生題目的答案與 N 點已清除");
+  });
+
+  document.getElementById("btn-clear-vcf")?.addEventListener("click", hideGeneratedOverlays);
+  document.getElementById("btn-clear")?.addEventListener("click", () => {
+    invalidateGeneratedResult("棋盤已清空，可重新產生題目");
+  });
+  document.getElementById("btn-import-apply")?.addEventListener("click", () => {
+    invalidateGeneratedResult("已套用匯入棋盤；原產生題目的答案與 N 點已清除");
   });
 })();
