@@ -36,13 +36,23 @@ function genOptions() {
 }
 
 async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
-  // 四四依攻方實際落子只算 1 步；目前 2～10 步基礎只使用初始活三。
-  const basePlacements = genBuildBasePlacements(attacker, rules)
-    .filter(item => item.materialType === "liveThree");
+  const allPlacements = genBuildBasePlacements(attacker, rules);
+  const basePlacements = targetSteps === 1
+    ? allPlacements.filter(item => item.materialType === "deadFour")
+    : allPlacements;
+
+  if (!basePlacements.length) {
+    if (targetSteps === 1 && rules === 2 && attacker === GEN_BLACK) {
+      throw new Error("有禁手規則下，黑方以死四加一層死四會形成四四禁手，無法產生合法 1 步 VCF；請改選白方或無禁手");
+    }
+    throw new Error(`目前設定沒有可用的 ${targetSteps} 步初始材料`);
+  }
 
   while (!genCancelled) {
     counters.baseRounds++;
     const base = genPickInitialPlacement(basePlacements);
+    const baseSteps = base.materialType === "deadFour" ? 1 : 2;
+    const baseLabel = base.materialType === "deadFour" ? "死四" : "活三";
     const candidates = genWeightedOrder(genEnumerateLayerCandidates(base, attacker, rules, options));
     if (!candidates.length) {
       if (counters.baseRounds % 20 === 0) await genTick();
@@ -52,8 +62,8 @@ async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
     for (const candidate of candidates) {
       if (genCancelled) return null;
       counters.attempts++;
-      genSetStatus(`正在建立 2/${targetSteps} 步基礎……已驗證 ${counters.attempts} 個候選`);
-      const result = await genValidateCandidate(candidate);
+      genSetStatus(`正在建立 ${baseSteps}/${targetSteps} 步${baseLabel}基礎……已驗證 ${counters.attempts} 個候選`);
+      const result = await genValidateCandidate(candidate, baseSteps);
       if (result) return result;
       if (counters.attempts % 8 === 0) await genTick();
     }
@@ -143,9 +153,7 @@ async function genGenerate() {
       const seed = await genFindTwoStep(attacker, rules, options, counters, targetSteps);
       if (!seed || genCancelled) break;
 
-      const result = targetSteps === 2
-        ? seed
-        : await genExtendToTarget(seed, targetSteps, attacker, rules, options, counters);
+      const result = await genExtendToTarget(seed, targetSteps, attacker, rules, options, counters);
 
       if (result) {
         genShowResult(result, targetSteps, attacker, counters, options);
