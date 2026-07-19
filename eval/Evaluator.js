@@ -1,5 +1,8 @@
 // EvaluatorCore.js retains the engine implementation; this loader applies local fixes.
 (function loadEvaluatorCore() {
+	// Browser pages may load EvaluatorCore.js explicitly before this patch file.
+	if (typeof setGameRules === "function" && typeof findVCF === "function") return;
+
 	if (typeof importScripts === "function") {
 		importScripts("EvaluatorCore.js");
 		return;
@@ -17,6 +20,20 @@
 		const corePath = candidates.find(candidate => candidate && fs.existsSync(candidate));
 		if (!corePath) throw new Error("EvaluatorCore.js not found");
 		vm.runInThisContext(fs.readFileSync(corePath, "utf8"), { filename: corePath });
+		return;
+	}
+
+	// Fallback for a browser page that still loads only Evaluator.js.
+	if (typeof document !== "undefined" && typeof XMLHttpRequest === "function") {
+		const currentSrc = document.currentScript && document.currentScript.src;
+		const coreUrl = new URL("EvaluatorCore.js", currentSrc || document.baseURI).href;
+		const request = new XMLHttpRequest();
+		request.open("GET", coreUrl, false);
+		request.send(null);
+		if ((request.status && (request.status < 200 || request.status >= 300)) || !request.responseText) {
+			throw new Error(`EvaluatorCore.js load failed: ${request.status || "empty response"}`);
+		}
+		(0, eval)(`${request.responseText}\n//# sourceURL=${coreUrl}`);
 		return;
 	}
 
