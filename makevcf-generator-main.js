@@ -8,19 +8,19 @@ function genPickInitialPlacement(placements) {
   return genWeightedPick(selectedGroup);
 }
 
-function genReadBonusPercent(id, defaultValue) {
-  const input = genEl(id);
-  const raw = Number(input?.value);
-  const percent = Number.isFinite(raw)
-    ? Math.min(500, Math.max(0, raw))
-    : defaultValue;
-  if (input) input.value = String(percent);
-  return percent;
-}
-
 function genOptions() {
-  const reuseBonusPercent = genReadBonusPercent("bonus-reuse", 10);
-  const centerBonusPercent = genReadBonusPercent("bonus-center", 15);
+  const reuseInput = genEl("bonus-reuse");
+  const centerInput = genEl("bonus-center");
+  const reuseRaw = Number(reuseInput?.value);
+  const centerRaw = Number(centerInput?.value);
+  const reuseBonusPercent = Number.isFinite(reuseRaw)
+    ? Math.min(500, Math.max(0, reuseRaw))
+    : 10;
+  const centerBonusPercent = Number.isFinite(centerRaw)
+    ? Math.min(500, Math.max(0, centerRaw))
+    : 15;
+  if (reuseInput) reuseInput.value = String(reuseBonusPercent);
+  if (centerInput) centerInput.value = String(centerBonusPercent);
   return {
     reuseBonus: reuseBonusPercent / 100,
     centerBonus: centerBonusPercent / 100,
