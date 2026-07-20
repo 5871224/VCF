@@ -99,7 +99,7 @@ a { color: #174ea6; }
   </fieldset>
   <label>生成步數 <input id="target-steps" type="number" min="1" max="10" step="1" value="2"> 步</label>
   <label title="0% 不加權；攻方棋，以及死四模板 X 點或五點原有的守方棋，每沿用一顆都套用相同加成">沿用棋子加成 <input id="bonus-reuse" type="number" min="0" max="100" step="1" value="10">%</label>
-  <label title="綜合朝向天元與四顆攻子平均位置距離；100% 且綜合分數滿分時提高到 100 倍權重">朝天元綜合加成 <input id="bonus-center" type="number" min="0" max="100" step="1" value="15">%</label>
+  <label title="以目前盤面全部黑白棋的座標平均值作為分布中心；死四模板正中間那一點越接近分布中心，加成越高">棋子集中加成 <input id="bonus-center" type="number" min="0" max="100" step="1" value="15">%</label>
 </div>
 
 <svg id="board-svg" aria-label="15×15 棋盤"></svg>
@@ -131,6 +131,7 @@ a { color: #174ea6; }
 <script src="makevcf-generator-layer.js"></script>
 <script src="makevcf-generator-validate.js"></script>
 <script src="makevcf-generator-reuse-bonus.js"></script>
+<script src="makevcf-generator-concentration.js"></script>
 <script src="makevcf-generator-main.js"></script>
 <script src="makevcf-generator-balance.js"></script>
 <script src="makevcf-generator-unique.js"></script>
