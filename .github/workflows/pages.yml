@@ -52,6 +52,7 @@ jobs:
           <script src="makevcf-generator-layer.js"></script>
           <script src="makevcf-generator-validate.js"></script>
           <script src="makevcf-generator-integrated.js"></script>
+          <script src="makevcf-generator-reuse-bonus.js"></script>
           <script src="makevcf-generator-main.js"></script>
           <script src="makevcf-generator-balance.js"></script>
           <script src="makevcf-generator-unique.js"></script>
