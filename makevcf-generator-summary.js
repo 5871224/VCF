@@ -44,13 +44,23 @@
 
     let balanceLine;
     if (options?.balanceStones) {
-      const layerBlocked = layers.reduce(
-        (sum, layer) => sum + new Set(layer.autoBlockDefenders || []).size,
-        0
-      );
-      const autoBlocked = layerBlocked || new Set(result.autoBlockDefenders || []).size;
+      const liveThreeClosedPoints = new Set();
+      const vcfBlockedPoints = new Set();
+
+      for (const layer of layers) {
+        const autoBlocked = new Set(layer.autoBlockDefenders || []);
+        for (const idx of autoBlocked) vcfBlockedPoints.add(idx);
+        for (const idx of new Set(layer.addedDefenders || [])) {
+          if (!autoBlocked.has(idx)) liveThreeClosedPoints.add(idx);
+        }
+      }
+
+      for (const idx of new Set(result.autoBlockDefenders || [])) {
+        vcfBlockedPoints.add(idx);
+      }
+
       const filled = new Set(result.balanceFillDefenders || []).size;
-      balanceLine = `子數補齊：封鎖補守子 ${autoBlocked} 顆，最後補齊 ${filled} 顆`;
+      balanceLine = `子數補齊：活三封閉 ${liveThreeClosedPoints.size} 、VCF 封鎖 ${vcfBlockedPoints.size} 、最後補齊 ${filled}`;
     } else {
       balanceLine = "子數補齊：未開啟";
     }
