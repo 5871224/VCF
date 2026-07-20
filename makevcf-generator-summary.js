@@ -62,6 +62,12 @@
     const reuseTotal = reuseCounts.reduce((sum, count) => sum + count, 0);
     const reuseExpression = reuseCounts.length ? reuseCounts.join("+") : "0";
 
+    const candidateGroupCounts = Array.from(result.candidateGroupCounts || [])
+      .map(value => Math.max(0, Math.round(Number(value) || 0)));
+    const candidateGroupExpression = candidateGroupCounts.length
+      ? candidateGroupCounts.join("+")
+      : "0";
+
     let blackCount = 0;
     let whiteCount = 0;
     const board = Array.from(result.board || []).slice(0, 225);
@@ -74,6 +80,7 @@
       `初始棋型：${initialShape}`,
       balanceLine,
       `沿用攻子：${reuseExpression}＝${reuseTotal}`,
+      `候選組數：${candidateGroupExpression}`,
       `雙方子數：黑${blackCount}、白${whiteCount}`,
       `多組 VCF：共 ${Number(result.groupCount || 0)} 組`,
     ].join("\n");
