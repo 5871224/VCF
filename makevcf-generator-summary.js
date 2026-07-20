@@ -2,6 +2,8 @@
 
 // Show only the compact generator summary requested by the user.
 (function initGeneratorCompactSummary() {
+  document.querySelector("#generator-panel .gen-badge")?.remove();
+
   let details = genEl("details");
   if (!details) {
     const status = genEl("status");
@@ -20,7 +22,8 @@
       margin-top: 8px;
       color: #685936;
       font-size: 12px;
-      line-height: 1.55;
+      line-height: 1.65;
+      white-space: pre-line;
     }
     #gen-details:empty, #details:empty {
       display: none !important;
@@ -37,12 +40,9 @@
 
     const root = result.rootBase || result.base || {};
     const layers = Array.from(result.layers || []);
-    const parts = [];
+    const initialShape = root.materialType === "deadFour" ? "死四" : "活三";
 
-    const patternName = root.patternName || "未知";
-    const patternText = root.patternText ? `（${root.patternText}）` : "";
-    parts.push(`初始棋型：${patternName}${patternText}`);
-
+    let balanceLine;
     if (options?.balanceStones) {
       const layerBlocked = layers.reduce(
         (sum, layer) => sum + new Set(layer.autoBlockDefenders || []).size,
@@ -50,23 +50,23 @@
       );
       const autoBlocked = layerBlocked || new Set(result.autoBlockDefenders || []).size;
       const filled = new Set(result.balanceFillDefenders || []).size;
-      parts.push(`子數補齊：已開啟（封鎖補守子 ${autoBlocked} 顆，最後補齊 ${filled} 顆）`);
+      balanceLine = `子數補齊：封鎖補守子 ${autoBlocked} 顆，最後補齊 ${filled} 顆`;
     } else {
-      parts.push("子數補齊：未開啟");
+      balanceLine = "子數補齊：未開啟";
     }
 
-    if (layers.length) {
-      const reuseSummary = layers.map((layer, index) => {
-        const addedCount = new Set(layer.addedAttackers || []).size;
-        const reusedCount = Math.max(0, 3 - addedCount);
-        return `第 ${index + 1} 層 ${reusedCount} 顆`;
-      }).join("、");
-      parts.push(`各層沿用攻子：${reuseSummary}`);
-    } else {
-      parts.push("各層沿用攻子：無新增死四層");
-    }
+    const reuseCounts = layers.map(layer => {
+      const addedCount = new Set(layer.addedAttackers || []).size;
+      return Math.max(0, 3 - addedCount);
+    });
+    const reuseTotal = reuseCounts.reduce((sum, count) => sum + count, 0);
+    const reuseExpression = reuseCounts.length ? reuseCounts.join("+") : "0";
 
-    parts.push(`多組 VCF：共 ${Number(result.groupCount || 0)} 組`);
-    output.textContent = `${parts.join("；")}。`;
+    output.textContent = [
+      `初始棋型：${initialShape}`,
+      balanceLine,
+      `沿用攻子：${reuseExpression}＝${reuseTotal}`,
+      `多組 VCF：共 ${Number(result.groupCount || 0)} 組`,
+    ].join("\n");
   };
 })();
