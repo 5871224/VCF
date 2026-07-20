@@ -55,6 +55,7 @@ jobs:
           <script src="makevcf-generator-main.js"></script>
           <script src="makevcf-generator-balance.js"></script>
           <script src="makevcf-generator-unique.js"></script>
+          <script src="makevcf-generator-summary.js"></script>
           <!-- 卡片化介面最後載入，統一整合既有區塊 -->
           <script src="makevcf-layout.js"></script>
           '''
