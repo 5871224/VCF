@@ -17,7 +17,7 @@
         break;
       }
     }
-    label.title = "0% 不加權；攻方棋或守方棋每沿用一顆都套用相同加成；100% 時每顆沿用棋使候選權重增加 99";
+    label.title = "0% 不加權；攻方棋，以及死四模板 X 點或五點原有的守方棋，每沿用一顆都套用相同加成；100% 時每顆沿用棋使候選權重增加 99";
   }
 
   renameReuseControl();
@@ -47,16 +47,27 @@
     );
 
     for (const candidate of candidates) {
-      const reusedDefenders = Array.from(new Set(
-        (candidate.xPoints || []).filter(idx =>
+      const reusedDefenders = new Set();
+
+      // Template X endpoints may reuse defender stones already present on the board.
+      for (const idx of candidate.xPoints || []) {
+        if (
           idx >= 0 &&
           idx < 225 &&
           base.board[idx] === candidate.defender
-        )
-      ));
+        ) {
+          reusedDefenders.add(idx);
+        }
+      }
 
-      candidate.reusedDefenders = reusedDefenders;
-      candidate.weight += reusedDefenders.length * Math.max(0, Number(options?.reuseBonus) || 0);
+      // A defender already on the template F (five) point is temporarily removed
+      // while validating the route, but is still an existing reused stone.
+      if ((candidate.removedDefenders || []).includes(candidate.fivePoint)) {
+        reusedDefenders.add(candidate.fivePoint);
+      }
+
+      candidate.reusedDefenders = Array.from(reusedDefenders);
+      candidate.weight += reusedDefenders.size * Math.max(0, Number(options?.reuseBonus) || 0);
     }
 
     return candidates;
