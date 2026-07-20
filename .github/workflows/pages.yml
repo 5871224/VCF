@@ -51,6 +51,7 @@ jobs:
           <script src="makevcf-generator-integrated.js"></script>
           <script src="makevcf-generator-main.js"></script>
           <script src="makevcf-generator-balance.js"></script>
+          <script src="makevcf-generator-reuse-hint.js"></script>
           '''
 
           for filename in ("index.html", "makevcf.html"):
