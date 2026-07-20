@@ -282,18 +282,31 @@
     const protectedPoints = new Set(
       await genEngine.getBlockVCF(result.board, result.attacker, result.moves, true)
     );
-    const pool = [];
+    const eligible = [];
 
+    // 合法性依目前規則判斷。
     for (let idx = 0; idx < 225; idx++) {
       if (!isInteriorPoint(idx) || result.board[idx] !== GEN_EMPTY) continue;
       if (genIsNFor(result.nMask, idx, defender)) continue;
       if (protectedPoints.has(idx)) continue;
       if (isDefenderFourPoint(result.board, idx, defender)) continue;
       if (result.rules === 2 && defender === GEN_BLACK && isFoul(idx, result.board)) continue;
-      pool.push({
-        idx,
-        weight: fillPointWeight(result.board, idx, result.attacker, defender, options.threeMultiplier),
-      });
+      eligible.push(idx);
+    }
+
+    // 權重統計明確忽略禁手；只在同步的本機棋型掃描期間暫切無禁規則，
+    // Worker 內的 VCF 搜尋規則不受影響。
+    const pool = [];
+    setGameRules(1);
+    try {
+      for (const idx of eligible) {
+        pool.push({
+          idx,
+          weight: fillPointWeight(result.board, idx, result.attacker, defender, options.threeMultiplier),
+        });
+      }
+    } finally {
+      setGameRules(result.rules);
     }
     return pool;
   }
