@@ -64,7 +64,10 @@ async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
       counters.attempts++;
       genSetStatus(`正在建立 ${baseSteps}/${targetSteps} 步${baseLabel}基礎……已驗證 ${counters.attempts} 個候選`);
       const result = await genValidateCandidate(candidate, baseSteps);
-      if (result) return result;
+      if (result) {
+        result.candidateGroupCounts = [candidates.length];
+        return result;
+      }
       if (counters.attempts % 8 === 0) await genTick();
     }
   }
@@ -89,6 +92,10 @@ async function genExtendToTarget(current, targetSteps, attacker, rules, options,
 
     const next = await genValidateExtensionCandidate(candidate, current, nextStep);
     if (next) {
+      next.candidateGroupCounts = [
+        ...Array.from(current.candidateGroupCounts || []),
+        candidates.length,
+      ];
       const completed = await genExtendToTarget(next, targetSteps, attacker, rules, options, counters);
       if (completed) return completed;
     }
