@@ -1,0 +1,114 @@
+name: Vendor upstream Renju evaluator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/vendor-renju-evaluator.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vendor-renju-evaluator
+  cancel-in-progress: false
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout VCF
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download upstream source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch master https://github.com/lfz084/renju.git "$RUNNER_TEMP/renju-upstream"
+
+      - name: Copy evaluator source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          UPSTREAM="$RUNNER_TEMP/renju-upstream"
+          DEST="upstream/lfz084-renju"
+          COMMIT="$(git -C "$UPSTREAM" rev-parse HEAD)"
+          COMMIT_DATE="$(git -C "$UPSTREAM" show -s --format=%cI HEAD)"
+
+          rm -rf "$DEST"
+          mkdir -p "$DEST"
+
+          # Copy the complete evaluator directory so source, wrappers, workers,
+          # current wasm output and any upstream build helpers stay together.
+          cp -a "$UPSTREAM/eval" "$DEST/eval"
+          cp "$UPSTREAM/README.md" "$DEST/README.upstream.md"
+
+          # Preserve an upstream licence file if one is added later.
+          found_license=0
+          while IFS= read -r -d '' file; do
+            cp "$file" "$DEST/$(basename "$file")"
+            found_license=1
+          done < <(find "$UPSTREAM" -maxdepth 1 -type f \( -iname 'LICENSE' -o -iname 'LICENSE.*' -o -iname 'COPYING' -o -iname 'COPYING.*' \) -print0)
+
+          cat > "$DEST/UPSTREAM.md" <<EOF
+          # Upstream Renju evaluator snapshot
+
+          This directory is an unmodified source snapshot imported for rebuilding,
+          compatibility testing and isolated WebAssembly optimisation experiments.
+
+          - Upstream repository: https://github.com/lfz084/renju
+          - Upstream branch: \`master\`
+          - Upstream commit: \`$COMMIT\`
+          - Upstream commit date: \`$COMMIT_DATE\`
+          - Imported by: \`.github/workflows/vendor-renju-evaluator.yml\`
+
+          The production files under this repository's top-level \`eval/\` directory
+          are not replaced by this snapshot.
+
+          ## Licence notice
+
+          EOF
+
+          if [[ "$found_license" == "1" ]]; then
+            cat >> "$DEST/UPSTREAM.md" <<'EOF'
+          An upstream licence file was found and copied into this directory. Review
+          that file before redistributing modified or compiled versions.
+          EOF
+          else
+            cat >> "$DEST/UPSTREAM.md" <<'EOF'
+          No root-level LICENSE or COPYING file was found in the upstream snapshot.
+          Public source availability alone does not grant unrestricted redistribution
+          or relicensing rights. Preserve attribution and confirm permission with the
+          upstream author before publishing modified source or compiled derivatives.
+          EOF
+          fi
+
+          cat > "$DEST/SOURCE_MANIFEST.txt" <<EOF
+          upstream_repository=https://github.com/lfz084/renju
+          upstream_branch=master
+          upstream_commit=$COMMIT
+          upstream_commit_date=$COMMIT_DATE
+          EOF
+
+          find "$DEST/eval" -type f -printf '%P\n' | LC_ALL=C sort >> "$DEST/SOURCE_MANIFEST.txt"
+
+      - name: Commit imported snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add upstream/lfz084-renju
+
+          if git diff --cached --quiet; then
+            echo "Upstream snapshot is already current."
+            exit 0
+          fi
+
+          UPSTREAM_COMMIT="$(grep '^upstream_commit=' upstream/lfz084-renju/SOURCE_MANIFEST.txt | cut -d= -f2)"
+          git commit -m "Vendor Renju evaluator source ${UPSTREAM_COMMIT:0:12} [skip ci]"
+          git push origin HEAD:main
