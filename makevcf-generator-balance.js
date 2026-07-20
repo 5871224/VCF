@@ -36,6 +36,19 @@
     threeLabel.innerHTML = '三型加成 <input id="gen-three-multiplier" type="number" min="0" max="1000000" step="1" value="30"> 倍';
 
     controls.append(balanceLabel, threeLabel);
+
+    const style = document.createElement("style");
+    style.textContent = `
+      #gen-three-multiplier {
+        width: 72px;
+        padding: 5px 7px;
+        border: 1px solid #aaa;
+        border-radius: 4px;
+        text-align: center;
+        font-size: 14px;
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   addBalanceControls();
@@ -403,8 +416,9 @@
     if (!options?.balanceStones) return;
     const details = genEl("details");
     if (!details) return;
-    const autoBlocked = (result.autoBlockDefenders || []).length +
-      (result.layers || []).reduce((sum, layer) => sum + (layer.autoBlockDefenders || []).length, 0);
+    const layerBlocked = (result.layers || [])
+      .reduce((sum, layer) => sum + (layer.autoBlockDefenders || []).length, 0);
+    const autoBlocked = layerBlocked || (result.autoBlockDefenders || []).length;
     const filled = (result.balanceFillDefenders || []).length;
     details.textContent += `；子數補齊已開啟，封鎖較短 VCF 補守子 ${autoBlocked} 顆，最後補齊 ${filled} 顆，三型加成 ${options.threeMultiplier} 倍。`;
   };
