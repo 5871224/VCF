@@ -98,7 +98,7 @@ a { color: #174ea6; }
     <label><input type="radio" name="rules" value="1"> 無禁手</label>
   </fieldset>
   <label>生成步數 <input id="target-steps" type="number" min="1" max="10" step="1" value="2"> 步</label>
-  <label title="0% 不加權；100% 時每沿用一顆攻子，該候選相對未加成候選提高到 100 倍權重">沿用攻子每顆加成 <input id="bonus-reuse" type="number" min="0" max="100" step="1" value="10">%</label>
+  <label title="0% 不加權；攻方棋，以及死四模板 X 點或五點原有的守方棋，每沿用一顆都套用相同加成">沿用棋子加成 <input id="bonus-reuse" type="number" min="0" max="100" step="1" value="10">%</label>
   <label title="綜合朝向天元與四顆攻子平均位置距離；100% 且綜合分數滿分時提高到 100 倍權重">朝天元綜合加成 <input id="bonus-center" type="number" min="0" max="100" step="1" value="15">%</label>
 </div>
 
@@ -130,6 +130,7 @@ a { color: #174ea6; }
 <script src="makevcf-generator-base.js"></script>
 <script src="makevcf-generator-layer.js"></script>
 <script src="makevcf-generator-validate.js"></script>
+<script src="makevcf-generator-reuse-bonus.js"></script>
 <script src="makevcf-generator-main.js"></script>
 <script src="makevcf-generator-balance.js"></script>
 <script src="makevcf-generator-unique.js"></script>
