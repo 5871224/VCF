@@ -62,10 +62,19 @@
     const reuseTotal = reuseCounts.reduce((sum, count) => sum + count, 0);
     const reuseExpression = reuseCounts.length ? reuseCounts.join("+") : "0";
 
+    let blackCount = 0;
+    let whiteCount = 0;
+    const board = Array.from(result.board || []).slice(0, 225);
+    for (const stone of board) {
+      if (stone === GEN_BLACK) blackCount++;
+      else if (stone === GEN_WHITE) whiteCount++;
+    }
+
     output.textContent = [
       `初始棋型：${initialShape}`,
       balanceLine,
       `沿用攻子：${reuseExpression}＝${reuseTotal}`,
+      `雙方子數：黑${blackCount}、白${whiteCount}`,
       `多組 VCF：共 ${Number(result.groupCount || 0)} 組`,
     ].join("\n");
   };
