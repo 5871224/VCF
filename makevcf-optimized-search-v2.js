@@ -1,14 +1,20 @@
 "use strict";
 
-// Experimental VCF benchmark using one pre-warmed worker and an original-order
-// first-result search. The existing VCF buttons and engine remain untouched.
-(function initOriginalStyleVCFExperiment() {
-  if (window.__originalStyleVCFExperimentLoaded) return;
-  window.__originalStyleVCFExperimentLoaded = true;
+// Experimental VCF benchmark using the untouched original eval/worker.js engine.
+// It performs small bounded depth passes before the full original search.
+(function initIterativeVCFExperiment() {
+  if (window.__iterativeVCFExperimentLoaded) return;
+  window.__iterativeVCFExperimentLoaded = true;
 
   const POINTS = 225;
+  const SEARCH_PLAN = [
+    { maxDepth: 9, maxNode: 12000 },
+    { maxDepth: 17, maxNode: 60000 },
+    { maxDepth: 33, maxNode: 250000 },
+    { maxDepth: 200, maxNode: 5000000 },
+  ];
 
-  class FirstVCFEngine {
+  class OriginalWorkerEngine {
     constructor() {
       this.rules = Number(document.querySelector('input[name="rules"]:checked')?.value || 2);
       this.worker = null;
@@ -18,15 +24,15 @@
     }
 
     createWorker(generation) {
-      const worker = new Worker("eval/worker-first-vcf.js");
+      const worker = new Worker("eval/worker.js");
       worker.onmessage = event => {
         if (generation !== this.generation || event.data?.cmd !== "resolve" || !this.pending) return;
         const pending = this.pending;
         this.pending = null;
-        pending.resolve(event.data.param || null);
+        pending.resolve(event.data.param || { winMoves: [], nodeCount: 0 });
       };
       worker.onerror = event => {
-        console.error("First VCF worker error", event);
+        console.error("Iterative VCF worker error", event);
         if (generation !== this.generation || !this.pending) return;
         const pending = this.pending;
         this.pending = null;
@@ -65,14 +71,49 @@
       await this.post("setGameRules", { rules: this.rules });
     }
 
-    async find(arr, color) {
+    async findIterative(arr, color, onPass) {
       await this.ensureReady();
-      return this.post("findFirstVCF", {
-        arr: Array.from(arr),
-        color,
-        maxDepth: 200,
-        maxNode: 5000000,
-      });
+      let totalNodes = 0;
+      let passCount = 0;
+      let lastInfo = { winMoves: [], nodeCount: 0 };
+
+      for (const pass of SEARCH_PLAN) {
+        passCount++;
+        onPass?.(pass, passCount, SEARCH_PLAN.length);
+        const info = await this.post("findVCF", {
+          arr: Array.from(arr),
+          color,
+          maxVCF: 1,
+          maxDepth: pass.maxDepth,
+          maxNode: pass.maxNode,
+        });
+        if (!info) return null;
+
+        lastInfo = info;
+        totalNodes += Number(info.nodeCount || 0);
+        const route = info.winMoves?.[0] || [];
+        if (route.length) {
+          return {
+            ...info,
+            nodeCount: totalNodes,
+            winningPassNodes: Number(info.nodeCount || 0),
+            passCount,
+            winningDepth: pass.maxDepth,
+            winningNodeLimit: pass.maxNode,
+            optimizedMode: "original-iterative-deepening",
+          };
+        }
+      }
+
+      return {
+        ...lastInfo,
+        nodeCount: totalNodes,
+        winningPassNodes: Number(lastInfo.nodeCount || 0),
+        passCount,
+        winningDepth: 200,
+        winningNodeLimit: 5000000,
+        optimizedMode: "original-iterative-deepening",
+      };
     }
 
     async cancel() {
@@ -88,7 +129,7 @@
     const originalWhite = document.getElementById("btn-white");
     if (!actionBox || !status || !originalBlack || !originalWhite || typeof window._getArr !== "function") return;
 
-    const engine = new FirstVCFEngine();
+    const engine = new OriginalWorkerEngine();
     let busy = false;
     let originalPending = null;
     const results = { original: null, optimized: null };
@@ -120,7 +161,7 @@
     status.insertAdjacentElement("afterend", panel);
 
     const style = document.createElement("style");
-    style.dataset.originalStyleVcfExperiment = "true";
+    style.dataset.iterativeVcfExperiment = "true";
     style.textContent = `
       #vcf-app-shell .vcf-optimized-action,.vcf-optimized-action{color:#fff;background:#39745a;border-color:#39745a}
       #vcf-app-shell .vcf-optimized-action:hover:not(:disabled),.vcf-optimized-action:hover:not(:disabled){color:#fff;background:#2d6049;border-color:#2d6049}
@@ -238,7 +279,7 @@
 
     engine.ensureReady().then(() => {
       setOptimizedDisabled(false);
-      document.getElementById("speed-new").textContent = "尚未測試｜單 Worker 已預熱";
+      document.getElementById("speed-new").textContent = "尚未測試｜原版 Worker 已預熱";
     }).catch(error => {
       console.error(error);
       document.getElementById("speed-new").textContent = "優化引擎初始化失敗";
@@ -264,9 +305,10 @@
 
       try {
         await engine.ensureReady();
-        setStatus(`正在以原版順序、找到即停方式搜索 ${name} VCF...`);
         const startedAt = performance.now();
-        const info = await engine.find(arr, color);
+        const info = await engine.findIterative(arr, color, (pass, index, total) => {
+          setStatus(`優化搜索 ${name} VCF：第 ${index}/${total} 輪，深度 ${pass.maxDepth}，上限 ${fmtNodes(pass.maxNode)}...`);
+        });
         if (!info) {
           if (busy) setStatus("優化搜索已停止");
           return;
@@ -276,8 +318,9 @@
         const route = info.winMoves?.[0] || [];
         const nodes = Number(info.nodeCount || 0);
         const found = route.length > 0;
-        const completedStates = Number(info.completedStates || 0);
-        const mode = `原版順序・找到即停；完成局面 ${completedStates}`;
+        const mode = found
+          ? `原版迭代加深；第 ${info.passCount} 輪、深度 ${info.winningDepth} 命中`
+          : `原版迭代加深；完成 ${info.passCount} 輪與完整搜尋`;
 
         if (found) {
           lastVCFMoves = Array.from(route);
