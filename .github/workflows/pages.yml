@@ -32,7 +32,7 @@ jobs:
           cp makevcf.html _site/makevcf.html
           cp makevcf-generator.html _site/
           cp makevcf-generator-*.js _site/
-          cp makevcf-mobile.js makevcf-layout.js _site/
+          cp makevcf-mobile.js makevcf-layout.js makevcf-optimized-search.js _site/
           cp README.md 規格書.MD 題目產生器規格.MD _site/
           cp -R eval emoji _site/
 
@@ -59,8 +59,10 @@ jobs:
           <script src="makevcf-generator-balance.js"></script>
           <script src="makevcf-generator-unique.js"></script>
           <script src="makevcf-generator-summary.js"></script>
-          <!-- 卡片化介面最後載入，統一整合既有區塊 -->
+          <!-- 卡片化介面 -->
           <script src="makevcf-layout.js"></script>
+          <!-- 獨立的優化 VCF 搜尋與速度比較 -->
+          <script src="makevcf-optimized-search.js"></script>
           '''
 
           for filename in ("index.html", "makevcf.html"):
