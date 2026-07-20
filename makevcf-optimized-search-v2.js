@@ -1,210 +1,94 @@
 "use strict";
 
-// Optimized VCF search: keep one untouched full-depth search authoritative,
-// and start one symmetry-transformed hedge only when the search is not already fast.
-(function initOptimizedVCFSearchV2() {
-  if (window.__optimizedVCFSearchV2Loaded) return;
-  window.__optimizedVCFSearchV2Loaded = true;
+// Experimental VCF benchmark using one pre-warmed worker and an original-order
+// first-result search. The existing VCF buttons and engine remain untouched.
+(function initOriginalStyleVCFExperiment() {
+  if (window.__originalStyleVCFExperimentLoaded) return;
+  window.__originalStyleVCFExperimentLoaded = true;
 
-  const N = 15;
   const POINTS = 225;
-  const HEDGE_DELAY_MS = 25;
-  const HEDGE_SYMMETRIES = [1, 4, 6, 3];
 
-  const xy = (x, y, symmetry) => {
-    const max = N - 1;
-    switch (symmetry) {
-      case 1: return [max - y, x];
-      case 2: return [max - x, max - y];
-      case 3: return [y, max - x];
-      case 4: return [max - x, y];
-      case 5: return [x, max - y];
-      case 6: return [y, x];
-      case 7: return [max - y, max - x];
-      default: return [x, y];
-    }
-  };
-
-  const inverseSymmetry = symmetry => symmetry === 1 ? 3 : symmetry === 3 ? 1 : symmetry;
-
-  function mapIndex(idx, symmetry) {
-    if (idx < 0 || idx >= POINTS) return idx;
-    const [x, y] = xy(idx % N, Math.floor(idx / N), symmetry);
-    return y * N + x;
-  }
-
-  function mapBoard(arr, symmetry) {
-    const mapped = new Array(226).fill(0);
-    mapped[225] = -1;
-    for (let idx = 0; idx < POINTS; idx++) mapped[mapIndex(idx, symmetry)] = arr[idx] || 0;
-    return mapped;
-  }
-
-  function restoreMoves(moves, symmetry) {
-    const inverse = inverseSymmetry(symmetry);
-    return Array.from(moves || [], idx => mapIndex(idx, inverse));
-  }
-
-  class WorkerSlot {
-    constructor(index) {
-      this.index = index;
+  class FirstVCFEngine {
+    constructor() {
+      this.rules = Number(document.querySelector('input[name="rules"]:checked')?.value || 2);
       this.worker = null;
       this.pending = null;
+      this.generation = 0;
+      this.ready = this.restart();
     }
 
-    start() {
-      this.stop(false);
-      this.worker = new Worker("eval/worker.js");
-      this.worker.onmessage = event => {
-        if (event.data?.cmd !== "resolve" || !this.pending) return;
+    createWorker(generation) {
+      const worker = new Worker("eval/worker-first-vcf.js");
+      worker.onmessage = event => {
+        if (generation !== this.generation || event.data?.cmd !== "resolve" || !this.pending) return;
         const pending = this.pending;
         this.pending = null;
-        pending.resolve(event.data.param || { winMoves: [], nodeCount: 0 });
+        pending.resolve(event.data.param || null);
       };
-      this.worker.onerror = event => {
-        if (!this.pending) return;
+      worker.onerror = event => {
+        console.error("First VCF worker error", event);
+        if (generation !== this.generation || !this.pending) return;
         const pending = this.pending;
         this.pending = null;
-        pending.reject(new Error(event?.message || `Worker ${this.index + 1} 執行失敗`));
+        pending.reject(new Error(event?.message || "優化 Worker 執行失敗"));
       };
+      return worker;
     }
 
-    send(cmd, param) {
+    post(cmd, param) {
       return new Promise((resolve, reject) => {
         this.pending = { resolve, reject };
         this.worker.postMessage({ cmd, param });
       });
     }
 
-    stop(reject = true) {
+    async restart() {
+      this.generation++;
+      const generation = this.generation;
       if (this.pending) {
         const pending = this.pending;
         this.pending = null;
-        if (reject) pending.reject(new Error("搜尋已停止"));
-        else pending.resolve(null);
+        pending.resolve(null);
       }
       this.worker?.terminate();
-      this.worker = null;
-    }
-  }
-
-  class HedgedVCFEngine {
-    constructor() {
-      const cores = Number(navigator.hardwareConcurrency || 2);
-      this.count = cores >= 4 ? 2 : 1;
-      this.rules = Number(document.querySelector('input[name="rules"]:checked')?.value || 2);
-      this.slots = Array.from({ length: this.count }, (_, index) => new WorkerSlot(index));
-      this.token = 0;
-      this.searchSequence = 0;
-      this.ready = this.initialize();
-    }
-
-    async initialize() {
-      this.slots.forEach(slot => slot.start());
-      await Promise.all(this.slots.map(slot => slot.send("setGameRules", { rules: this.rules })));
+      this.worker = this.createWorker(generation);
+      await this.post("setGameRules", { rules: this.rules });
     }
 
     async ensureReady() {
       await this.ready;
     }
 
-    async reset() {
-      this.token++;
-      this.slots.forEach(slot => slot.stop(false));
-      this.ready = this.initialize();
-      await this.ready;
-    }
-
     async setRules(rules) {
       this.rules = Number(rules || 2);
       await this.ensureReady();
-      await Promise.all(this.slots.map(slot => slot.send("setGameRules", { rules: this.rules })));
-    }
-
-    async cancel() {
-      await this.reset();
+      await this.post("setGameRules", { rules: this.rules });
     }
 
     async find(arr, color) {
       await this.ensureReady();
-      const token = ++this.token;
-      const symmetry = HEDGE_SYMMETRIES[this.searchSequence++ % HEDGE_SYMMETRIES.length];
-
-      return new Promise((resolve, reject) => {
-        let done = false;
-        let hedgeStarted = false;
-        let hedgeTimer = null;
-
-        const finish = result => {
-          if (done || token !== this.token) return;
-          done = true;
-          if (hedgeTimer) clearTimeout(hedgeTimer);
-          resolve(result);
-          this.reset().catch(console.error);
-        };
-
-        const fail = error => {
-          if (done || token !== this.token) return;
-          done = true;
-          if (hedgeTimer) clearTimeout(hedgeTimer);
-          reject(error);
-          this.reset().catch(console.error);
-        };
-
-        const searchParam = board => ({
-          arr: board,
-          color,
-          maxVCF: 1,
-          maxDepth: 200,
-          maxNode: 5000000,
-        });
-
-        // Authoritative search: identical board and limits as the original button.
-        this.slots[0].send("findVCF", searchParam(Array.from(arr))).then(info => {
-          if (done || token !== this.token || !info) return;
-          const route = info.winMoves?.[0] || [];
-          finish({
-            winMoves: route.length ? [Array.from(route)] : [],
-            nodeCount: Number(info.nodeCount || 0),
-            workerCount: this.count,
-            winner: "primary",
-            hedgeStarted,
-            symmetry,
-          });
-        }).catch(fail);
-
-        if (this.count > 1) {
-          hedgeTimer = setTimeout(() => {
-            if (done || token !== this.token) return;
-            hedgeStarted = true;
-            this.slots[1].send("findVCF", searchParam(mapBoard(arr, symmetry))).then(info => {
-              if (done || token !== this.token || !info) return;
-              const route = info.winMoves?.[0] || [];
-              // A negative hedge result is not authoritative; wait for the primary.
-              if (!route.length) return;
-              finish({
-                winMoves: [restoreMoves(route, symmetry)],
-                nodeCount: Number(info.nodeCount || 0),
-                workerCount: this.count,
-                winner: "hedge",
-                hedgeStarted: true,
-                symmetry,
-              });
-            }).catch(error => console.warn("VCF hedge worker failed", error));
-          }, HEDGE_DELAY_MS);
-        }
+      return this.post("findFirstVCF", {
+        arr: Array.from(arr),
+        color,
+        maxDepth: 200,
+        maxNode: 5000000,
       });
+    }
+
+    async cancel() {
+      this.ready = this.restart();
+      await this.ready;
     }
   }
 
   function boot() {
-    const box = document.getElementById("btns");
+    const actionBox = document.getElementById("btns");
     const status = document.getElementById("status");
     const originalBlack = document.getElementById("btn-black");
     const originalWhite = document.getElementById("btn-white");
-    if (!box || !status || !originalBlack || !originalWhite || typeof window._getArr !== "function") return;
+    if (!actionBox || !status || !originalBlack || !originalWhite || typeof window._getArr !== "function") return;
 
-    const optimizedEngine = new HedgedVCFEngine();
+    const engine = new FirstVCFEngine();
     let busy = false;
     let originalPending = null;
     const results = { original: null, optimized: null };
@@ -227,35 +111,53 @@
 
     const panel = document.createElement("section");
     panel.id = "vcf-speed-comparison";
-    panel.innerHTML = `<b>VCF 搜尋速度比較</b>
-      <div>原版：<span id="speed-old">尚未測試</span></div>
-      <div>優化版：<span id="speed-new">引擎預熱中</span></div>
-      <div id="speed-diff">請在相同盤面與顏色分別執行兩種搜尋。</div>`;
+    panel.innerHTML = `
+      <div class="vcf-speed-title">VCF 搜尋速度比較</div>
+      <div class="vcf-speed-row"><strong>原版</strong><span id="speed-old">尚未測試</span></div>
+      <div class="vcf-speed-row"><strong>優化版</strong><span id="speed-new">引擎預熱中</span></div>
+      <div id="speed-diff" class="vcf-speed-difference">請在相同盤面與顏色分別執行兩種搜尋。</div>
+    `;
     status.insertAdjacentElement("afterend", panel);
 
     const style = document.createElement("style");
+    style.dataset.originalStyleVcfExperiment = "true";
     style.textContent = `
       #vcf-app-shell .vcf-optimized-action,.vcf-optimized-action{color:#fff;background:#39745a;border-color:#39745a}
-      #vcf-app-shell .vcf-optimized-action:hover:not(:disabled){background:#2d6049;border-color:#2d6049}
+      #vcf-app-shell .vcf-optimized-action:hover:not(:disabled),.vcf-optimized-action:hover:not(:disabled){color:#fff;background:#2d6049;border-color:#2d6049}
       #vcf-speed-comparison{width:100%;margin-top:9px;padding:9px 11px;border:1px solid #cfd8c5;border-radius:8px;background:#f7fbf4;color:#354333;font-size:12px;line-height:1.55}
-      #vcf-speed-comparison b{font-size:13px}#speed-diff{margin-top:5px;padding-top:5px;border-top:1px solid #dce5d5;font-weight:600}`;
+      .vcf-speed-title{margin-bottom:5px;font-size:13px;font-weight:700}
+      .vcf-speed-row{display:grid;grid-template-columns:52px minmax(0,1fr);gap:7px;align-items:start}
+      .vcf-speed-row span{overflow-wrap:anywhere}
+      .vcf-speed-difference{margin-top:5px;padding-top:5px;border-top:1px solid #dce5d5;font-weight:600}
+    `;
     document.head.appendChild(style);
 
-    const rules = () => Number(document.querySelector('input[name="rules"]:checked')?.value || 2);
-    const fingerprint = (arr, color) => `${rules()}|${color}|${arr.slice(0, POINTS).join("")}`;
-    const rate = (nodes, seconds) => seconds <= 0 ? "—"
-      : nodes / seconds >= 1e6 ? `${(nodes / seconds / 1e6).toFixed(2)}M nodes/s`
-      : nodes / seconds >= 1000 ? `${(nodes / seconds / 1000).toFixed(1)}K nodes/s`
-      : `${Math.round(nodes / seconds)} nodes/s`;
-    const resultText = result => !result ? "尚未測試"
-      : `${result.seconds.toFixed(6)}s｜${result.nodeText || fmtNodes(result.nodes)}｜${result.rateText || rate(result.nodes, result.seconds)}｜${result.found ? `找到 ${result.moves} 手` : "未找到"}${result.mode ? `｜${result.mode}` : ""}`;
+    const currentRules = () => Number(document.querySelector('input[name="rules"]:checked')?.value || 2);
+    const fingerprint = (arr, color) => `${currentRules()}|${color}|${Array.from(arr).slice(0, POINTS).join("")}`;
+
+    function rate(nodes, seconds) {
+      if (!Number.isFinite(nodes) || seconds <= 0) return "—";
+      const value = nodes / seconds;
+      return value >= 1e6 ? `${(value / 1e6).toFixed(2)}M nodes/s`
+        : value >= 1000 ? `${(value / 1000).toFixed(1)}K nodes/s`
+        : `${Math.round(value)} nodes/s`;
+    }
+
+    function resultText(result) {
+      if (!result) return "尚未測試";
+      const nodeText = result.nodeText || fmtNodes(result.nodes);
+      const rateText = result.rateText || rate(result.nodes, result.seconds);
+      const outcome = result.found ? `找到 ${result.moves} 手` : "未找到";
+      return `${result.seconds.toFixed(6)}s｜${nodeText}｜${rateText}｜${outcome}${result.mode ? `｜${result.mode}` : ""}`;
+    }
 
     function render() {
       document.getElementById("speed-old").textContent = resultText(results.original);
-      if (results.optimized) document.getElementById("speed-new").textContent = resultText(results.optimized);
+      document.getElementById("speed-new").textContent = resultText(results.optimized);
       const difference = document.getElementById("speed-diff");
       const original = results.original;
       const optimized = results.optimized;
+
       if (!original || !optimized) {
         difference.textContent = "請在相同盤面與顏色分別執行兩種搜尋。";
         return;
@@ -265,22 +167,30 @@
         return;
       }
       if (original.found !== optimized.found) {
-        difference.textContent = "⚠ 兩種搜尋結果不同，請保留此盤面進一步檢查。";
+        difference.textContent = "⚠ 兩種搜尋結果不同，請保留此盤面供後續修正。";
         return;
       }
+
       const ratio = original.seconds / optimized.seconds;
-      difference.textContent = ratio > 1.005 ? `優化版快 ${ratio.toFixed(2)} 倍`
-        : ratio < 0.995 ? `優化版慢 ${(1 / ratio).toFixed(2)} 倍`
-        : "兩者速度接近";
+      difference.textContent = ratio > 1.005
+        ? `優化版快 ${ratio.toFixed(2)} 倍`
+        : ratio < 0.995
+          ? `優化版慢 ${(1 / ratio).toFixed(2)} 倍`
+          : "兩者速度接近";
+
       if (original.found && original.moves !== optimized.moves) {
-        difference.textContent += `；路線手數 ${original.moves}／${optimized.moves}`;
+        difference.textContent += `；兩者都找到 VCF，路線手數為 ${original.moves}／${optimized.moves}`;
       }
     }
 
     function beginOriginal(color) {
       const arr = window._getArr();
       if (!arr.slice(0, POINTS).some(value => value > 0)) return;
-      originalPending = { color, fingerprint: fingerprint(arr, color), startedAt: performance.now() };
+      originalPending = {
+        color,
+        fingerprint: fingerprint(arr, color),
+        startedAt: performance.now(),
+      };
     }
 
     originalBlack.addEventListener("click", () => beginOriginal(1), true);
@@ -290,7 +200,11 @@
       if (!originalPending) return;
       const text = status.textContent || "";
       const name = originalPending.color === 1 ? "黑子" : "白子";
-      if (!text.startsWith(`${name} VCF 找到`) && !text.startsWith(`${name} VCF 未找到`) && !text.startsWith("搜索失敗")) return;
+      const complete = text.startsWith(`${name} VCF 找到`) ||
+        text.startsWith(`${name} VCF 未找到`) ||
+        text.startsWith("搜索失敗");
+      if (!complete) return;
+
       const timeMatch = text.match(/（([\d.]+)s[，）]/);
       const nodeMatch = text.match(/，([\d.]+[MK]? nodes)/);
       const rateMatch = text.match(/，([\d.]+[MK]? nodes\/s)）/);
@@ -322,11 +236,9 @@
       try { setBusy = wrapped; } catch (_) {}
     }
 
-    optimizedEngine.ensureReady().then(() => {
+    engine.ensureReady().then(() => {
       setOptimizedDisabled(false);
-      document.getElementById("speed-new").textContent = optimizedEngine.count > 1
-        ? `尚未測試｜主 Worker 已預熱，${HEDGE_DELAY_MS}ms 後才啟動備援`
-        : "尚未測試｜單 Worker 已預熱";
+      document.getElementById("speed-new").textContent = "尚未測試｜單 Worker 已預熱";
     }).catch(error => {
       console.error(error);
       document.getElementById("speed-new").textContent = "優化引擎初始化失敗";
@@ -351,13 +263,10 @@
       setBusy(true);
 
       try {
-        // Initialization is deliberately excluded from the measured search time.
-        await optimizedEngine.ensureReady();
-        setStatus(optimizedEngine.count > 1
-          ? `正在搜索 ${name} VCF；超過 ${HEDGE_DELAY_MS}ms 才啟動對稱備援...`
-          : `正在以已預熱 Worker 搜索 ${name} VCF...`);
+        await engine.ensureReady();
+        setStatus(`正在以原版順序、找到即停方式搜索 ${name} VCF...`);
         const startedAt = performance.now();
-        const info = await optimizedEngine.find(arr, color);
+        const info = await engine.find(arr, color);
         if (!info) {
           if (busy) setStatus("優化搜索已停止");
           return;
@@ -367,17 +276,15 @@
         const route = info.winMoves?.[0] || [];
         const nodes = Number(info.nodeCount || 0);
         const found = route.length > 0;
-        const mode = info.winner === "hedge"
-          ? `對稱備援勝出（延遲 ${HEDGE_DELAY_MS}ms）`
-          : info.hedgeStarted
-            ? "原盤主搜尋勝出（備援已啟動）"
-            : "原盤主搜尋完成（未啟動備援）";
+        const completedStates = Number(info.completedStates || 0);
+        const mode = `原版順序・找到即停；完成局面 ${completedStates}`;
 
         if (found) {
           lastVCFMoves = Array.from(route);
           window._showVCF(lastVCFMoves, color);
           document.getElementById("btn-block-vcf").disabled = false;
         }
+
         setStatus(`優化 ${name} VCF ${found ? `找到，共 ${route.length} 手` : "未找到"}（${seconds.toFixed(6)}s，${fmtNodes(nodes)}，${rate(nodes, seconds)}；${mode}）`);
         results.optimized = {
           fingerprint: currentFingerprint,
@@ -405,7 +312,7 @@
         if (busy) return;
         setOptimizedDisabled(true);
         try {
-          await optimizedEngine.setRules(Number(radio.value));
+          await engine.setRules(Number(radio.value));
         } finally {
           setOptimizedDisabled(false);
         }
@@ -418,7 +325,7 @@
       event.stopImmediatePropagation();
       busy = false;
       setStatus("正在停止優化搜索...");
-      await optimizedEngine.cancel();
+      await engine.cancel();
       setBusy(false);
       setStatus("已停止優化搜索");
     }, true);
