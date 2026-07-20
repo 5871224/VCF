@@ -1,0 +1,13 @@
+upstream_repository=https://github.com/lfz084/renju
+upstream_branch=master
+upstream_commit=6e89d7f9f0f2b3c910181c6fce143852c3dd8cfe
+upstream_commit_date=2026-05-15T02:11:37+08:00
+Evaluator.cpp
+Evaluator.html
+Evaluator.js
+Evaluator.wasm
+Evaluator.wat
+EvaluatorJScript.js
+EvaluatorWebassembly.js
+engine.js
+worker.js
