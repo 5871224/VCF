@@ -1,0 +1,39 @@
+name: Build upstream Renju evaluator
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: emscripten/emsdk:3.1.74
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build isolated evaluator
+        shell: bash
+        run: bash upstream/lfz084-renju/build-evaluator.sh
+
+      - name: Show WebAssembly exports
+        shell: bash
+        run: |
+          if command -v wasm-objdump >/dev/null 2>&1; then
+            wasm-objdump -x upstream/lfz084-renju/build/Evaluator.wasm | sed -n '/Export\[/,/Elem\[/p'
+          elif command -v wasm-dis >/dev/null 2>&1; then
+            wasm-dis upstream/lfz084-renju/build/Evaluator.wasm -o - | sed -n '1,120p'
+          fi
+
+      - name: Upload rebuilt module
+        uses: actions/upload-artifact@v4
+        with:
+          name: renju-evaluator-wasm
+          path: |
+            upstream/lfz084-renju/build/Evaluator.wasm
+            upstream/lfz084-renju/build/Evaluator.wat
+          if-no-files-found: error
