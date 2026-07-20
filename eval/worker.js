@@ -45,10 +45,19 @@
             post({cmd: "resolve", param: vcfInfo})
         },
         getBlockVCF: function({arr, color, vcfMoves, includeFour}) {
-            let points = getBlockVCF(arr, color, vcfMoves, includeFour);
-            //post({ cmd: "points", param: { points: points } });
-            //post(MSG_RESOLVE);
-            post({cmd: "resolve", param: points})
+            const candidates = getBlockVCF(arr, color, vcfMoves, includeFour);
+            const defender = 3 - color;
+            const verified = [];
+            const seen = new Set();
+            for (const idx of candidates) {
+                if (seen.has(idx) || idx < 0 || idx >= 225 || arr[idx] !== 0) continue;
+                seen.add(idx);
+                arr[idx] = defender;
+                const blocksRoute = !isVCF(color, arr, vcfMoves);
+                arr[idx] = 0;
+                if (blocksRoute) verified.push(idx);
+            }
+            post({cmd: "resolve", param: verified})
         },
         selectPoints: function({ arr, color, radius, maxVCF, maxDepth, maxNode}) {
             let selectArr = selectPoints(arr, color, radius, maxVCF, maxDepth, maxNode);
