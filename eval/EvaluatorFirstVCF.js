@@ -44,6 +44,7 @@
 
     function createCompletedTable() {
         const table = new Map();
+        let count = 0;
         return {
             has(hashA, hashB) {
                 return table.get(hashA)?.has(hashB) || false;
@@ -51,11 +52,12 @@
             add(hashA, hashB) {
                 let bucket = table.get(hashA);
                 if (!bucket) table.set(hashA, bucket = new Set());
-                bucket.add(hashB);
+                if (!bucket.has(hashB)) {
+                    bucket.add(hashB);
+                    count++;
+                }
             },
             get size() {
-                let count = 0;
-                for (const bucket of table.values()) count += bucket.size;
                 return count;
             },
         };
@@ -73,6 +75,24 @@
         const moves = [];
         let nodeCount = 0;
         let stoppedByNodeLimit = false;
+
+        function verifyAndSimplify(route) {
+            let simplified = Array.from(route || []);
+            if (!isVCF(color, rootBoard.slice(0), simplified)) return null;
+
+            // Remove unnecessary attack/defense pairs only after a route is found.
+            // This is outside the search hot path and keeps the displayed route compact.
+            let index = 0;
+            while (index + 1 < simplified.length - 1) {
+                const candidate = simplified.slice(0, index).concat(simplified.slice(index + 2));
+                if (isVCF(color, rootBoard.slice(0), candidate)) {
+                    simplified = candidate;
+                } else {
+                    index += 2;
+                }
+            }
+            return simplified;
+        }
 
         // Keep the original engine's direct-five shortcut and scan order.
         for (let idx = 0; idx < BOARD_POINTS; idx++) {
@@ -199,9 +219,8 @@
             }
 
             if (candidates.winIdx >= 0) {
-                const route = moves.concat(candidates.winIdx);
-                simpleVCF(color, rootBoard.slice(0), route);
-                if (isVCF(color, rootBoard.slice(0), route)) return route;
+                const route = verifyAndSimplify(moves.concat(candidates.winIdx));
+                if (route) return route;
             }
 
             for (const group of candidates.groups || []) {
