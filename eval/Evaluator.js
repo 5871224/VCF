@@ -69,3 +69,41 @@ excludeBlockVCF = function(points, arr, color, maxVCF, maxDepth, maxNode) {
 	}
 	return result;
 };
+
+// Fast VCF-defense analysis may include counter-four or existing rush-four points
+// that do not actually break the selected route. Verify every returned point on
+// the real board; structural defense points pass the same inexpensive final test.
+(function strengthenGetBlockVCF() {
+	const getBlockVCFUnverified = getBlockVCF;
+	getBlockVCF = function(arr, color, vcfMoves, includeFour) {
+		const points = getBlockVCFUnverified(arr, color, vcfMoves, includeFour);
+		const defender = INVERT_COLOR[color];
+		const verified = [];
+		const seen = new Set();
+
+		for (const idx of points) {
+			if (seen.has(idx) || idx < 0 || idx >= 225 || arr[idx] != 0) continue;
+			seen.add(idx);
+			arr[idx] = defender;
+			const blocksRoute = !isVCF(color, arr, vcfMoves);
+			arr[idx] = 0;
+			if (blocksRoute) verified.push(idx);
+		}
+		return verified;
+	};
+})();
+
+// Load the optional generator enhancement after the page's generator scripts are ready.
+if (typeof window !== "undefined" && typeof document !== "undefined") {
+	const loadGeneratorBalance = () => {
+		if (document.querySelector('script[src*="makevcf-generator-main.js"]') &&
+			!document.querySelector('script[src*="makevcf-generator-balance.js"]')) {
+			const script = document.createElement("script");
+			script.src = "makevcf-generator-balance.js";
+			script.dataset.generatorEnhancement = "balance";
+			document.body.appendChild(script);
+		}
+	};
+	if (document.readyState === "complete") setTimeout(loadGeneratorBalance, 0);
+	else window.addEventListener("load", loadGeneratorBalance, { once: true });
+}
