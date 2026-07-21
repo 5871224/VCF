@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bitboard 落子測試</title>
+    <style>
+        :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #f4f1ea; color: #252525; }
+        main { width: min(100% - 24px, 920px); margin: 20px auto 40px; }
+        h1 { margin: 0 0 8px; font-size: clamp(1.35rem, 4vw, 2rem); }
+        .intro { margin: 0 0 16px; line-height: 1.65; color: #555; }
+        .layout { display: grid; grid-template-columns: minmax(0, 560px) minmax(250px, 1fr); gap: 20px; align-items: start; }
+        .board-shell { overflow: auto; padding: 10px; background: #d8a85d; border: 1px solid #9a6d2f; border-radius: 10px; box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
+        .board { width: min(82vw, 540px); aspect-ratio: 1; display: grid; grid-template-columns: repeat(15, 1fr); background: #d8a85d; user-select: none; }
+        .point { position: relative; min-width: 22px; min-height: 22px; padding: 0; border: 0; background: transparent; cursor: pointer; }
+        .point::before, .point::after { content: ""; position: absolute; background: #4f371e; pointer-events: none; }
+        .point::before { left: 0; right: 0; top: 50%; height: 1px; }
+        .point::after { top: 0; bottom: 0; left: 50%; width: 1px; }
+        .point[data-x="0"]::before { left: 50%; }
+        .point[data-x="14"]::before { right: 50%; }
+        .point[data-y="0"]::after { top: 50%; }
+        .point[data-y="14"]::after { bottom: 50%; }
+        .point:hover { background: rgb(255 255 255 / 15%); }
+        .stone { position: absolute; z-index: 2; inset: 12%; border-radius: 50%; box-shadow: 0 2px 5px rgb(0 0 0 / 35%); pointer-events: none; }
+        .stone.black { background: radial-gradient(circle at 35% 30%, #5e5e5e, #111 65%); }
+        .stone.white { background: radial-gradient(circle at 35% 30%, #fff, #ddd 70%); border: 1px solid #aaa; }
+        .panel { background: #fff; border: 1px solid #ddd7ca; border-radius: 10px; padding: 16px; box-shadow: 0 4px 16px rgb(0 0 0 / 7%); }
+        .controls { display: grid; gap: 10px; }
+        .color-row, .button-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        button.control { border: 1px solid #aaa; border-radius: 8px; padding: 9px 13px; background: #fff; font: inherit; cursor: pointer; }
+        button.control.active { border-color: #1f6f43; outline: 2px solid rgb(31 111 67 / 22%); font-weight: 700; }
+        button.control:disabled { opacity: .45; cursor: default; }
+        .status { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; line-height: 1.7; font-variant-numeric: tabular-nums; }
+        .status strong { display: inline-block; min-width: 98px; }
+        pre { overflow: auto; margin: 12px 0 0; padding: 10px; background: #f6f6f6; border-radius: 8px; font-size: .78rem; line-height: 1.55; }
+        .message { min-height: 1.5em; margin-top: 10px; color: #9b2c2c; }
+        @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } .board { width: min(88vw, 540px); } }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Bitboard 棋盤與座標映射</h1>
+    <p class="intro">對外座標使用 15×15（索引 0～224），內部 Bitboard 使用 16×16（索引 0～255）。點選棋盤即可落子，黑白預設輪流。</p>
+    <div class="layout">
+        <div class="board-shell"><div id="board" class="board" aria-label="15乘15五子棋棋盤"></div></div>
+        <section class="panel">
+            <div class="controls">
+                <div><strong>下一手</strong></div>
+                <div class="color-row">
+                    <button id="blackButton" class="control active" type="button">黑棋</button>
+                    <button id="whiteButton" class="control" type="button">白棋</button>
+                </div>
+                <div class="button-row">
+                    <button id="undoButton" class="control" type="button" disabled>悔棋</button>
+                    <button id="clearButton" class="control" type="button">清空</button>
+                </div>
+            </div>
+            <div id="message" class="message" role="status"></div>
+            <div class="status">
+                <div><strong>最後座標</strong><span id="coordinate">—</span></div>
+                <div><strong>外部索引</strong><span id="externalIndex">—</span></div>
+                <div><strong>Bit 索引</strong><span id="bitIndex">—</span></div>
+                <div><strong>Word / Offset</strong><span id="wordOffset">—</span></div>
+                <pre id="words">black: [0, 0, 0, 0]\nwhite: [0, 0, 0, 0]</pre>
+            </div>
+        </section>
+    </div>
+</main>
+<script type="module">
+import {
+    BOARD_SIZE,
+    Position,
+    Stone,
+    bitOffsetOf,
+    toBitIndex,
+    toExternalIndex,
+    wordIndexOf,
+} from "./bitboard.js";
+
+const position = new Position();
+const history = [];
+let currentStone = Stone.BLACK;
+
+const board = document.querySelector("#board");
+const blackButton = document.querySelector("#blackButton");
+const whiteButton = document.querySelector("#whiteButton");
+const undoButton = document.querySelector("#undoButton");
+const clearButton = document.querySelector("#clearButton");
+const message = document.querySelector("#message");
+const coordinate = document.querySelector("#coordinate");
+const externalIndex = document.querySelector("#externalIndex");
+const bitIndex = document.querySelector("#bitIndex");
+const wordOffset = document.querySelector("#wordOffset");
+const words = document.querySelector("#words");
+
+function setCurrentStone(stone) {
+    currentStone = stone;
+    blackButton.classList.toggle("active", stone === Stone.BLACK);
+    whiteButton.classList.toggle("active", stone === Stone.WHITE);
+}
+
+function updateDebug(x = null, y = null) {
+    if (x === null || y === null) {
+        coordinate.textContent = "—";
+        externalIndex.textContent = "—";
+        bitIndex.textContent = "—";
+        wordOffset.textContent = "—";
+    } else {
+        const ext = toExternalIndex(x, y);
+        const bit = toBitIndex(x, y);
+        coordinate.textContent = `(${x}, ${y})`;
+        externalIndex.textContent = String(ext);
+        bitIndex.textContent = String(bit);
+        wordOffset.textContent = `${wordIndexOf(bit)} / ${bitOffsetOf(bit)}`;
+    }
+    words.textContent = `black: [${position.black.toHexWords().join(", ")}]\nwhite: [${position.white.toHexWords().join(", ")}]`;
+    undoButton.disabled = history.length === 0;
+}
+
+function renderPoint(button, x, y) {
+    button.replaceChildren();
+    const stone = position.stoneAt(x, y);
+    if (stone === Stone.EMPTY) return;
+    const disc = document.createElement("span");
+    disc.className = `stone ${stone === Stone.BLACK ? "black" : "white"}`;
+    button.append(disc);
+}
+
+function renderAll() {
+    board.querySelectorAll(".point").forEach(button => {
+        renderPoint(button, Number(button.dataset.x), Number(button.dataset.y));
+    });
+    updateDebug();
+}
+
+function play(x, y) {
+    if (!position.place(x, y, currentStone)) {
+        message.textContent = "此交叉點已有棋子。";
+        updateDebug(x, y);
+        return;
+    }
+
+    message.textContent = "";
+    history.push({ x, y, stone: currentStone });
+    renderPoint(board.querySelector(`[data-x="${x}"][data-y="${y}"]`), x, y);
+    updateDebug(x, y);
+    setCurrentStone(currentStone === Stone.BLACK ? Stone.WHITE : Stone.BLACK);
+}
+
+for (let y = 0; y < BOARD_SIZE; y += 1) {
+    for (let x = 0; x < BOARD_SIZE; x += 1) {
+        const point = document.createElement("button");
+        point.type = "button";
+        point.className = "point";
+        point.dataset.x = String(x);
+        point.dataset.y = String(y);
+        point.setAttribute("aria-label", `座標 ${x}, ${y}`);
+        point.addEventListener("click", () => play(x, y));
+        board.append(point);
+    }
+}
+
+blackButton.addEventListener("click", () => setCurrentStone(Stone.BLACK));
+whiteButton.addEventListener("click", () => setCurrentStone(Stone.WHITE));
+undoButton.addEventListener("click", () => {
+    const move = history.pop();
+    if (!move) return;
+    position.remove(move.x, move.y);
+    setCurrentStone(move.stone);
+    message.textContent = "";
+    renderPoint(board.querySelector(`[data-x="${move.x}"][data-y="${move.y}"]`), move.x, move.y);
+    updateDebug(move.x, move.y);
+});
+clearButton.addEventListener("click", () => {
+    position.clear();
+    history.length = 0;
+    setCurrentStone(Stone.BLACK);
+    message.textContent = "";
+    renderAll();
+});
+
+updateDebug();
+</script>
+</body>
+</html>
