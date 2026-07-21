@@ -37,3 +37,4 @@ jobs:
             upstream/lfz084-renju/build/Evaluator.wasm
             upstream/lfz084-renju/build/Evaluator.wat
           if-no-files-found: error
+          retention-days: 7
