@@ -5,6 +5,7 @@
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
 
+  // 此模組可接受一般 Array、Uint8Array，亦可接受 Bitboard Position.toArray225() 的輸出。
   const SIZE = 15;
   const EMPTY = 0;
   const BLACK = 1;
