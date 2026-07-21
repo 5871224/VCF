@@ -14,6 +14,11 @@ concurrency:
   group: pages
   cancel-in-progress: true
 
+env:
+  RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894
+  RAPFI_NETWORKS_REF: 918b757a129258e9e765f77fe17d507c2bb1a60b
+  EMSDK_VERSION: 3.1.74
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,6 +28,60 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
+
+      - name: Restore Rapfi Wasm cache
+        id: rapfi-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/rapfi-wasm
+          key: rapfi-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Build Rapfi single-thread WebAssembly
+        if: steps.rapfi-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf .build/rapfi .build/emsdk .cache/rapfi-wasm
+          mkdir -p .build .cache/rapfi-wasm
+
+          git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
+          git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
+          git -C .build/rapfi checkout --detach "$RAPFI_REF"
+          rm -rf .build/rapfi/Networks
+
+          git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi-networks.git .build/rapfi/Networks
+          git -C .build/rapfi/Networks sparse-checkout init --no-cone
+          git -C .build/rapfi/Networks sparse-checkout set --no-cone \
+            /wasm_preloads.txt /config-example/ /classical/ /mix9svq/
+          git -C .build/rapfi/Networks fetch --depth 1 origin "$RAPFI_NETWORKS_REF"
+          git -C .build/rapfi/Networks checkout --detach "$RAPFI_NETWORKS_REF"
+
+          # VCF 棋盤以左上角為 (0,0)，不使用 Gomocalc 的 Y 軸翻轉。
+          sed -i 's/coord_conversion_mode = "X_flipY"/coord_conversion_mode = "none"/' \
+            .build/rapfi/Networks/config-example/gomocalc-mix9svq.toml
+
+          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
+          .build/emsdk/emsdk install "$EMSDK_VERSION"
+          .build/emsdk/emsdk activate "$EMSDK_VERSION"
+          source .build/emsdk/emsdk_env.sh
+
+          build_dir="$GITHUB_WORKSPACE/.build/rapfi/Rapfi/build/wasm-single-simd128"
+          mkdir -p "$build_dir"
+          cd "$build_dir"
+          emcmake cmake ../.. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNO_COMMAND_MODULES=ON \
+            -DNO_MULTI_THREADING=ON \
+            -DUSE_WASM_SIMD=ON \
+            -DUSE_WASM_SIMD_RELAXED=OFF
+          emmake cmake --build . -j2
+
+          cp rapfi-single-simd128.js rapfi-single-simd128.wasm rapfi-single-simd128.data \
+            "$GITHUB_WORKSPACE/.cache/rapfi-wasm/"
+          test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.js"
+          test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.wasm"
+          test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.data"
+          ls -lh "$GITHUB_WORKSPACE/.cache/rapfi-wasm"
 
       - name: Prepare static site
         shell: bash
@@ -35,7 +94,9 @@ jobs:
           cp makevcf-mobile.js makevcf-layout.js makevcf-optimized-search-v2.js _site/
           cp pattern-compare.js pattern-compare.html _site/
           cp README.md 規格書.MD 題目產生器規格.MD _site/
-          cp -R eval emoji bitboard _site/
+          cp -R eval emoji bitboard rapfi _site/
+          mkdir -p _site/rapfi/engine
+          cp .cache/rapfi-wasm/rapfi-single-simd128.* _site/rapfi/engine/
 
           python - <<'PY'
           from pathlib import Path
@@ -75,6 +136,8 @@ jobs:
           PY
 
           touch _site/.nojekyll
+          du -sh _site
+          ls -lh _site/rapfi/engine
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
