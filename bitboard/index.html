@@ -3,54 +3,187 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bitboard 落子測試</title>
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title>Bitboard 棋型與禁手測試</title>
     <style>
-        :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+        :root {
+            color-scheme: light;
+            font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+            --bg: #f4f1ea;
+            --panel: #fff;
+            --line: #ddd7ca;
+            --muted: #666052;
+            --accent: #1f6f43;
+            --warn: #a3342f;
+            --board: #d8a85d;
+        }
         * { box-sizing: border-box; }
-        body { margin: 0; background: #f4f1ea; color: #252525; }
-        main { width: min(100% - 24px, 920px); margin: 20px auto 40px; }
+        body { margin: 0; background: var(--bg); color: #252525; }
+        main { width: min(100% - 24px, 1260px); margin: 20px auto 40px; }
         h1 { margin: 0 0 8px; font-size: clamp(1.35rem, 4vw, 2rem); }
+        h2 { margin: 0 0 10px; font-size: 1.05rem; }
         .intro { margin: 0 0 16px; line-height: 1.65; color: #555; }
-        .layout { display: grid; grid-template-columns: minmax(0, 560px) minmax(250px, 1fr); gap: 20px; align-items: start; }
-        .board-shell { overflow: auto; padding: 10px; background: #d8a85d; border: 1px solid #9a6d2f; border-radius: 10px; box-shadow: 0 4px 16px rgb(0 0 0 / 12%); }
-        .board { width: min(82vw, 540px); aspect-ratio: 1; display: grid; grid-template-columns: repeat(15, 1fr); background: #d8a85d; user-select: none; }
-        .point { position: relative; min-width: 22px; min-height: 22px; padding: 0; border: 0; background: transparent; cursor: pointer; }
-        .point::before, .point::after { content: ""; position: absolute; background: #4f371e; pointer-events: none; }
+        .layout {
+            display: grid;
+            grid-template-columns: minmax(0, 560px) minmax(360px, 1fr);
+            gap: 20px;
+            align-items: start;
+        }
+        .board-shell {
+            overflow: auto;
+            padding: 10px;
+            background: var(--board);
+            border: 1px solid #9a6d2f;
+            border-radius: 10px;
+            box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+        }
+        .board {
+            width: min(82vw, 540px);
+            aspect-ratio: 1;
+            display: grid;
+            grid-template-columns: repeat(15, 1fr);
+            background: var(--board);
+            user-select: none;
+        }
+        .point {
+            position: relative;
+            min-width: 22px;
+            min-height: 22px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+        }
+        .point::before, .point::after {
+            content: "";
+            position: absolute;
+            background: #4f371e;
+            pointer-events: none;
+        }
         .point::before { left: 0; right: 0; top: 50%; height: 1px; }
         .point::after { top: 0; bottom: 0; left: 50%; width: 1px; }
         .point[data-x="0"]::before { left: 50%; }
         .point[data-x="14"]::before { right: 50%; }
         .point[data-y="0"]::after { top: 50%; }
         .point[data-y="14"]::after { bottom: 50%; }
-        .point:hover { background: rgb(255 255 255 / 15%); }
-        .stone { position: absolute; z-index: 2; inset: 12%; border-radius: 50%; box-shadow: 0 2px 5px rgb(0 0 0 / 35%); pointer-events: none; }
+        .point:hover, .point:focus-visible { background: rgb(255 255 255 / 20%); outline: none; }
+        .point.hover-target { background: rgb(255 247 153 / 38%); }
+        .stone {
+            position: absolute;
+            z-index: 2;
+            inset: 12%;
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgb(0 0 0 / 35%);
+            pointer-events: none;
+        }
         .stone.black { background: radial-gradient(circle at 35% 30%, #5e5e5e, #111 65%); }
         .stone.white { background: radial-gradient(circle at 35% 30%, #fff, #ddd 70%); border: 1px solid #aaa; }
-        .panel { background: #fff; border: 1px solid #ddd7ca; border-radius: 10px; padding: 16px; box-shadow: 0 4px 16px rgb(0 0 0 / 7%); }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 16px;
+            box-shadow: 0 4px 16px rgb(0 0 0 / 7%);
+        }
         .controls { display: grid; gap: 10px; }
-        .color-row, .button-row { display: flex; gap: 8px; flex-wrap: wrap; }
-        button.control { border: 1px solid #aaa; border-radius: 8px; padding: 9px 13px; background: #fff; font: inherit; cursor: pointer; }
-        button.control.active { border-color: #1f6f43; outline: 2px solid rgb(31 111 67 / 22%); font-weight: 700; }
+        .control-label { font-weight: 700; }
+        .color-row, .button-row, .rule-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        button.control {
+            border: 1px solid #aaa;
+            border-radius: 8px;
+            padding: 9px 13px;
+            background: #fff;
+            font: inherit;
+            cursor: pointer;
+        }
+        button.control.active {
+            border-color: var(--accent);
+            outline: 2px solid rgb(31 111 67 / 22%);
+            font-weight: 700;
+        }
         button.control:disabled { opacity: .45; cursor: default; }
         .status { margin-top: 14px; padding-top: 14px; border-top: 1px solid #eee; line-height: 1.7; font-variant-numeric: tabular-nums; }
         .status strong { display: inline-block; min-width: 98px; }
         pre { overflow: auto; margin: 12px 0 0; padding: 10px; background: #f6f6f6; border-radius: 8px; font-size: .78rem; line-height: 1.55; }
         .message { min-height: 1.5em; margin-top: 10px; color: #9b2c2c; }
-        @media (max-width: 760px) { .layout { grid-template-columns: 1fr; } .board { width: min(88vw, 540px); } }
+        .analysis-panel { margin-top: 16px; }
+        .analysis-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .analysis-title { font-weight: 800; }
+        .match-badge {
+            padding: 4px 9px;
+            border-radius: 999px;
+            font-size: .82rem;
+            background: #e9f7ef;
+            color: #176b43;
+            border: 1px solid #a9d9bd;
+        }
+        .match-badge.mismatch { background: #fff0ee; color: var(--warn); border-color: #e2aaa4; }
+        .analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        .system-card { border: 1px solid #e0dbd0; border-radius: 9px; overflow: hidden; background: #fffdf8; }
+        .system-card h3 { margin: 0; padding: 10px 12px; font-size: .98rem; background: #f5efe1; border-bottom: 1px solid #e0dbd0; }
+        .system-summary { padding: 10px 12px; line-height: 1.65; font-size: .9rem; border-bottom: 1px solid #ece7dc; }
+        .forbidden { color: var(--warn); font-weight: 800; }
+        .legal { color: #176b43; font-weight: 800; }
+        .direction-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: .82rem; }
+        .direction-table th, .direction-table td { padding: 8px 7px; border-bottom: 1px solid #eee9de; vertical-align: top; text-align: left; }
+        .direction-table th { background: #faf7ef; color: #5a5448; }
+        .direction-table th:nth-child(1), .direction-table td:nth-child(1) { width: 26%; }
+        .direction-table th:nth-child(2), .direction-table td:nth-child(2) { width: 35%; }
+        .line-text { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .04em; overflow-wrap: anywhere; }
+        .pattern-code { display: block; font-weight: 800; }
+        .pattern-zh { display: block; color: var(--muted); margin-top: 2px; }
+        .empty-hint { color: var(--muted); padding: 18px 4px; text-align: center; line-height: 1.7; }
+        .footnote { margin-top: 10px; color: var(--muted); font-size: .78rem; line-height: 1.55; }
+        @media (max-width: 900px) {
+            .layout { grid-template-columns: 1fr; }
+            .board { width: min(88vw, 540px); }
+        }
+        @media (max-width: 680px) {
+            .analysis-grid { grid-template-columns: 1fr; }
+            main { width: min(100% - 14px, 1260px); margin-top: 10px; }
+            .panel { padding: 12px; }
+        }
     </style>
 </head>
 <body>
 <main>
-    <h1>Bitboard 棋盤與座標映射</h1>
-    <p class="intro">對外座標使用 15×15（索引 0～224），內部 Bitboard 使用 16×16（索引 0～255）。點選棋盤即可落子，黑白預設輪流。</p>
+    <h1>Bitboard 棋盤、棋型與禁手判斷</h1>
+    <p class="intro">棋盤仍以 16×16、四個 64-bit Word 的 Bitboard 儲存。滑鼠懸停或鍵盤聚焦空點時，會模擬目前顏色落子，並比較 Rapfi 完整遞迴判型與優化三進位查表判型。</p>
     <div class="layout">
-        <div class="board-shell"><div id="board" class="board" aria-label="15乘15五子棋棋盤"></div></div>
+        <div>
+            <div class="board-shell"><div id="board" class="board" aria-label="15乘15五子棋棋盤"></div></div>
+            <section class="panel analysis-panel" aria-live="polite">
+                <div class="analysis-head">
+                    <div id="analysisTitle" class="analysis-title">懸停空點查看棋型</div>
+                    <div id="matchBadge" class="match-badge" hidden>兩套結果一致</div>
+                </div>
+                <div id="analysisEmpty" class="empty-hint">將滑鼠移到空點上，會顯示落下目前顏色後的四方向棋型與禁手原因。</div>
+                <div id="analysisGrid" class="analysis-grid" hidden>
+                    <article id="referenceCard" class="system-card"></article>
+                    <article id="optimizedCard" class="system-card"></article>
+                </div>
+                <div id="analysisFootnote" class="footnote"></div>
+            </section>
+        </div>
         <section class="panel">
             <div class="controls">
-                <div><strong>下一手</strong></div>
+                <div class="control-label">下一手</div>
                 <div class="color-row">
                     <button id="blackButton" class="control active" type="button">黑棋</button>
                     <button id="whiteButton" class="control" type="button">白棋</button>
+                </div>
+                <div class="control-label">規則</div>
+                <div class="rule-row">
+                    <button class="control rule active" type="button" data-rule="renju">連珠</button>
+                    <button class="control rule" type="button" data-rule="standard">無禁五子棋</button>
+                    <button class="control rule" type="button" data-rule="freestyle">自由五子棋</button>
                 </div>
                 <div class="button-row">
                     <button id="undoButton" class="control" type="button" disabled>悔棋</button>
@@ -68,6 +201,7 @@
         </section>
     </div>
 </main>
+<script src="../pattern-compare.js"></script>
 <script type="module">
 import {
     BOARD_SIZE,
@@ -79,9 +213,15 @@ import {
     wordIndexOf,
 } from "./bitboard.js";
 
+const patternApi = window.VCFPatternCompare;
+if (!patternApi) throw new Error("棋型判斷核心載入失敗");
+
 const position = new Position();
 const history = [];
 let currentStone = Stone.BLACK;
+let currentRule = patternApi.RULES.RENJU;
+let hoverIndex = -1;
+let tableBuildInfo = null;
 
 const board = document.querySelector("#board");
 const blackButton = document.querySelector("#blackButton");
@@ -94,11 +234,36 @@ const externalIndex = document.querySelector("#externalIndex");
 const bitIndex = document.querySelector("#bitIndex");
 const wordOffset = document.querySelector("#wordOffset");
 const words = document.querySelector("#words");
+const analysisTitle = document.querySelector("#analysisTitle");
+const matchBadge = document.querySelector("#matchBadge");
+const analysisEmpty = document.querySelector("#analysisEmpty");
+const analysisGrid = document.querySelector("#analysisGrid");
+const referenceCard = document.querySelector("#referenceCard");
+const optimizedCard = document.querySelector("#optimizedCard");
+const analysisFootnote = document.querySelector("#analysisFootnote");
+const ruleButtons = [...document.querySelectorAll("button.rule")];
+
+function stoneName(stone) {
+    return stone === Stone.BLACK ? "黑棋" : "白棋";
+}
+
+function ruleName(rule) {
+    if (rule === patternApi.RULES.RENJU) return "連珠";
+    if (rule === patternApi.RULES.STANDARD) return "無禁五子棋";
+    return "自由五子棋";
+}
 
 function setCurrentStone(stone) {
     currentStone = stone;
     blackButton.classList.toggle("active", stone === Stone.BLACK);
     whiteButton.classList.toggle("active", stone === Stone.WHITE);
+    refreshHoverAnalysis();
+}
+
+function setRule(rule) {
+    currentRule = rule;
+    ruleButtons.forEach(button => button.classList.toggle("active", button.dataset.rule === rule));
+    refreshHoverAnalysis();
 }
 
 function updateDebug(x = null, y = null) {
@@ -135,6 +300,105 @@ function renderAll() {
     updateDebug();
 }
 
+function clearHoverTarget() {
+    board.querySelector(".point.hover-target")?.classList.remove("hover-target");
+}
+
+function setHoverTarget(button) {
+    clearHoverTarget();
+    button?.classList.add("hover-target");
+}
+
+function createText(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    el.textContent = text;
+    return el;
+}
+
+function renderSystemCard(card, title, analysis, forbiddenInfo) {
+    card.replaceChildren();
+    card.append(createText("h3", "", title));
+
+    const summary = document.createElement("div");
+    summary.className = "system-summary";
+    const p4 = createText("div", "", `總棋型：${analysis.pattern4Name}（${analysis.pattern4Zh}）`);
+    const forbiddenClass = forbiddenInfo.forbidden ? "forbidden" : "legal";
+    const forbidden = createText(
+        "div",
+        forbiddenClass,
+        forbiddenInfo.forbidden ? `禁手：是，${forbiddenInfo.type}` : `禁手：否，${forbiddenInfo.type}`,
+    );
+    const detail = createText("div", "", forbiddenInfo.detail || "");
+    summary.append(p4, forbidden, detail);
+    card.append(summary);
+
+    const table = document.createElement("table");
+    table.className = "direction-table";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    for (const label of ["方向", "棋型", "11／9 格線"]) headRow.append(createText("th", "", label));
+    thead.append(headRow);
+    const tbody = document.createElement("tbody");
+
+    for (const item of analysis.directions) {
+        const row = document.createElement("tr");
+        row.append(createText("td", "", item.directionName));
+        const patternCell = document.createElement("td");
+        patternCell.append(
+            createText("span", "pattern-code", item.patternName),
+            createText("span", "pattern-zh", item.patternZh),
+        );
+        row.append(patternCell, createText("td", "line-text", item.lineText));
+        tbody.append(row);
+    }
+
+    table.append(thead, tbody);
+    card.append(table);
+}
+
+function hideAnalysis(messageText = "將滑鼠移到空點上，會顯示落下目前顏色後的四方向棋型與禁手原因。") {
+    analysisTitle.textContent = "懸停空點查看棋型";
+    analysisEmpty.textContent = messageText;
+    analysisEmpty.hidden = false;
+    analysisGrid.hidden = true;
+    matchBadge.hidden = true;
+    analysisFootnote.textContent = tableBuildInfo
+        ? `優化查表初始化：${tableBuildInfo.buildMs.toFixed(2)} ms。`
+        : "";
+}
+
+function analyzeIndex(idx) {
+    if (idx < 0 || idx >= BOARD_SIZE * BOARD_SIZE) {
+        hideAnalysis();
+        return;
+    }
+    const x = idx % BOARD_SIZE;
+    const y = Math.floor(idx / BOARD_SIZE);
+    if (!position.isEmpty(x, y)) {
+        hideAnalysis("該交叉點已有棋子；請懸停其他空點。");
+        return;
+    }
+
+    const cells = position.toArray225();
+    const result = patternApi.comparePoint(cells, idx, currentStone, currentRule);
+    analysisTitle.textContent = `${patternApi.coordinateName(idx)}（${x}, ${y}）落下${stoneName(currentStone)}｜${ruleName(currentRule)}`;
+    renderSystemCard(referenceCard, "系統 1：Rapfi 完整遞迴判型", result.reference, result.referenceForbidden);
+    renderSystemCard(optimizedCard, "系統 2：優化三進位查表判型", result.optimized, result.optimizedForbidden);
+
+    analysisEmpty.hidden = true;
+    analysisGrid.hidden = false;
+    matchBadge.hidden = false;
+    matchBadge.classList.toggle("mismatch", !result.allMatch);
+    matchBadge.textContent = result.allMatch ? "兩套結果一致" : "兩套結果不一致";
+    analysisFootnote.textContent = `優化查表初始化：${result.optimizedBuildMs.toFixed(2)} ms；懸停分析只模擬落子，不會修改 Bitboard。`;
+}
+
+function refreshHoverAnalysis() {
+    if (hoverIndex >= 0) analyzeIndex(hoverIndex);
+    else hideAnalysis();
+}
+
 function play(x, y) {
     if (!position.place(x, y, currentStone)) {
         message.textContent = "此交叉點已有棋子。";
@@ -147,23 +411,42 @@ function play(x, y) {
     renderPoint(board.querySelector(`[data-x="${x}"][data-y="${y}"]`), x, y);
     updateDebug(x, y);
     setCurrentStone(currentStone === Stone.BLACK ? Stone.WHITE : Stone.BLACK);
+    if (hoverIndex === toExternalIndex(x, y)) hideAnalysis("該交叉點已落子；請懸停其他空點。");
 }
 
 for (let y = 0; y < BOARD_SIZE; y += 1) {
     for (let x = 0; x < BOARD_SIZE; x += 1) {
         const point = document.createElement("button");
+        const idx = toExternalIndex(x, y);
         point.type = "button";
         point.className = "point";
         point.dataset.x = String(x);
         point.dataset.y = String(y);
         point.setAttribute("aria-label", `座標 ${x}, ${y}`);
         point.addEventListener("click", () => play(x, y));
+        point.addEventListener("pointerenter", () => {
+            hoverIndex = idx;
+            setHoverTarget(point);
+            analyzeIndex(idx);
+        });
+        point.addEventListener("focus", () => {
+            hoverIndex = idx;
+            setHoverTarget(point);
+            analyzeIndex(idx);
+        });
         board.append(point);
     }
 }
 
+board.addEventListener("pointerleave", () => {
+    hoverIndex = -1;
+    clearHoverTarget();
+    hideAnalysis();
+});
+
 blackButton.addEventListener("click", () => setCurrentStone(Stone.BLACK));
 whiteButton.addEventListener("click", () => setCurrentStone(Stone.WHITE));
+ruleButtons.forEach(button => button.addEventListener("click", () => setRule(button.dataset.rule)));
 undoButton.addEventListener("click", () => {
     const move = history.pop();
     if (!move) return;
@@ -172,6 +455,7 @@ undoButton.addEventListener("click", () => {
     message.textContent = "";
     renderPoint(board.querySelector(`[data-x="${move.x}"][data-y="${move.y}"]`), move.x, move.y);
     updateDebug(move.x, move.y);
+    refreshHoverAnalysis();
 });
 clearButton.addEventListener("click", () => {
     position.clear();
@@ -179,9 +463,19 @@ clearButton.addEventListener("click", () => {
     setCurrentStone(Stone.BLACK);
     message.textContent = "";
     renderAll();
+    refreshHoverAnalysis();
 });
 
+message.textContent = "正在建立優化棋型查表…";
+try {
+    tableBuildInfo = patternApi.ensureOptimizedTables();
+    message.textContent = `棋型查表已建立（${tableBuildInfo.buildMs.toFixed(2)} ms）。`;
+} catch (error) {
+    console.error(error);
+    message.textContent = `棋型查表建立失敗：${error?.message || error}`;
+}
 updateDebug();
+hideAnalysis();
 </script>
 </body>
 </html>
