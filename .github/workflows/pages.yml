@@ -33,6 +33,7 @@ jobs:
           cp makevcf-generator.html _site/
           cp makevcf-generator-*.js _site/
           cp makevcf-mobile.js makevcf-layout.js makevcf-optimized-search-v2.js _site/
+          cp pattern-compare.js pattern-compare.html _site/
           cp README.md 規格書.MD 題目產生器規格.MD _site/
           cp -R eval emoji bitboard _site/
 
