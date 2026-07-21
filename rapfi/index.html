@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Rapfi WebAssembly 測試</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
+      color: #242424;
+      background: #f3f1eb;
+      --panel: #fff;
+      --line: #d8d2c4;
+      --accent: #176b43;
+      --board: #d9aa61;
+      --danger: #a5312d;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { width: min(100% - 20px, 1220px); margin: 16px auto 40px; }
+    h1 { margin: 0 0 6px; font-size: clamp(1.4rem, 4vw, 2rem); }
+    .intro { margin: 0 0 14px; color: #625e54; line-height: 1.6; }
+    .status-bar {
+      display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+      padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px;
+      background: var(--panel); margin-bottom: 14px;
+    }
+    .status-dot { width: 11px; height: 11px; border-radius: 50%; background: #999; }
+    .status-dot.loading { background: #d69322; }
+    .status-dot.ready { background: var(--accent); }
+    .status-dot.error { background: var(--danger); }
+    progress { width: min(320px, 70vw); height: 12px; }
+    .layout { display: grid; grid-template-columns: minmax(320px, 570px) minmax(330px, 1fr); gap: 16px; align-items: start; }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; box-shadow: 0 3px 14px rgb(0 0 0 / 7%); }
+    .board-shell { padding: 10px; background: var(--board); border: 1px solid #986b30; border-radius: 10px; overflow: auto; }
+    .board { display: grid; grid-template-columns: repeat(15, 1fr); width: min(88vw, 540px); aspect-ratio: 1; }
+    .point { position: relative; min-width: 21px; min-height: 21px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+    .point::before, .point::after { content: ""; position: absolute; background: #51391f; pointer-events: none; }
+    .point::before { left: 0; right: 0; top: 50%; height: 1px; }
+    .point::after { top: 0; bottom: 0; left: 50%; width: 1px; }
+    .point[data-x="0"]::before { left: 50%; }
+    .point[data-x="14"]::before { right: 50%; }
+    .point[data-y="0"]::after { top: 50%; }
+    .point[data-y="14"]::after { bottom: 50%; }
+    .point:hover { background: rgb(255 255 255 / 20%); }
+    .stone { position: absolute; z-index: 2; inset: 12%; border-radius: 50%; box-shadow: 0 2px 5px rgb(0 0 0 / 35%); pointer-events: none; }
+    .stone.black { background: radial-gradient(circle at 35% 30%, #666, #111 65%); }
+    .stone.white { background: radial-gradient(circle at 35% 30%, #fff, #ddd 70%); border: 1px solid #aaa; }
+    .suggestion { position: absolute; z-index: 3; width: 34%; aspect-ratio: 1; border-radius: 50%; left: 33%; top: 33%; background: #df2e2e; box-shadow: 0 0 0 2px rgb(255 255 255 / 80%); pointer-events: none; }
+    .toolbar, .form-grid { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .toolbar { margin-top: 12px; }
+    button, select, input { font: inherit; }
+    button, select { border: 1px solid #aaa; border-radius: 8px; padding: 8px 11px; background: #fff; }
+    button { cursor: pointer; }
+    button.primary { color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+    button.danger { color: var(--danger); border-color: #d7aaa7; }
+    button:disabled { opacity: .45; cursor: default; }
+    label { display: grid; gap: 4px; font-size: .88rem; color: #5d584e; }
+    .result { margin-top: 12px; padding: 10px; border-radius: 8px; background: #f5f1e7; min-height: 46px; line-height: 1.55; }
+    .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 12px 0; font-variant-numeric: tabular-nums; }
+    .stats div { padding: 7px 9px; background: #f7f6f2; border-radius: 7px; }
+    .stats strong { display: block; font-size: .78rem; color: #706a5e; }
+    .console { height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 8px 0; padding: 10px; border-radius: 8px; background: #171717; color: #d7f5de; font: .8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .command-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .command-row input { min-width: 0; border: 1px solid #aaa; border-radius: 8px; padding: 8px 10px; }
+    .note { margin-top: 12px; color: #69645a; font-size: .82rem; line-height: 1.55; }
+    a { color: #145f3c; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    @media (max-width: 520px) { main { width: min(100% - 12px, 1220px); margin-top: 8px; } .panel { padding: 10px; } .stats { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Rapfi WebAssembly 單執行緒測試</h1>
+  <p class="intro">直接在瀏覽器執行官方 Rapfi C++ 引擎。此版本使用 WebAssembly SIMD128 與單執行緒，適合 GitHub Pages。</p>
+
+  <div class="status-bar">
+    <span id="statusDot" class="status-dot loading"></span>
+    <strong id="statusText">正在載入 Rapfi…</strong>
+    <progress id="loadProgress" max="1" value="0"></progress>
+    <span id="loadDetail"></span>
+  </div>
+
+  <div class="layout">
+    <section class="panel">
+      <div class="board-shell"><div id="board" class="board" aria-label="15乘15五子棋棋盤"></div></div>
+      <div class="toolbar">
+        <button id="undoButton" type="button" disabled>悔棋</button>
+        <button id="clearButton" type="button">清空</button>
+        <button id="acceptButton" type="button" disabled>採用建議</button>
+      </div>
+      <div class="form-grid" style="margin-top:12px">
+        <label>規則
+          <select id="ruleSelect">
+            <option value="2" selected>連珠</option>
+            <option value="1">無禁五子棋</option>
+            <option value="0">自由五子棋</option>
+          </select>
+        </label>
+        <label>思考時間
+          <select id="timeSelect">
+            <option value="1000">1 秒</option>
+            <option value="3000" selected>3 秒</option>
+            <option value="10000">10 秒</option>
+            <option value="30000">30 秒</option>
+          </select>
+        </label>
+        <button id="analyzeButton" class="primary" type="button" disabled>Rapfi 下一手</button>
+        <button id="restartButton" class="danger" type="button">停止／重啟引擎</button>
+      </div>
+      <div id="result" class="result">目前輪到黑棋。</div>
+    </section>
+
+    <section class="panel">
+      <h2 style="margin-top:0">搜尋資訊</h2>
+      <div class="stats">
+        <div><strong>深度</strong><span id="depth">—</span></div>
+        <div><strong>選擇深度</strong><span id="seldepth">—</span></div>
+        <div><strong>節點</strong><span id="nodes">—</span></div>
+        <div><strong>速度</strong><span id="speed">—</span></div>
+        <div><strong>評分</strong><span id="evaluation">—</span></div>
+        <div><strong>勝率</strong><span id="winrate">—</span></div>
+      </div>
+      <div id="console" class="console" aria-live="polite"></div>
+      <form id="commandForm" class="command-row">
+        <input id="commandInput" autocomplete="off" placeholder="輸入 Rapfi 指令，例如 ABOUT">
+        <button type="submit">傳送</button>
+      </form>
+      <p class="note">搜尋在 Web Worker 中執行，不會卡住棋盤介面。單執行緒搜尋期間無法即時處理停止指令，因此「停止／重啟引擎」會終止 Worker 並重新載入引擎與權重。</p>
+      <p class="note">Rapfi 採 GPL v3 授權。<a href="SOURCE.md">查看來源、版本與建置方式</a>。</p>
+    </section>
+  </div>
+</main>
+<script type="module" src="./rapfi-app.js"></script>
+</body>
+</html>
