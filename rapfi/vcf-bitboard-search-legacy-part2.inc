@@ -25,65 +25,56 @@ struct SearchContext {
 struct CompactPosition {
     std::array<uint64_t, BIT_WORDS> black {};
     std::array<uint64_t, BIT_WORDS> white {};
+
+    bool operator==(const CompactPosition &other) const
+    {
+        return black == other.black && white == other.white;
+    }
 };
 
-bool bitSubset(const std::array<uint64_t, BIT_WORDS> &small,
-               const std::array<uint64_t, BIT_WORDS> &large)
+uint64_t mixPositionWord(uint64_t value)
 {
-    for (int word = 0; word < BIT_WORDS; word++)
-        if ((small[word] & large[word]) != small[word])
-            return false;
-    return true;
+    value ^= value >> 30;
+    value *= 0xbf58476d1ce4e5b9ULL;
+    value ^= value >> 27;
+    value *= 0x94d049bb133111ebULL;
+    return value ^ (value >> 31);
 }
 
-bool positionSubset(const CompactPosition &small, const Board &large)
-{
-    return bitSubset(small.black, large.black) && bitSubset(small.white, large.white);
-}
+struct CompactPositionHasher {
+    size_t operator()(const CompactPosition &position) const
+    {
+        uint64_t hash = 0x5643462d4f4c4454ULL;
+        for (int word = 0; word < BIT_WORDS; word++) {
+            hash = mixPositionWord(hash ^ position.black[word]);
+            hash = mixPositionWord(hash ^ (position.white[word] + 0x9e3779b97f4a7c15ULL));
+        }
+        return size_t(hash);
+    }
+};
 
-bool positionSubset(const Board &small, const CompactPosition &large)
-{
-    return bitSubset(small.black, large.black) && bitSubset(small.white, large.white);
-}
-
-class LegacySubsetTable {
+class LegacyTransTable {
 public:
-    explicit LegacySubsetTable(int maxDepth)
+    explicit LegacyTransTable(int maxDepth)
         : byPly(size_t(std::max(1, maxDepth / 2 + 2)))
     {
     }
 
-    bool hasSubset(const Board &board, int ply) const
+    bool has(const Board &board, int ply) const
     {
         const int bucket = std::min<int>(ply / 2, int(byPly.size()) - 1);
-        for (int depth = bucket; depth >= 0; depth--)
-            for (const CompactPosition &entry : byPly[depth])
-                if (positionSubset(entry, board))
-                    return true;
-        return false;
+        const CompactPosition position {board.black, board.white};
+        return byPly[bucket].find(position) != byPly[bucket].end();
     }
 
     void store(const Board &board, int ply)
     {
         const int bucket = std::min<int>(ply / 2, int(byPly.size()) - 1);
-        for (int depth = bucket; depth >= 0; depth--)
-            for (const CompactPosition &entry : byPly[depth])
-                if (positionSubset(entry, board))
-                    return;
-
-        CompactPosition current {board.black, board.white};
-        // 較短的無解局面可以支配較長局面；維持小型反鏈，避免線性表膨脹。
-        for (int depth = bucket; depth < int(byPly.size()); depth++) {
-            auto &entries = byPly[depth];
-            entries.erase(std::remove_if(entries.begin(), entries.end(), [&](const CompactPosition &entry) {
-                return positionSubset(board, entry);
-            }), entries.end());
-        }
-        byPly[bucket].push_back(current);
+        byPly[bucket].insert({board.black, board.white});
     }
 
 private:
-    std::vector<std::vector<CompactPosition>> byPly;
+    std::vector<std::unordered_set<CompactPosition, CompactPositionHasher>> byPly;
 };
 
 bool routeValidOld(Board board, int attacker, int rule, const std::vector<uint8_t> &route)
@@ -160,7 +151,7 @@ struct SearchRunner {
     int maxRoutes = 1;
     bool simplify = false;
     SearchContext *ctx = nullptr;
-    LegacySubsetTable *subset = nullptr;
+    LegacyTransTable *transTable = nullptr;
     std::vector<std::vector<uint8_t>> routes;
     int rootCandidates = 0;
 
@@ -187,7 +178,7 @@ struct SearchRunner {
     {
         if (ctx->aborted || full() || ply >= ctx->maxDepth)
             return false;
-        if (subset->hasSubset(board, ply))
+        if (transTable->has(board, ply))
             return false;
 
         const int defender = 3 - attacker;
@@ -195,12 +186,12 @@ struct SearchRunner {
             ? scanThreatAll(board, defender, rule)
             : scanThreatThrough(board, lastDefense, defender, rule);
         if (counter.hasFive || counter.count >= 2) {
-            subset->store(board, ply);
+            transTable->store(board, ply);
             return false;
         }
         const int forcedPoint = counter.count == 1 ? counter.points[0] : NIL;
         if (forcedPoint < BOARD_CELLS && !fullLegal(board, forcedPoint, attacker, rule)) {
-            subset->store(board, ply);
+            transTable->store(board, ply);
             return false;
         }
 
@@ -246,7 +237,7 @@ struct SearchRunner {
         }
 
         if (!foundAny && !ctx->aborted && !full())
-            subset->store(board, ply);
+            transTable->store(board, ply);
         return foundAny;
     }
 };
