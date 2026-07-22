@@ -78,6 +78,7 @@ vcf-pattern-engine.wasm
 
 ```text
 rapfi/vcf-bitboard-engine.cpp
+rapfi/vcf-bitboard-search-v2.cpp
 ```
 
 題目產生器舊編碼相容層：
@@ -87,7 +88,7 @@ rapfi/vcf-bitboard-legacy-extra.cpp
 rapfi/vcf-bitboard-generator-compat.js
 ```
 
-它和 `vcf-pattern-engine.cpp` 連結成另一個完全獨立的模組：
+它們和 `vcf-pattern-engine.cpp` 連結成另一個完全獨立的模組：
 
 ```text
 vcf-bitboard-engine.js
@@ -97,13 +98,47 @@ vcf-bitboard-engine.wasm
 主要架構：
 
 - 黑白各使用四個 `uint64_t`，表示完整 225 位棋盤。
-- 落子與回復同步更新 Bitboard 及 225 格相容陣列。
+- 落子與回復同步更新 Bitboard、雙 64-bit Zobrist key 及 225 格相容陣列。
 - 空點以位元掃描產生，不由 JavaScript 逐格遞迴。
 - 純 VCF 攻擊節點只展開合法的 `B4`、`F4`、`F5`。
 - 防守節點驗證唯一成五點、雙成五點、守方立即成五及連珠禁手。
 - VCF 路線、單一路線防守、全部防守候選、VCT／加子逐點掃描及節點統計都在 C++ Wasm 內執行。
 - 多點掃描可使用多個彼此獨立的單執行緒 Wasm Worker，不需要 SharedArrayBuffer。
 - 同線雙四相容層由 C++ 重新確認同方向兩個成五點，用來維持既有題目產生器的 `24` 編碼。
+
+### 單組與多組使用不同同型表
+
+單組 VCF 使用 Rapfi 式固定大小 transposition table：
+
+- 每個 entry 為 12 bytes，保存 32-bit signature、勝負、最佳手、可用深度、勝路長度及世代。
+- 每個 64-byte bucket 保存 5 個 entry。
+- 使用完整 Bitboard Zobrist key，並包含攻方及規則。
+- 已證明勝利時可先走保存的最佳手；已完整證明失敗且深度足夠時可直接跳過。
+- 找到第一組 VCF 就立即回傳，適合「找黑 VCF」「找白 VCF」及速度優先的補子搜尋。
+
+多組 VCF 使用舊版語意的列舉同型表：
+
+- 以兩組獨立 64-bit Zobrist key 表示精確攻方回合盤面。
+- 同盤面由不同落子順序抵達時，不重複展開相同後續。
+- 不使用單組 TT 的勝負 cutoff，因此不會因某局面已知可勝而漏掉其他成功分支。
+- 同一個第一手找到一條路線後仍會繼續搜尋其他後續分支，直到達到結果數、節點限制或搜尋完成。
+- 結果依攻守棋子集合做包含關係去重，較短的有效路線可取代包含它的較長路線。
+
+### 精簡手順
+
+「精簡手順」不是刪除初始盤面棋子，而是精簡已找到的 VCF 路線：
+
+1. 從最後一組完整攻防層往第 1 層檢查。
+2. 暫時刪除該層攻方棋及下一顆守方棋。
+3. 以 `vcfBbValidateRoute`（`isVCF`）驗證剩餘路線。
+4. 成立就永久刪除該層，否則保留。
+
+「找黑 VCF」「找白 VCF」只有勾選時才執行；「多組 VCF」及補子搜尋的「多組 VCF（最少步）」模式永遠執行。
+
+補子搜尋模式：
+
+- `單組 VCF（速度）`：每個補子位置找到第一組 VCF 就回傳。
+- `多組 VCF（最少步）`：使用多組列舉表配合逐層加深，先證明較短深度沒有解，再回傳最少步數 VCF。
 
 JavaScript 只負責：
 
@@ -123,5 +158,5 @@ GitHub Actions 部署時：
 - 以原主頁 `makevcf.html` 生成新的 `/rapfi/index.html`，保留原主頁的全部操作、圖片匯入及題目產生器。
 - 在原主頁 JavaScript 建立舊引擎前，先載入 `vcf-bitboard-engine.js` 與 `vcf-bitboard-main.js`。
 - 載入 `vcf-bitboard-generator-compat.js`，再載入原題目產生器腳本。
-- 以 `vcf-bitboard-speed.js` 取代原本會啟動舊 Worker 的速度比較腳本。
+- 先載入 `rapfi-bitboard-dashboard.js` 安裝搜尋模式及介面，再載入 `vcf-bitboard-speed.js` 包裝同一搜尋入口。
 - `/rapfi/` 不載入 `eval/EvaluatorCore.js`、`eval/Evaluator.js`、`makevcf-optimized-search-v2.js` 或舊搜尋 Worker。
