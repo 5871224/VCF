@@ -33,6 +33,18 @@ const benchmarkCells = {
     total: document.querySelector("#wasmRawTotal"),
     perOp: document.querySelector("#wasmRawPerOp"),
   },
+  wasmTernary: {
+    total: document.querySelector("#wasmTernaryTotal"),
+    perOp: document.querySelector("#wasmTernaryPerOp"),
+  },
+  wasmHelper: {
+    total: document.querySelector("#wasmHelperTotal"),
+    perOp: document.querySelector("#wasmHelperPerOp"),
+  },
+  wasmBinary: {
+    total: document.querySelector("#wasmBinaryTotal"),
+    perOp: document.querySelector("#wasmBinaryPerOp"),
+  },
   jsTernary: {
     total: document.querySelector("#jsTernaryTotal"),
     perOp: document.querySelector("#jsTernaryPerOp"),
@@ -265,12 +277,15 @@ function startWorker() {
       benchmarkBusy = false;
       formatBenchmark(benchmarkCells.wasmFused, data.wasmFusedNs, data.iterations);
       formatBenchmark(benchmarkCells.wasmRaw, data.wasmRawNs, data.iterations);
+      formatBenchmark(benchmarkCells.wasmTernary, data.wasmTernaryNs, data.iterations);
+      formatBenchmark(benchmarkCells.wasmHelper, data.wasmHelperNs, data.iterations);
+      formatBenchmark(benchmarkCells.wasmBinary, data.wasmBinaryNs, data.iterations);
       formatBenchmark(benchmarkCells.jsTernary, data.jsTernaryNs, data.iterations);
       formatBenchmark(benchmarkCells.jsHelper, data.jsHelperNs, data.iterations);
       formatBenchmark(benchmarkCells.jsBinary, data.jsBinaryNs, data.iterations);
       formatBenchmark(benchmarkCells.wasmPoint, data.wasmPointNs, data.iterations);
-      benchmarkDetail.textContent = `每項 ${data.iterations.toLocaleString("zh-TW")} 次，共 ${data.rounds} 輪，顯示中位數；所有項目都在同一個 Worker、同一個瀏覽器執行。`;
-      resultElement.textContent = "Rapfi 與 JavaScript 棋型速度比較完成。";
+      benchmarkDetail.textContent = `每項 ${data.iterations.toLocaleString("zh-TW")} 次，共 ${data.rounds} 輪交錯執行並顯示中位數；所有項目都在同一個 Worker、同一個瀏覽器執行。`;
+      resultElement.textContent = "Rapfi、WebAssembly 查表與 JavaScript 速度比較完成。";
       renderAll();
       return;
     }
@@ -373,8 +388,8 @@ benchmarkButton.addEventListener("click", () => {
   if (!engineReady || engineBusy || benchmarkBusy) return;
   benchmarkBusy = true;
   resetBenchmarkCells("測試中…");
-  benchmarkDetail.textContent = "Rapfi C++ Wasm 與三種 JavaScript 路徑正在同一個 Worker 中依序測量。";
-  resultElement.textContent = "正在比較 Rapfi 與 JavaScript 棋型熱路徑…";
+  benchmarkDetail.textContent = "Rapfi、三種 C++ Wasm 查表與三種 JavaScript 查表正在同一個 Worker 中交錯測量。";
+  resultElement.textContent = "正在比較 WebAssembly 與 JavaScript 棋型熱路徑…";
   renderAll();
   worker.postMessage({
     type: "benchmark",
