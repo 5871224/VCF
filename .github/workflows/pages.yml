@@ -48,7 +48,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/vcf-bitboard-engine
-          key: vcf-bitboard-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp') }}
+          key: vcf-bitboard-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
 
       - name: Install Emscripten SDK
         if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true'
@@ -144,14 +144,14 @@ jobs:
           mkdir -p .cache/vcf-bitboard-engine
 
           # 搜尋核心與棋型核心以獨立 VCF 原始碼連結；不包含 Rapfi 原始碼。
-          g++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp \
+          g++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
             -O2 \
             -std=c++17 \
             -DVCF_BITBOARD_TEST_MAIN \
             -o /tmp/vcf-bitboard-engine-test
           /tmp/vcf-bitboard-engine-test
 
-          em++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp \
+          em++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
             -O3 \
             -std=c++17 \
             -msimd128 \
@@ -162,7 +162,7 @@ jobs:
             -s ENVIRONMENT='web,worker,node' \
             -s FILESYSTEM=0 \
             -s ALLOW_MEMORY_GROWTH=1 \
-            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbSelfTest','_malloc','_free']" \
+            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_malloc','_free']" \
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
 
@@ -257,6 +257,7 @@ jobs:
           <!-- 手機介面與原主頁題目產生器；棋型／搜尋介面由 Bitboard Wasm 提供。 -->
           <script src="makevcf-mobile.js"></script>
           <script src="emoji/emoji.js"></script>
+          <script src="rapfi/vcf-bitboard-generator-compat.js"></script>
           <script src="makevcf-generator-core.js"></script>
           <script src="makevcf-generator-base.js"></script>
           <script src="makevcf-generator-layer.js"></script>
@@ -278,6 +279,7 @@ jobs:
           assert 'base href="../"' in rapfi_text
           assert 'vcf-bitboard-engine.js' in rapfi_text
           assert 'vcf-bitboard-main.js' in rapfi_text
+          assert 'vcf-bitboard-generator-compat.js' in rapfi_text
           assert 'eval/EvaluatorCore.js' not in rapfi_scripts
           assert Path("_site/rapfi/lab.html").is_file()
           PY
