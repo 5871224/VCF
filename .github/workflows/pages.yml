@@ -162,7 +162,7 @@ jobs:
             -s ENVIRONMENT='web,worker,node' \
             -s FILESYSTEM=0 \
             -s ALLOW_MEMORY_GROWTH=1 \
-            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
+            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
 
@@ -176,11 +176,16 @@ jobs:
           }).then(module => {
             const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
             const searchV2SelfTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
+            const findModeV3 = module.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"));
+            const scanModeV3 = module.cwrap("vcfBbScanPointsModeV3", "number", Array(15).fill("number"));
             const result = selfTest();
             const searchResult = searchV2SelfTest();
             if (result !== 0) throw new Error(`Wasm self-test failed: ${result}`);
             if (searchResult !== 0) throw new Error(`Wasm search V2 self-test failed: ${searchResult}`);
-            console.log("Bitboard Wasm runtime self-tests: 0 / 0");
+            if (typeof findModeV3 !== "function" || typeof scanModeV3 !== "function") {
+              throw new Error("Optimized V3 exports are unavailable");
+            }
+            console.log("Bitboard Wasm runtime self-tests: 0 / 0; optimized V3 exports ready");
           }).catch(error => {
             console.error(error);
             process.exit(1);
