@@ -196,7 +196,7 @@ async function init(url) {
     if (typeof self.VCFBitboardModule !== "function") throw new Error("找不到 VCFBitboardModule");
     moduleInstance = await self.VCFBitboardModule({ locateFile: file => new URL(file, base).href });
     api = {
-      find: moduleInstance.cwrap("vcfBbFind", "number", Array(11).fill("number")),
+      find: moduleInstance.cwrap("vcfBbFind", "number", Array(10).fill("number")),
       validate: moduleInstance.cwrap("vcfBbValidateRoute", "number", Array(7).fill("number")),
       routeDefense: moduleInstance.cwrap("vcfBbRouteDefense", "number", Array(9).fill("number")),
       scan: moduleInstance.cwrap("vcfBbScanPoints", "number", Array(12).fill("number")),
