@@ -36,15 +36,15 @@ jobs:
           path: .cache/rapfi-wasm
           key: rapfi-official-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-v1
 
-      - name: Restore independent lookup benchmark cache
-        id: lookup-cache
+      - name: Restore independent VCF pattern engine cache
+        id: pattern-cache
         uses: actions/cache@v4
         with:
-          path: .cache/vcf-lookup-benchmark
-          key: vcf-lookup-benchmark-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-lookup-benchmark.cpp') }}
+          path: .cache/vcf-pattern-engine
+          key: vcf-pattern-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp') }}
 
       - name: Install Emscripten SDK
-        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.lookup-cache.outputs.cache-hit != 'true'
+        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -93,32 +93,39 @@ jobs:
           test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.wasm"
           test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.data"
 
-      - name: Build independent VCF lookup benchmark WebAssembly
-        if: steps.lookup-cache.outputs.cache-hit != 'true'
+      - name: Test and build independent VCF pattern engine WebAssembly
+        if: steps.pattern-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
           source .build/emsdk/emsdk_env.sh
-          rm -rf .cache/vcf-lookup-benchmark
-          mkdir -p .cache/vcf-lookup-benchmark
+          rm -rf .cache/vcf-pattern-engine
+          mkdir -p .cache/vcf-pattern-engine
 
-          em++ rapfi/vcf-lookup-benchmark.cpp \
+          g++ rapfi/vcf-pattern-engine.cpp \
+            -O2 \
+            -std=c++17 \
+            -DVCF_PATTERN_TEST_MAIN \
+            -o /tmp/vcf-pattern-engine-test
+          /tmp/vcf-pattern-engine-test
+
+          em++ rapfi/vcf-pattern-engine.cpp \
             -O3 \
             -std=c++17 \
             -msimd128 \
             --no-entry \
             -s WASM=1 \
             -s MODULARIZE=1 \
-            -s EXPORT_NAME=VCFLookupBenchmark \
+            -s EXPORT_NAME=VCFPatternEngine \
             -s ENVIRONMENT=worker \
             -s FILESYSTEM=0 \
             -s ALLOW_MEMORY_GROWTH=1 \
-            -s "EXPORTED_FUNCTIONS=['_vcfLookupBenchmark']" \
+            -s "EXPORTED_FUNCTIONS=['_vcfAnalyzePoint','_vcfLookupBenchmark','_vcfPatternSelfTest','_malloc','_free']" \
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
-            -o .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.js
+            -o .cache/vcf-pattern-engine/vcf-pattern-engine.js
 
-          test -s .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.js
-          test -s .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.wasm
+          test -s .cache/vcf-pattern-engine/vcf-pattern-engine.js
+          test -s .cache/vcf-pattern-engine/vcf-pattern-engine.wasm
 
       - name: Prepare static site
         shell: bash
@@ -134,7 +141,7 @@ jobs:
           cp -R eval emoji bitboard rapfi _site/
           mkdir -p _site/rapfi/engine
           cp .cache/rapfi-wasm/rapfi-single-simd128.* _site/rapfi/engine/
-          cp .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.* _site/rapfi/engine/
+          cp .cache/vcf-pattern-engine/vcf-pattern-engine.* _site/rapfi/engine/
 
           python - <<'PY'
           from pathlib import Path
