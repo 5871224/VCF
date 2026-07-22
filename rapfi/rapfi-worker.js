@@ -2,7 +2,8 @@
 
 let engineInstance = null;
 let engineBaseURL = null;
-let patternBenchmark = null;
+let lookupBenchmarkInstance = null;
+let lookupBenchmark = null;
 let jsBenchmarkData = null;
 let jsBenchmarkSink = 0;
 
@@ -161,11 +162,20 @@ self.onmessage = async (event) => {
         }),
       });
 
-      patternBenchmark = engineInstance.cwrap(
-        "vcfPatternBenchmark",
+      const benchmarkBaseURL = new URL("./", data.benchmarkURL).href;
+      self.importScripts(data.benchmarkURL);
+      if (typeof self.VCFLookupBenchmark !== "function") {
+        throw new Error("找不到獨立 VCF 查表基準模組");
+      }
+      lookupBenchmarkInstance = await self.VCFLookupBenchmark({
+        locateFile: (url) => new URL(url, benchmarkBaseURL).href,
+      });
+      lookupBenchmark = lookupBenchmarkInstance.cwrap(
+        "vcfLookupBenchmark",
         "number",
-        ["number", "number", "number"],
+        ["number", "number"],
       );
+
       prepareJsBenchmark();
       post("ready", true);
     } catch (error) {
@@ -184,28 +194,23 @@ self.onmessage = async (event) => {
   }
 
   if (type === "benchmark") {
-    if (!engineInstance || !patternBenchmark) {
-      post("benchmarkError", "Rapfi 棋型基準尚未完成載入");
+    if (!lookupBenchmark) {
+      post("benchmarkError", "獨立查表基準尚未完成載入");
       return;
     }
     try {
-      const rule = Number(data?.rule ?? 2);
       const iterations = Number(data?.iterations ?? 1000000);
       const rounds = Number(data?.rounds ?? 9);
       const methods = [
-        { key: "wasmFusedNs", run: (count) => patternBenchmark(rule, 2, count) },
-        { key: "wasmRawNs", run: (count) => patternBenchmark(rule, 0, count) },
-        { key: "wasmTernaryNs", run: (count) => patternBenchmark(rule, 3, count) },
-        { key: "wasmHelperNs", run: (count) => patternBenchmark(rule, 4, count) },
-        { key: "wasmBinaryNs", run: (count) => patternBenchmark(rule, 5, count) },
+        { key: "wasmTernaryNs", run: (count) => lookupBenchmark(0, count) },
+        { key: "wasmHelperNs", run: (count) => lookupBenchmark(1, count) },
+        { key: "wasmBinaryNs", run: (count) => lookupBenchmark(2, count) },
         { key: "jsTernaryNs", run: (count) => runJsBenchmark(0, count) },
         { key: "jsHelperNs", run: (count) => runJsBenchmark(1, count) },
         { key: "jsBinaryNs", run: (count) => runJsBenchmark(2, count) },
-        { key: "wasmPointNs", run: (count) => patternBenchmark(rule, 1, count) },
       ];
 
       post("benchmark", {
-        rule,
         iterations,
         rounds,
         ...runInterleavedBenchmarks(methods, iterations, rounds),
