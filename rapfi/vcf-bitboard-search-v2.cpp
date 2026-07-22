@@ -1,9 +1,10 @@
-// VCF 搜尋以舊版 Evaluator 的 findVCF 流程為主：
-// 1. 固定五格視窗一次掃描全部衝四候選。
-// 2. 非根節點只分析最後一手防守造成的反四。
-// 3. 使用黑白 Bitboard 同層局面置換表與舊版候選分組順序。
+// VCF 搜尋以舊版 Evaluator 的 findVCF 流程為主；
+// 熱路徑另外維護 572 個五格視窗的增量狀態：
+// 每手只更新最多 20 個相關視窗，搜尋時只列舉有效的三／四／五子視窗。
+// 候選、防點、排序、置換表與路線輸出語意維持舊版流程。
 //
-// 分檔僅為方便維護；三個 inc 依序組成同一個翻譯單元。
-#include "vcf-bitboard-search-legacy-part1.inc"
-#include "vcf-bitboard-search-legacy-part2.inc"
-#include "vcf-bitboard-search-legacy-part3.inc"
+// 分檔僅為方便維護；四個 inc 依序組成同一個翻譯單元。
+#include "vcf-bitboard-search-fast-part1.inc"
+#include "vcf-bitboard-search-fast-part2.inc"
+#include "vcf-bitboard-search-fast-part3.inc"
+#include "vcf-bitboard-search-fast-part4.inc"
