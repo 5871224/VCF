@@ -25,14 +25,6 @@ const commandInput = document.querySelector("#commandInput");
 const benchmarkDetail = document.querySelector("#benchmarkDetail");
 
 const benchmarkCells = {
-  wasmFused: {
-    total: document.querySelector("#wasmFusedTotal"),
-    perOp: document.querySelector("#wasmFusedPerOp"),
-  },
-  wasmRaw: {
-    total: document.querySelector("#wasmRawTotal"),
-    perOp: document.querySelector("#wasmRawPerOp"),
-  },
   wasmTernary: {
     total: document.querySelector("#wasmTernaryTotal"),
     perOp: document.querySelector("#wasmTernaryPerOp"),
@@ -56,10 +48,6 @@ const benchmarkCells = {
   jsBinary: {
     total: document.querySelector("#jsBinaryTotal"),
     perOp: document.querySelector("#jsBinaryPerOp"),
-  },
-  wasmPoint: {
-    total: document.querySelector("#wasmPointTotal"),
-    perOp: document.querySelector("#wasmPointPerOp"),
   },
 };
 
@@ -256,7 +244,7 @@ function startWorker() {
   benchmarkButton.disabled = true;
   loadProgress.value = 0;
   loadDetail.textContent = "";
-  setStatus("loading", "正在載入 Rapfi 與權重…");
+  setStatus("loading", "正在載入官方 Rapfi 與獨立測試模組…");
   log("#", "建立 Rapfi Worker");
 
   worker.onmessage = (event) => {
@@ -275,24 +263,21 @@ function startWorker() {
     }
     if (type === "benchmark") {
       benchmarkBusy = false;
-      formatBenchmark(benchmarkCells.wasmFused, data.wasmFusedNs, data.iterations);
-      formatBenchmark(benchmarkCells.wasmRaw, data.wasmRawNs, data.iterations);
       formatBenchmark(benchmarkCells.wasmTernary, data.wasmTernaryNs, data.iterations);
       formatBenchmark(benchmarkCells.wasmHelper, data.wasmHelperNs, data.iterations);
       formatBenchmark(benchmarkCells.wasmBinary, data.wasmBinaryNs, data.iterations);
       formatBenchmark(benchmarkCells.jsTernary, data.jsTernaryNs, data.iterations);
       formatBenchmark(benchmarkCells.jsHelper, data.jsHelperNs, data.iterations);
       formatBenchmark(benchmarkCells.jsBinary, data.jsBinaryNs, data.iterations);
-      formatBenchmark(benchmarkCells.wasmPoint, data.wasmPointNs, data.iterations);
-      benchmarkDetail.textContent = `每項 ${data.iterations.toLocaleString("zh-TW")} 次，共 ${data.rounds} 輪交錯執行並顯示中位數；所有項目都在同一個 Worker、同一個瀏覽器執行。`;
-      resultElement.textContent = "Rapfi、WebAssembly 查表與 JavaScript 速度比較完成。";
+      benchmarkDetail.textContent = `每項 ${data.iterations.toLocaleString("zh-TW")} 次，共 ${data.rounds} 輪交錯執行並顯示中位數；測試模組與官方 Rapfi 完全分離。`;
+      resultElement.textContent = "獨立 WebAssembly 與 JavaScript 查表速度比較完成。";
       renderAll();
       return;
     }
     if (type === "benchmarkError") {
       benchmarkBusy = false;
       benchmarkDetail.textContent = String(data);
-      resultElement.textContent = "棋型速度比較失敗。";
+      resultElement.textContent = "查表速度比較失敗。";
       log("!", String(data));
       renderAll();
       return;
@@ -301,7 +286,7 @@ function startWorker() {
       engineReady = true;
       loadProgress.value = 1;
       loadDetail.textContent = "載入完成";
-      setStatus("ready", "Rapfi 已就緒（單執行緒 SIMD128）");
+      setStatus("ready", "官方 Rapfi 已就緒；測試模組獨立載入");
       sendCommand("START 15");
       renderAll();
       return;
@@ -310,7 +295,7 @@ function startWorker() {
       engineReady = false;
       engineBusy = false;
       benchmarkBusy = false;
-      setStatus("error", "Rapfi 載入失敗");
+      setStatus("error", "Rapfi 或測試模組載入失敗");
       log("!", String(data));
       renderAll();
       return;
@@ -335,7 +320,10 @@ function startWorker() {
 
   worker.postMessage({
     type: "init",
-    data: { engineURL: new URL("./engine/rapfi-single-simd128.js", location.href).href },
+    data: {
+      engineURL: new URL("./engine/rapfi-single-simd128.js", location.href).href,
+      benchmarkURL: new URL("./engine/vcf-lookup-benchmark.js", location.href).href,
+    },
   });
 }
 
@@ -388,13 +376,12 @@ benchmarkButton.addEventListener("click", () => {
   if (!engineReady || engineBusy || benchmarkBusy) return;
   benchmarkBusy = true;
   resetBenchmarkCells("測試中…");
-  benchmarkDetail.textContent = "Rapfi、三種 C++ Wasm 查表與三種 JavaScript 查表正在同一個 Worker 中交錯測量。";
-  resultElement.textContent = "正在比較 WebAssembly 與 JavaScript 棋型熱路徑…";
+  benchmarkDetail.textContent = "獨立 C++ Wasm 與 JavaScript 正在同一個 Worker 中依序測量；不會呼叫或修改 Rapfi 內部程式。";
+  resultElement.textContent = "正在比較獨立 WebAssembly 與 JavaScript 查表熱路徑…";
   renderAll();
   worker.postMessage({
     type: "benchmark",
     data: {
-      rule: Number(ruleSelect.value),
       iterations: 1000000,
       rounds: 9,
     },
