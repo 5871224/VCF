@@ -22,9 +22,34 @@ const resultElement = document.querySelector("#result");
 const consoleElement = document.querySelector("#console");
 const commandForm = document.querySelector("#commandForm");
 const commandInput = document.querySelector("#commandInput");
-const directionBenchmark = document.querySelector("#directionBenchmark");
-const pointBenchmark = document.querySelector("#pointBenchmark");
 const benchmarkDetail = document.querySelector("#benchmarkDetail");
+
+const benchmarkCells = {
+  wasmFused: {
+    total: document.querySelector("#wasmFusedTotal"),
+    perOp: document.querySelector("#wasmFusedPerOp"),
+  },
+  wasmRaw: {
+    total: document.querySelector("#wasmRawTotal"),
+    perOp: document.querySelector("#wasmRawPerOp"),
+  },
+  jsTernary: {
+    total: document.querySelector("#jsTernaryTotal"),
+    perOp: document.querySelector("#jsTernaryPerOp"),
+  },
+  jsHelper: {
+    total: document.querySelector("#jsHelperTotal"),
+    perOp: document.querySelector("#jsHelperPerOp"),
+  },
+  jsBinary: {
+    total: document.querySelector("#jsBinaryTotal"),
+    perOp: document.querySelector("#jsBinaryPerOp"),
+  },
+  wasmPoint: {
+    total: document.querySelector("#wasmPointTotal"),
+    perOp: document.querySelector("#wasmPointPerOp"),
+  },
+};
 
 const statElements = {
   DEPTH: document.querySelector("#depth"),
@@ -127,6 +152,13 @@ function resetStats() {
   Object.values(statElements).forEach((element) => { element.textContent = "—"; });
 }
 
+function resetBenchmarkCells(text = "—") {
+  for (const cells of Object.values(benchmarkCells)) {
+    cells.total.textContent = text;
+    cells.perOp.textContent = text;
+  }
+}
+
 function sendCommand(command) {
   if (!worker || !engineReady) return false;
   log(">", command.replaceAll("\n", " ↵ "));
@@ -160,6 +192,12 @@ function parseStatusProgress(status) {
 function formatInteger(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number.toLocaleString("zh-TW") : value;
+}
+
+function formatBenchmark(cells, ns, iterations) {
+  const totalMs = ns * iterations / 1000000;
+  cells.total.textContent = `${totalMs.toFixed(4)} ms`;
+  cells.perOp.textContent = `${ns.toFixed(2)} ns`;
 }
 
 function parseStdout(output) {
@@ -225,19 +263,21 @@ function startWorker() {
     }
     if (type === "benchmark") {
       benchmarkBusy = false;
-      const directionRate = 1000 / data.directionNs;
-      const pointRate = 1000 / data.pointNs;
-      directionBenchmark.textContent = `${data.directionNs.toFixed(2)} ns／次（${directionRate.toFixed(1)} M 次／秒）`;
-      pointBenchmark.textContent = `${data.pointNs.toFixed(2)} ns／點（${pointRate.toFixed(1)} M 點／秒）`;
-      benchmarkDetail.textContent = `實際執行 ${data.directionIterations.toLocaleString("zh-TW")} 次單方向查表與 ${data.pointIterations.toLocaleString("zh-TW")} 次四方向合併。`;
-      resultElement.textContent = "Rapfi 棋型速度測試完成。";
+      formatBenchmark(benchmarkCells.wasmFused, data.wasmFusedNs, data.iterations);
+      formatBenchmark(benchmarkCells.wasmRaw, data.wasmRawNs, data.iterations);
+      formatBenchmark(benchmarkCells.jsTernary, data.jsTernaryNs, data.iterations);
+      formatBenchmark(benchmarkCells.jsHelper, data.jsHelperNs, data.iterations);
+      formatBenchmark(benchmarkCells.jsBinary, data.jsBinaryNs, data.iterations);
+      formatBenchmark(benchmarkCells.wasmPoint, data.wasmPointNs, data.iterations);
+      benchmarkDetail.textContent = `每項 ${data.iterations.toLocaleString("zh-TW")} 次，共 ${data.rounds} 輪，顯示中位數；所有項目都在同一個 Worker、同一個瀏覽器執行。`;
+      resultElement.textContent = "Rapfi 與 JavaScript 棋型速度比較完成。";
       renderAll();
       return;
     }
     if (type === "benchmarkError") {
       benchmarkBusy = false;
       benchmarkDetail.textContent = String(data);
-      resultElement.textContent = "Rapfi 棋型速度測試失敗。";
+      resultElement.textContent = "棋型速度比較失敗。";
       log("!", String(data));
       renderAll();
       return;
@@ -332,17 +372,16 @@ analyzeButton.addEventListener("click", () => {
 benchmarkButton.addEventListener("click", () => {
   if (!engineReady || engineBusy || benchmarkBusy) return;
   benchmarkBusy = true;
-  directionBenchmark.textContent = "測試中…";
-  pointBenchmark.textContent = "測試中…";
-  benchmarkDetail.textContent = "基準直接在 Rapfi C++ WebAssembly 內執行。";
-  resultElement.textContent = "正在測試 Rapfi 棋型熱路徑…";
+  resetBenchmarkCells("測試中…");
+  benchmarkDetail.textContent = "Rapfi C++ Wasm 與三種 JavaScript 路徑正在同一個 Worker 中依序測量。";
+  resultElement.textContent = "正在比較 Rapfi 與 JavaScript 棋型熱路徑…";
   renderAll();
   worker.postMessage({
     type: "benchmark",
     data: {
       rule: Number(ruleSelect.value),
-      directionIterations: 20000000,
-      pointIterations: 5000000,
+      iterations: 1000000,
+      rounds: 9,
     },
   });
 });
