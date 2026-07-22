@@ -24,6 +24,18 @@ std::array<uint64_t, KEY_SAMPLE_COUNT> makeKeys()
 }
 
 template <Rule R>
+inline Pattern2x lookupFusedKey(uint64_t fusedKey)
+{
+    fusedKey &= PatternConfig::KeyCnt<R> - 1;
+    if constexpr (R == FREESTYLE)
+        return PatternConfig::PATTERN2x[fusedKey];
+    else if constexpr (R == STANDARD)
+        return PatternConfig::PATTERN2xStandard[fusedKey];
+    else
+        return PatternConfig::PATTERN2xRenju[fusedKey];
+}
+
+template <Rule R>
 double benchmarkPattern(int mode, int iterations)
 {
     if (iterations <= 0)
@@ -32,7 +44,7 @@ double benchmarkPattern(int mode, int iterations)
     static const std::array<uint64_t, KEY_SAMPLE_COUNT> keys = makeKeys();
     uint64_t checksum = benchmarkSink;
 
-    // Warm up the Wasm JIT and the lookup tables before measuring.
+    // Warm up the Wasm JIT and lookup tables before measuring.
     for (int i = 0; i < KEY_SAMPLE_COUNT; i++) {
         Pattern2x p = PatternConfig::lookupPattern<R>(keys[i]);
         checksum += uint64_t(p.patBlack) + uint64_t(p.patWhite);
@@ -41,13 +53,13 @@ double benchmarkPattern(int mode, int iterations)
     const double startMs = emscripten_get_now();
 
     if (mode == 0) {
-        // One direction: fuse the raw 2-bit line key and read Pattern2x.
+        // Raw 2-bit line key: fuse the center-less key, then read Pattern2x.
         for (int i = 0; i < iterations; i++) {
             Pattern2x p = PatternConfig::lookupPattern<R>(keys[i & (KEY_SAMPLE_COUNT - 1)]);
             checksum += uint64_t(p.patBlack) + (uint64_t(p.patWhite) << 4);
         }
     }
-    else {
+    else if (mode == 1) {
         // One candidate point: four directional lookups plus Rapfi's PCODE combination.
         for (int i = 0; i < iterations; i++) {
             const int base = (i * 4) & (KEY_SAMPLE_COUNT - 1);
@@ -56,6 +68,13 @@ double benchmarkPattern(int mode, int iterations)
             Pattern2x p2 = PatternConfig::lookupPattern<R>(keys[(base + 2) & (KEY_SAMPLE_COUNT - 1)]);
             Pattern2x p3 = PatternConfig::lookupPattern<R>(keys[(base + 3) & (KEY_SAMPLE_COUNT - 1)]);
             checksum += PatternConfig::PCODE[p0.patBlack][p1.patBlack][p2.patBlack][p3.patBlack];
+        }
+    }
+    else {
+        // Fused key is already maintained: direct Pattern2x table lookup only.
+        for (int i = 0; i < iterations; i++) {
+            Pattern2x p = lookupFusedKey<R>(keys[i & (KEY_SAMPLE_COUNT - 1)]);
+            checksum += uint64_t(p.patBlack) + (uint64_t(p.patWhite) << 4);
         }
     }
 
