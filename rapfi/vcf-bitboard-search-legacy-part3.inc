@@ -27,7 +27,7 @@ std::vector<std::vector<uint8_t>> runAtDepth(Board board,
         return routes;
     }
 
-    LegacySubsetTable subset(ctx.maxDepth);
+    LegacyTransTable transTable(ctx.maxDepth);
     SearchRunner runner;
     runner.initialBoard = initialBoard;
     runner.attacker = attacker;
@@ -35,7 +35,7 @@ std::vector<std::vector<uint8_t>> runAtDepth(Board board,
     runner.maxRoutes = std::clamp(maxRoutes, 1, 64);
     runner.simplify = simplify;
     runner.ctx = &ctx;
-    runner.subset = &subset;
+    runner.transTable = &transTable;
     std::vector<uint8_t> route;
     runner.dfs(board, 0, -1, CENTER, route);
     rootCandidates = runner.rootCandidates;
@@ -234,7 +234,7 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbFindModeV3(const uint8_t *board,
                                                               int maxMovesPerRoute,
                                                               SearchStats *stats)
 {
-    (void)pruning; // 舊版 VCF 本身的子集合剪枝固定啟用，不採 Rapfi 的泛用剪枝模式。
+    (void)pruning; // 舊版 VCF 本身的置換剪枝固定啟用，不採 Rapfi 的泛用剪枝模式。
     return findModeImpl(board, attacker, rule, mode, simplify, maxRoutes, maxDepth,
                         maxNodes, outMoves, outLengths, maxMovesPerRoute, stats);
 }
