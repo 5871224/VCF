@@ -45,6 +45,10 @@ rapfi-single-simd128.data
 
 - `TRACEBOARD`：取得每個空點的官方 Pattern4。
 - `YXSHOWFORBID`：取得官方禁手點清單。
+- `YXNBEST 1`：在深度 1 主搜尋後進入 Rapfi 官方 QVCF，作為「計算 VCF」。
+- `YXSEARCHDEFEND`：把根節點剩餘合法點列為 MultiPV，逐一計算防守結果。
+
+VCF 工具只解析 Rapfi 原本就會輸出的 `EVAL`、`NODES`、`TOTALNODES`、`TOTALTIME`、`SPEED` 與 `BESTLINE`，沒有新增 Rapfi 匯出函式。
 
 Rapfi 官方協定沒有逐方向輸出 Pattern2x，因此頁面不會用 VCF 的方向棋型冒充 Rapfi 結果。
 
