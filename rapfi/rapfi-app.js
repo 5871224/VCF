@@ -15,12 +15,16 @@ const clearButton = document.querySelector("#clearButton");
 const acceptButton = document.querySelector("#acceptButton");
 const analyzeButton = document.querySelector("#analyzeButton");
 const restartButton = document.querySelector("#restartButton");
+const benchmarkButton = document.querySelector("#benchmarkButton");
 const ruleSelect = document.querySelector("#ruleSelect");
 const timeSelect = document.querySelector("#timeSelect");
 const resultElement = document.querySelector("#result");
 const consoleElement = document.querySelector("#console");
 const commandForm = document.querySelector("#commandForm");
 const commandInput = document.querySelector("#commandInput");
+const directionBenchmark = document.querySelector("#directionBenchmark");
+const pointBenchmark = document.querySelector("#pointBenchmark");
+const benchmarkDetail = document.querySelector("#benchmarkDetail");
 
 const statElements = {
   DEPTH: document.querySelector("#depth"),
@@ -29,6 +33,8 @@ const statElements = {
   SPEED: document.querySelector("#speed"),
   EVAL: document.querySelector("#evaluation"),
   WINRATE: document.querySelector("#winrate"),
+  TIME: document.querySelector("#searchTime"),
+  BESTLINE: document.querySelector("#bestline"),
 };
 
 const stones = new Uint8Array(SIZE * SIZE);
@@ -38,6 +44,7 @@ let suggestion = -1;
 let worker = null;
 let engineReady = false;
 let engineBusy = false;
+let benchmarkBusy = false;
 
 function stoneName(stone) {
   return stone === BLACK ? "黑棋" : "白棋";
@@ -73,12 +80,16 @@ function renderPoint(index) {
 
 function renderAll() {
   for (let index = 0; index < stones.length; index++) renderPoint(index);
-  undoButton.disabled = history.length === 0 || engineBusy;
-  acceptButton.disabled = suggestion < 0 || engineBusy;
-  analyzeButton.disabled = !engineReady || engineBusy;
-  resultElement.textContent = suggestion >= 0
-    ? `Rapfi 建議 ${suggestion % SIZE},${Math.floor(suggestion / SIZE)}；目前輪到${stoneName(nextStone)}。`
-    : `目前輪到${stoneName(nextStone)}。`;
+  const locked = engineBusy || benchmarkBusy;
+  undoButton.disabled = history.length === 0 || locked;
+  acceptButton.disabled = suggestion < 0 || locked;
+  analyzeButton.disabled = !engineReady || locked;
+  benchmarkButton.disabled = !engineReady || locked;
+  if (!engineBusy && !benchmarkBusy) {
+    resultElement.textContent = suggestion >= 0
+      ? `Rapfi 建議 ${suggestion % SIZE},${Math.floor(suggestion / SIZE)}；目前輪到${stoneName(nextStone)}。`
+      : `目前輪到${stoneName(nextStone)}。`;
+  }
 }
 
 function clearSuggestion() {
@@ -88,7 +99,7 @@ function clearSuggestion() {
 }
 
 function play(index, stone = nextStone) {
-  if (engineBusy || stones[index] !== EMPTY) return false;
+  if (engineBusy || benchmarkBusy || stones[index] !== EMPTY) return false;
   clearSuggestion();
   stones[index] = stone;
   history.push({ index, stone });
@@ -123,16 +134,16 @@ function sendCommand(command) {
   return true;
 }
 
-function buildBoardCommand() {
-  const lines = ["BOARD"];
+function buildBoardCommand(commandName = "YXBOARD") {
+  const parts = [commandName];
   for (const move of history) {
     const x = move.index % SIZE;
     const y = Math.floor(move.index / SIZE);
     const sideFlag = move.stone === nextStone ? 1 : 2;
-    lines.push(`${x},${y},${sideFlag}`);
+    parts.push(`${x},${y},${sideFlag}`);
   }
-  lines.push("DONE");
-  return lines.join("\n");
+  parts.push("DONE");
+  return parts.join(" ");
 }
 
 function parseStatusProgress(status) {
@@ -146,12 +157,29 @@ function parseStatusProgress(status) {
   }
 }
 
+function formatInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString("zh-TW") : value;
+}
+
 function parseStdout(output) {
   log("<", output);
 
-  const infoMatch = output.match(/^INFO\s+(DEPTH|SELDEPTH|NODES|SPEED|EVAL|WINRATE)\s+(.+)$/);
+  const infoMatch = output.match(/^INFO\s+(\S+)(?:\s+(.+))?$/);
   if (infoMatch) {
-    statElements[infoMatch[1]].textContent = infoMatch[2];
+    const key = infoMatch[1];
+    const value = infoMatch[2] ?? "";
+    if (key === "DEPTH" || key === "SELDEPTH" || key === "EVAL" || key === "WINRATE") {
+      statElements[key].textContent = value;
+    } else if (key === "NODES" || key === "TOTALNODES") {
+      statElements.NODES.textContent = formatInteger(value);
+    } else if (key === "SPEED") {
+      statElements.SPEED.textContent = `${formatInteger(value)} nodes/s`;
+    } else if (key === "TOTALTIME") {
+      statElements.TIME.textContent = `${formatInteger(value)} ms`;
+    } else if (key === "BESTLINE") {
+      statElements.BESTLINE.textContent = value || "—";
+    }
     return;
   }
 
@@ -173,7 +201,9 @@ function startWorker() {
   worker = new Worker("./rapfi-worker.js");
   engineReady = false;
   engineBusy = false;
+  benchmarkBusy = false;
   analyzeButton.disabled = true;
+  benchmarkButton.disabled = true;
   loadProgress.value = 0;
   loadDetail.textContent = "";
   setStatus("loading", "正在載入 Rapfi 與權重…");
@@ -193,6 +223,25 @@ function startWorker() {
       log("!", String(data));
       return;
     }
+    if (type === "benchmark") {
+      benchmarkBusy = false;
+      const directionRate = 1000 / data.directionNs;
+      const pointRate = 1000 / data.pointNs;
+      directionBenchmark.textContent = `${data.directionNs.toFixed(2)} ns／次（${directionRate.toFixed(1)} M 次／秒）`;
+      pointBenchmark.textContent = `${data.pointNs.toFixed(2)} ns／點（${pointRate.toFixed(1)} M 點／秒）`;
+      benchmarkDetail.textContent = `實際執行 ${data.directionIterations.toLocaleString("zh-TW")} 次單方向查表與 ${data.pointIterations.toLocaleString("zh-TW")} 次四方向合併。`;
+      resultElement.textContent = "Rapfi 棋型速度測試完成。";
+      renderAll();
+      return;
+    }
+    if (type === "benchmarkError") {
+      benchmarkBusy = false;
+      benchmarkDetail.textContent = String(data);
+      resultElement.textContent = "Rapfi 棋型速度測試失敗。";
+      log("!", String(data));
+      renderAll();
+      return;
+    }
     if (type === "ready") {
       engineReady = true;
       loadProgress.value = 1;
@@ -205,6 +254,7 @@ function startWorker() {
     if (type === "error") {
       engineReady = false;
       engineBusy = false;
+      benchmarkBusy = false;
       setStatus("error", "Rapfi 載入失敗");
       log("!", String(data));
       renderAll();
@@ -213,6 +263,7 @@ function startWorker() {
     if (type === "exit") {
       engineReady = false;
       engineBusy = false;
+      benchmarkBusy = false;
       setStatus("error", `Rapfi 已結束（${data}）`);
       renderAll();
     }
@@ -221,6 +272,7 @@ function startWorker() {
   worker.onerror = (error) => {
     engineReady = false;
     engineBusy = false;
+    benchmarkBusy = false;
     setStatus("error", "Rapfi Worker 發生錯誤");
     log("!", error.message || String(error));
     renderAll();
@@ -233,7 +285,7 @@ function startWorker() {
 }
 
 undoButton.addEventListener("click", () => {
-  if (engineBusy) return;
+  if (engineBusy || benchmarkBusy) return;
   clearSuggestion();
   const move = history.pop();
   if (!move) return;
@@ -244,7 +296,7 @@ undoButton.addEventListener("click", () => {
 });
 
 clearButton.addEventListener("click", () => {
-  if (engineBusy) return;
+  if (engineBusy || benchmarkBusy) return;
   stones.fill(EMPTY);
   history.length = 0;
   nextStone = BLACK;
@@ -258,21 +310,46 @@ acceptButton.addEventListener("click", () => {
 });
 
 analyzeButton.addEventListener("click", () => {
-  if (!engineReady || engineBusy) return;
+  if (!engineReady || engineBusy || benchmarkBusy) return;
   clearSuggestion();
   resetStats();
   engineBusy = true;
   renderAll();
-  resultElement.textContent = "Rapfi 搜尋中…";
+  resultElement.textContent = "Rapfi 搜尋中，資訊表會隨搜尋更新…";
+
   sendCommand(`INFO RULE ${ruleSelect.value}`);
+  sendCommand("INFO THREAD_NUM 1");
+  sendCommand("INFO SHOW_DETAIL 3");
+  sendCommand("INFO MAX_DEPTH 99");
+  sendCommand("INFO MAX_NODE 0");
   sendCommand(`INFO TIMEOUT_TURN ${timeSelect.value}`);
   sendCommand("INFO TIMEOUT_MATCH 100000000");
   sendCommand("INFO TIME_LEFT 2147483647");
-  sendCommand(buildBoardCommand());
+  sendCommand(buildBoardCommand("YXBOARD"));
+  sendCommand("YXNBEST 1");
+});
+
+benchmarkButton.addEventListener("click", () => {
+  if (!engineReady || engineBusy || benchmarkBusy) return;
+  benchmarkBusy = true;
+  directionBenchmark.textContent = "測試中…";
+  pointBenchmark.textContent = "測試中…";
+  benchmarkDetail.textContent = "基準直接在 Rapfi C++ WebAssembly 內執行。";
+  resultElement.textContent = "正在測試 Rapfi 棋型熱路徑…";
+  renderAll();
+  worker.postMessage({
+    type: "benchmark",
+    data: {
+      rule: Number(ruleSelect.value),
+      directionIterations: 20000000,
+      pointIterations: 5000000,
+    },
+  });
 });
 
 restartButton.addEventListener("click", () => {
   engineBusy = false;
+  benchmarkBusy = false;
   engineReady = false;
   suggestion = -1;
   startWorker();
@@ -282,7 +359,7 @@ restartButton.addEventListener("click", () => {
 commandForm.addEventListener("submit", (event) => {
   event.preventDefault();
   const command = commandInput.value.trim();
-  if (!command || !engineReady) return;
+  if (!command || !engineReady || engineBusy || benchmarkBusy) return;
   sendCommand(command);
   commandInput.value = "";
 });
