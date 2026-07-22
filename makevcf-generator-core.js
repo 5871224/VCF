@@ -90,14 +90,18 @@ class GeneratorVCFEngine {
     await this.post("setGameRules", { rules });
   }
 
-  async findVCF(arr, color, maxVCF = 64) {
+  async findVCF(arr, color, maxVCF = 64, options = {}) {
     await this.ready;
+    const useBitboardGeneratorMode = Boolean(window.engineAPI);
     return (await this.post("findVCF", {
       arr: arr.slice(),
       color,
       maxVCF,
-      maxDepth: 200,
-      maxNode: 5000000,
+      // 新版題目產生器只需要最短解集合，不應對每個候選跑深度 200 的完整多組列舉。
+      mode: options.mode || (useBitboardGeneratorMode ? "shortest" : undefined),
+      simplify: options.simplify ?? useBitboardGeneratorMode,
+      maxDepth: Math.max(1, Number(options.maxDepth) || 200),
+      maxNode: Math.max(1, Number(options.maxNode) || 5000000),
     })) || { winMoves: [], nodeCount: 0 };
   }
 
