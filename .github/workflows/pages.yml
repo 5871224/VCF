@@ -34,7 +34,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/rapfi-wasm
-          key: rapfi-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-v2
+          key: rapfi-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-benchmark.cpp') }}
 
       - name: Build Rapfi single-thread WebAssembly
         if: steps.rapfi-cache.outputs.cache-hit != 'true'
