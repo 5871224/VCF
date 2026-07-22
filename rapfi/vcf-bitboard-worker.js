@@ -55,6 +55,10 @@ function searchModeValue(mode, maxVCF = 1) {
   return 0;
 }
 
+function pruningModeValue(pruning) {
+  return pruning === "fast" || Number(pruning) === 1 ? 1 : 0;
+}
+
 function findVCF(param) {
   const board = toBoard(param.arr);
   writeBoard(board);
@@ -63,11 +67,29 @@ function findVCF(param) {
   const maxNode = Math.max(1, Math.min(0xffffffff, Number(param.maxNode) || 5_000_000));
   const mode = searchModeValue(param.mode, maxVCF);
   const simplify = mode !== 0 || Boolean(param.simplify);
+  const pruning = pruningModeValue(param.pruning);
   moduleInstance.HEAPU8.fill(0, ptr.moves, ptr.moves + MAX_ROUTES * MAX_ROUTE_PLY);
   moduleInstance.HEAPU16.fill(0, ptr.lengths >>> 1, (ptr.lengths >>> 1) + MAX_ROUTES);
 
-  const count = api.findMode
-    ? api.findMode(
+  let count;
+  if (api.findModeV3) {
+    count = api.findModeV3(
+      ptr.board,
+      Number(param.color) || 1,
+      Number(param.rules ?? currentRules),
+      mode,
+      simplify ? 1 : 0,
+      pruning,
+      maxVCF,
+      maxDepth,
+      maxNode,
+      ptr.moves,
+      ptr.lengths,
+      MAX_ROUTE_PLY,
+      ptr.stats,
+    );
+  } else if (api.findMode) {
+    count = api.findMode(
       ptr.board,
       Number(param.color) || 1,
       Number(param.rules ?? currentRules),
@@ -80,8 +102,9 @@ function findVCF(param) {
       ptr.lengths,
       MAX_ROUTE_PLY,
       ptr.stats,
-    )
-    : api.find(
+    );
+  } else {
+    count = api.find(
       ptr.board,
       Number(param.color) || 1,
       Number(param.rules ?? currentRules),
@@ -93,6 +116,7 @@ function findVCF(param) {
       MAX_ROUTE_PLY,
       ptr.stats,
     );
+  }
 
   const lengths = moduleInstance.HEAPU16.subarray(ptr.lengths >>> 1, (ptr.lengths >>> 1) + count);
   const winMoves = [];
@@ -106,6 +130,7 @@ function findVCF(param) {
     vcfCount: count,
     winMoves,
     searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
+    pruning: pruning ? "fast" : "strict",
     simplified: simplify,
   };
 }
@@ -163,8 +188,28 @@ function getLevelPoints(param) {
   const maxNode = Math.max(1, Number(param.maxNode) || 5_000_000);
   const mode = searchModeValue(param.searchMode, 1);
   const simplify = mode !== 0 || Boolean(param.simplify);
-  const count = api.scanMode
-    ? api.scanMode(
+  const pruning = pruningModeValue(param.pruning);
+  let count;
+  if (api.scanModeV3) {
+    count = api.scanModeV3(
+      ptr.board,
+      Number(param.color) || 1,
+      Number(param.placeColor || param.color) || 1,
+      Number(param.rules ?? currentRules),
+      mode,
+      simplify ? 1 : 0,
+      pruning,
+      indices.length ? ptr.indices : 0,
+      indices.length,
+      maxDepth,
+      maxNode,
+      ptr.outIndices,
+      ptr.labels,
+      BOARD_CELLS,
+      ptr.stats,
+    );
+  } else {
+    count = api.scanMode(
       ptr.board,
       Number(param.color) || 1,
       Number(param.placeColor || param.color) || 1,
@@ -179,21 +224,8 @@ function getLevelPoints(param) {
       ptr.labels,
       BOARD_CELLS,
       ptr.stats,
-    )
-    : api.scan(
-      ptr.board,
-      Number(param.color) || 1,
-      Number(param.placeColor || param.color) || 1,
-      Number(param.rules ?? currentRules),
-      indices.length ? ptr.indices : 0,
-      indices.length,
-      maxDepth,
-      maxNode,
-      ptr.outIndices,
-      ptr.labels,
-      BOARD_CELLS,
-      ptr.stats,
     );
+  }
 
   const outIdx = moduleInstance.HEAPU16.subarray(ptr.outIndices >>> 1, (ptr.outIndices >>> 1) + count);
   const labels = moduleInstance.HEAPU16.subarray(ptr.labels >>> 1, (ptr.labels >>> 1) + count);
@@ -203,6 +235,7 @@ function getLevelPoints(param) {
     ...readStats(),
     items,
     searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
+    pruning: pruning ? "fast" : "strict",
   };
 }
 
@@ -252,10 +285,16 @@ async function init(url) {
     api = {
       find: moduleInstance.cwrap("vcfBbFind", "number", Array(10).fill("number")),
       findMode: moduleInstance.cwrap("vcfBbFindMode", "number", Array(12).fill("number")),
+      findModeV3: moduleInstance._vcfBbFindModeV3
+        ? moduleInstance.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"))
+        : null,
       validate: moduleInstance.cwrap("vcfBbValidateRoute", "number", Array(7).fill("number")),
       routeDefense: moduleInstance.cwrap("vcfBbRouteDefense", "number", Array(9).fill("number")),
       scan: moduleInstance.cwrap("vcfBbScanPoints", "number", Array(12).fill("number")),
       scanMode: moduleInstance.cwrap("vcfBbScanPointsMode", "number", Array(14).fill("number")),
+      scanModeV3: moduleInstance._vcfBbScanPointsModeV3
+        ? moduleInstance.cwrap("vcfBbScanPointsModeV3", "number", Array(15).fill("number"))
+        : null,
       levelPoint: moduleInstance.cwrap("vcfBbLegacyGetLevelPoint", "number", Array(4).fill("number")),
       selfTest: moduleInstance.cwrap("vcfBbSelfTest", "number", []),
       searchV2SelfTest: moduleInstance.cwrap("vcfBbSearchV2SelfTest", "number", []),
@@ -263,7 +302,7 @@ async function init(url) {
     const test = api.selfTest();
     if (test !== 0) throw new Error(`Bitboard C++ Wasm 自我檢查失敗：${test}`);
     const searchTest = api.searchV2SelfTest();
-    if (searchTest !== 0) throw new Error(`Bitboard 搜尋 V2 自我檢查失敗：${searchTest}`);
+    if (searchTest !== 0) throw new Error(`Bitboard 搜尋自我檢查失敗：${searchTest}`);
 
     ptr.board = moduleInstance._malloc(BOARD_CELLS);
     ptr.moves = moduleInstance._malloc(MAX_ROUTES * MAX_ROUTE_PLY);
@@ -274,7 +313,7 @@ async function init(url) {
     ptr.indices = moduleInstance._malloc(BOARD_CELLS * 2);
     ptr.outIndices = moduleInstance._malloc(BOARD_CELLS * 2);
     ptr.labels = moduleInstance._malloc(BOARD_CELLS * 2);
-    return { selfTest: test, searchV2SelfTest: searchTest };
+    return { selfTest: test, searchV2SelfTest: searchTest, optimizedV3: Boolean(api.findModeV3) };
   })();
   return readyPromise;
 }
