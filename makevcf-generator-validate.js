@@ -187,14 +187,42 @@ function genFinalizeValidatedResult(candidate, target, info, groups, previousRes
   };
 }
 
+function genResolveValidationSteps(candidate, expectedSteps) {
+  const values = [
+    expectedSteps,
+    candidate && candidate.validationTargetSteps,
+    candidate && candidate.steps,
+    candidate && candidate.base && candidate.base.validationTargetSteps,
+  ];
+  for (const value of values) {
+    const steps = Math.round(Number(value));
+    if (Number.isFinite(steps) && steps >= GEN_MIN_STEPS && steps <= GEN_MAX_STEPS) return steps;
+  }
+
+  const materialType = candidate && candidate.base && candidate.base.materialType;
+  if (materialType === "deadFour") return 1;
+  if (materialType === "liveThree") return 2;
+  return 0;
+}
+
+function genTargetSearchPly(targetSteps) {
+  // 題目步數只計算最後連五前的攻方落子；C++ maxDepth 使用實際攻守 ply。
+  // 最長終止型為：目標攻方步數及其守方應手，再加最後一手連五，所以是 2 × steps + 1。
+  return Math.min(200, Math.max(1, targetSteps * 2 + 1));
+}
+
 async function genFindAnalyzedGroups(candidate, expectedSteps) {
-  // 最短 VCF 的實際路線長度最多約為「攻方步數 × 2 + 最後致勝手」。
-  // 額外保留 2 ply，避免活四／四四終止型態的邊界差異；不再對每個候選搜尋到 200 ply。
-  const maxDepth = Math.min(200, Math.max(3, expectedSteps * 2 + 3));
+  const targetSteps = genResolveValidationSteps(candidate, expectedSteps);
+  if (!targetSteps) return null;
+
+  // 舊版驗證需要在同一次多組搜尋中同時取得：
+  // 1. 指定目標步數的預期路線。
+  // 2. 所有已列舉到、比目標短的路線，用來統計防守點並補守子。
+  // 因此不能使用只回傳第一個有解深度的 shortest 模式。
   const info = await genEngine.findVCF(candidate.board, candidate.attacker, 64, {
-    mode: "shortest",
+    mode: "multi",
     simplify: true,
-    maxDepth,
+    maxDepth: genTargetSearchPly(targetSteps),
     maxNode: 5000000,
   });
   if (genCancelled || !info || !info.winMoves || !info.winMoves.length) return null;
@@ -202,7 +230,7 @@ async function genFindAnalyzedGroups(candidate, expectedSteps) {
   if (!raw.length) return null;
   const groups = await genEngine.trimGroups(candidate.board, raw, candidate.attacker);
   if (genCancelled || !groups.length) return null;
-  return { info, groups };
+  return { info, groups, targetSteps };
 }
 
 async function genValidateCandidate(candidate, expectedSteps) {
@@ -218,7 +246,9 @@ async function genValidateCandidate(candidate, expectedSteps) {
     const analysis = genAnalyzeVCFGroup(candidate.board, moves, candidate.attacker);
     if (!analysis.valid) continue;
 
-    // 基礎題也不得存在比該材料應有步數更短的 VCF。
+    // 未開啟自動補守子時，存在較短 VCF 仍視為不合格。
+    // 開啟「補齊黑白子數」時，makevcf-generator-balance.js 會攔截本函式，
+    // 依舊版流程找防守點、補守子並重新驗證，而不會走到這裡直接淘汰。
     if (analysis.steps < expectedSteps) return null;
 
     // 不限定 VCF 落子順序；只要其中一組在指定步數到達預期黑白棋盤面即可。
@@ -248,7 +278,7 @@ async function genValidateExtensionCandidate(candidate, previousResult, targetSt
     const analysis = genAnalyzeVCFGroup(candidate.board, moves, candidate.attacker);
     if (!analysis.valid) continue;
 
-    // 出現任何比指定目標更短的 VCF，整個候選直接淘汰。
+    // 未開啟自動補守子時，存在任何較短 VCF 就淘汰。
     if (analysis.steps < targetSteps) return null;
 
     if (
@@ -287,6 +317,7 @@ function genMakeExtensionBase(result) {
     patternName: rootBase.patternName,
     patternText: rootBase.patternText,
     rootBase,
+    validationTargetSteps: result.steps + 1,
     anchorCandidates,
     forbiddenAnchorPoints: Array.from(forbidden),
     weight: 1,
