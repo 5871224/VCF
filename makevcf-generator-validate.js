@@ -193,7 +193,8 @@ async function genFindAnalyzedGroups(candidate, expectedSteps) {
   const maxDepth = Math.min(200, Math.max(3, expectedSteps * 2 + 3));
   const info = await genEngine.findVCF(candidate.board, candidate.attacker, 64, {
     mode: "shortest",
-    simplify: true,
+    // 逐層加深已保證先找到最短深度；這裡略過每條結果再次 isVCF 精簡，避免候選驗證重複耗時。
+    simplify: false,
     maxDepth,
     maxNode: 5000000,
   });
