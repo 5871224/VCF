@@ -29,19 +29,38 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
-      - name: Restore Rapfi Wasm cache
+      - name: Restore official Rapfi Wasm cache
         id: rapfi-cache
         uses: actions/cache@v4
         with:
           path: .cache/rapfi-wasm
-          key: rapfi-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-benchmark.cpp') }}
+          key: rapfi-official-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-v1
 
-      - name: Build Rapfi single-thread WebAssembly
+      - name: Restore independent lookup benchmark cache
+        id: lookup-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcf-lookup-benchmark
+          key: vcf-lookup-benchmark-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-lookup-benchmark.cpp') }}
+
+      - name: Install Emscripten SDK
+        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.lookup-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf .build/emsdk
+          mkdir -p .build
+          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
+          .build/emsdk/emsdk install "$EMSDK_VERSION"
+          .build/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: Build official Rapfi single-thread WebAssembly
         if: steps.rapfi-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf .build/rapfi .build/emsdk .cache/rapfi-wasm
+          source .build/emsdk/emsdk_env.sh
+          rm -rf .build/rapfi .cache/rapfi-wasm
           mkdir -p .build .cache/rapfi-wasm
 
           git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
@@ -56,35 +75,7 @@ jobs:
           git -C .build/rapfi/Networks fetch --depth 1 origin "$RAPFI_NETWORKS_REF"
           git -C .build/rapfi/Networks checkout --detach "$RAPFI_NETWORKS_REF"
 
-          # VCF 棋盤以左上角為 (0,0)，不使用 Gomocalc 的 Y 軸翻轉。
-          sed -i 's/coord_conversion_mode = "X_flipY"/coord_conversion_mode = "none"/' \
-            .build/rapfi/Networks/config-example/gomocalc-mix9svq.toml
-
-          # 加入公開於本倉庫的 Rapfi 棋型熱路徑基準函式。
-          cp rapfi/vcf-pattern-benchmark.cpp .build/rapfi/Rapfi/vcf-pattern-benchmark.cpp
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path('.build/rapfi/Rapfi/CMakeLists.txt')
-          text = path.read_text(encoding='utf-8')
-          source_anchor = '    game/pattern.cpp\n'
-          export_anchor = "['_main','_gomocupLoopOnce','_emscripten_force_exit']"
-          assert source_anchor in text
-          assert export_anchor in text
-          text = text.replace(source_anchor, source_anchor + '    vcf-pattern-benchmark.cpp\n', 1)
-          text = text.replace(
-              export_anchor,
-              "['_main','_gomocupLoopOnce','_emscripten_force_exit','_vcfPatternBenchmark']",
-              1,
-          )
-          path.write_text(text, encoding='utf-8')
-          PY
-
-          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
-          .build/emsdk/emsdk install "$EMSDK_VERSION"
-          .build/emsdk/emsdk activate "$EMSDK_VERSION"
-          source .build/emsdk/emsdk_env.sh
-
+          # 不修改 Rapfi 或 Networks 的任何原始碼、CMakeLists 或設定檔。
           build_dir="$GITHUB_WORKSPACE/.build/rapfi/Rapfi/build/wasm-single-simd128"
           mkdir -p "$build_dir"
           cd "$build_dir"
@@ -101,7 +92,33 @@ jobs:
           test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.js"
           test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.wasm"
           test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.data"
-          ls -lh "$GITHUB_WORKSPACE/.cache/rapfi-wasm"
+
+      - name: Build independent VCF lookup benchmark WebAssembly
+        if: steps.lookup-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .build/emsdk/emsdk_env.sh
+          rm -rf .cache/vcf-lookup-benchmark
+          mkdir -p .cache/vcf-lookup-benchmark
+
+          em++ rapfi/vcf-lookup-benchmark.cpp \
+            -O3 \
+            -std=c++17 \
+            -msimd128 \
+            --no-entry \
+            -s WASM=1 \
+            -s MODULARIZE=1 \
+            -s EXPORT_NAME=VCFLookupBenchmark \
+            -s ENVIRONMENT=worker \
+            -s FILESYSTEM=0 \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            -s "EXPORTED_FUNCTIONS=['_vcfLookupBenchmark']" \
+            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+            -o .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.js
+
+          test -s .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.js
+          test -s .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.wasm
 
       - name: Prepare static site
         shell: bash
@@ -117,6 +134,7 @@ jobs:
           cp -R eval emoji bitboard rapfi _site/
           mkdir -p _site/rapfi/engine
           cp .cache/rapfi-wasm/rapfi-single-simd128.* _site/rapfi/engine/
+          cp .cache/vcf-lookup-benchmark/vcf-lookup-benchmark.* _site/rapfi/engine/
 
           python - <<'PY'
           from pathlib import Path
