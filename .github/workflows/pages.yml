@@ -159,7 +159,7 @@ jobs:
             -s WASM=1 \
             -s MODULARIZE=1 \
             -s EXPORT_NAME=VCFBitboardModule \
-            -s ENVIRONMENT='web,worker' \
+            -s ENVIRONMENT='web,worker,node' \
             -s FILESYSTEM=0 \
             -s ALLOW_MEMORY_GROWTH=1 \
             -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbSelfTest','_malloc','_free']" \
@@ -168,6 +168,21 @@ jobs:
 
           test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
           test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.wasm
+          node - <<'NODE'
+          const path = require("path");
+          const createModule = require(path.resolve(".cache/vcf-bitboard-engine/vcf-bitboard-engine.js"));
+          createModule({
+            locateFile: file => path.resolve(".cache/vcf-bitboard-engine", file),
+          }).then(module => {
+            const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
+            const result = selfTest();
+            if (result !== 0) throw new Error(`Wasm self-test failed: ${result}`);
+            console.log("Bitboard Wasm runtime self-test: 0");
+          }).catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
           ls -lh .cache/vcf-bitboard-engine
 
       - name: Prepare static site
