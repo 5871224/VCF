@@ -97,9 +97,10 @@ class GeneratorVCFEngine {
       arr: arr.slice(),
       color,
       maxVCF,
-      // 新版題目產生器只需要最短解集合，不應對每個候選跑深度 200 的完整多組列舉。
-      mode: options.mode || (useBitboardGeneratorMode ? "shortest" : undefined),
+      // 題目驗證必須同時取得目標步數與較短 VCF，預設使用固定目標深度的多組搜尋。
+      mode: options.mode || (useBitboardGeneratorMode ? "multi" : undefined),
       simplify: options.simplify ?? useBitboardGeneratorMode,
+      pruning: options.pruning,
       maxDepth: Math.max(1, Number(options.maxDepth) || 200),
       maxNode: Math.max(1, Number(options.maxNode) || 5000000),
     })) || { winMoves: [], nodeCount: 0 };
@@ -148,59 +149,3 @@ function genBoard() { const arr = new Array(226).fill(0); arr[225] = -1; return 
 function genCloneBoard(arr) { const copy = arr.slice(0, 226); copy[225] = -1; return copy; }
 function genTick() { return new Promise(resolve => setTimeout(resolve, 0)); }
 function genRand(max) { return Math.floor(Math.random() * max); }
-
-function genPointFrom(anchor, delta, direction, sign) {
-  const x = genX(anchor) + direction.dx * sign * delta;
-  const y = genY(anchor) + direction.dy * sign * delta;
-  return genIdx(x, y);
-}
-
-function genSetStatus(text) {
-  const element = genEl("status");
-  if (element) element.textContent = text;
-}
-
-function genSetDetails(text) {
-  const element = genEl("details");
-  if (element) element.textContent = text;
-}
-
-function genGetAttacker() {
-  return Number(genChecked("attacker").value);
-}
-
-function genGetRules() {
-  return Number(genChecked("rules").value);
-}
-
-function genGetTargetSteps() {
-  const input = genEl("target-steps");
-  const value = Math.round(Number(input.value));
-  const steps = Math.min(GEN_MAX_STEPS, Math.max(GEN_MIN_STEPS, Number.isFinite(value) ? value : GEN_MIN_STEPS));
-  input.value = String(steps);
-  return steps;
-}
-
-function genSetBusy(value) {
-  genBusy = value;
-  const generateButton = genEl("btn-generate");
-  const stopButton = genEl("btn-stop");
-  if (generateButton) generateButton.disabled = value;
-  if (stopButton) stopButton.disabled = !value;
-
-  genInputs("attacker").forEach(input => { input.disabled = value; });
-  genInputs("rules").forEach(input => { input.disabled = value; });
-  ["target-steps", "bonus-reuse", "bonus-center"].forEach(id => {
-    const input = genEl(id);
-    if (input) input.disabled = value;
-  });
-
-  const answerButton = genEl("btn-answer");
-  const nButton = genEl("btn-npoints");
-  if (answerButton) answerButton.disabled = value || !genCurrent;
-  if (nButton) nButton.disabled = value || !genCurrent;
-
-  if (typeof window.genIntegrationSetBusy === "function") {
-    window.genIntegrationSetBusy(value);
-  }
-}
