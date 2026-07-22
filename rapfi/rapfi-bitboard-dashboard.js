@@ -2,27 +2,53 @@
 
 (function initBitboardDashboard() {
   document.title = "VCF Bitboard C++ WebAssembly 工作台";
+
+  const searchOptions = document.createElement("div");
+  searchOptions.id = "vcf-search-options";
+  searchOptions.innerHTML = `
+    <label class="vcf-option-check">
+      <input id="vcf-simplify-route" type="checkbox">
+      精簡手順
+    </label>
+    <label class="vcf-option-select">
+      補子搜尋：
+      <select id="vcf-add-search-mode">
+        <option value="single">單組 VCF（速度）</option>
+        <option value="shortest">多組 VCF（最少步）</option>
+      </select>
+    </label>
+  `;
+  const analysisBox = document.getElementById("analysis-box");
+  if (analysisBox) analysisBox.insertAdjacentElement("afterend", searchOptions);
+
   const panel = document.createElement("section");
   panel.id = "bitboard-architecture-panel";
   panel.innerHTML = `
     <div class="bb-title-row">
       <div>
         <h1>VCF Bitboard C++ WebAssembly 工作台</h1>
-        <p>原主頁功能已整合；棋型、禁手、VCF 遞迴、防守驗證與逐點掃描改由獨立 C++ Wasm 執行。</p>
+        <p>單組使用固定式勝負 TT；多組使用完整列舉同型表。棋型、禁手、VCF 遞迴、防守驗證與逐點掃描皆由獨立 C++ Wasm 執行。</p>
       </div>
       <a class="bb-lab-link" href="rapfi/lab.html">Rapfi 官方對照／棋型實驗室</a>
     </div>
     <div class="bb-status-grid">
-      <div><strong>核心</strong><span>225 位 Bitboard＋C++ Wasm SIMD128</span></div>
-      <div><strong>搜尋</strong><span>純 VCF：只展開眠四、活四、成五</span></div>
+      <div><strong>單組 VCF</strong><span>Rapfi 式固定 bucket TT，找到一組立即回傳</span></div>
+      <div><strong>多組 VCF</strong><span>舊版語意同型表，持續展開相同第一手的其他分支</span></div>
+      <div><strong>精簡手順</strong><span>由最後攻防層往第 1 層，以 isVCF 驗證後刪除</span></div>
       <div><strong>平行</strong><span>${window.engineAPI?.workerCount || 1} 個獨立 Wasm Worker</span></div>
-      <div><strong>Rapfi</strong><span>官方程式維持原樣，只放在對照實驗室</span></div>
     </div>
     <p id="bb-engine-status" class="bb-engine-status">Bitboard 引擎初始化中……</p>
   `;
 
   const style = document.createElement("style");
   style.textContent = `
+    #vcf-search-options {
+      display:flex; gap:12px; flex-wrap:wrap; justify-content:center; align-items:center;
+      width:min(100%,1120px); padding:7px 10px; border:1px solid #bdc9b8;
+      border-radius:7px; background:#f7fbf4; font-size:13px;
+    }
+    #vcf-search-options label { display:flex; align-items:center; gap:5px; cursor:pointer; }
+    #vcf-search-options select { padding:5px 7px; border:1px solid #aaa; border-radius:5px; background:#fff; font-size:13px; }
     #bitboard-architecture-panel {
       width: min(100%, 1120px); padding: 12px 14px; border: 1px solid #8ca28e;
       border-radius: 8px; background: #f5fff6; box-shadow: 0 2px 8px #0001;
@@ -39,10 +65,154 @@
     .bb-engine-status.ready { background: #daf3e1; color: #145e2c; }
     .bb-engine-status.error { background: #ffe1de; color: #8b241d; }
     @media (max-width: 760px) { .bb-status-grid { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 430px) { .bb-status-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 430px) { .bb-status-grid { grid-template-columns: 1fr; } #vcf-search-options{align-items:stretch;flex-direction:column;} }
   `;
   document.head.appendChild(style);
   document.body.insertBefore(panel, document.body.firstChild);
+
+  const simplifyCheck = document.getElementById("vcf-simplify-route");
+  const addModeSelect = document.getElementById("vcf-add-search-mode");
+  try {
+    simplifyCheck.checked = localStorage.getItem("vcf_simplify_route") === "1";
+    addModeSelect.value = localStorage.getItem("vcf_add_search_mode") === "shortest" ? "shortest" : "single";
+  } catch (_) {}
+  simplifyCheck.addEventListener("change", () => {
+    try { localStorage.setItem("vcf_simplify_route", simplifyCheck.checked ? "1" : "0"); } catch (_) {}
+  });
+  addModeSelect.addEventListener("change", () => {
+    try { localStorage.setItem("vcf_add_search_mode", addModeSelect.value); } catch (_) {}
+  });
+
+  if (typeof setBusy === "function") {
+    const originalSetBusy = setBusy;
+    setBusy = function(v) {
+      originalSetBusy(v);
+      simplifyCheck.disabled = Boolean(v);
+      addModeSelect.disabled = Boolean(v);
+    };
+  }
+
+  if (typeof engine !== "undefined" && engine && typeof engine.findVCF === "function") {
+    const originalFindVCF = engine.findVCF.bind(engine);
+    engine.findVCF = async options => {
+      const normalized = { ...options };
+      normalized.mode = normalized.mode || (Number(normalized.maxVCF || 1) > 1 ? "multi" : "single");
+      if (normalized.simplify == null) normalized.simplify = normalized.mode === "multi" || normalized.mode === "shortest";
+      if (window.engineAPI) {
+        await engine._initP;
+        return (await window.engineAPI.send("findVCF", normalized)) || { winMoves: [] };
+      }
+      return originalFindVCF(normalized);
+    };
+  }
+
+  if (typeof pool !== "undefined" && pool && typeof pool.getLevelPoints === "function") {
+    const originalPoolGetLevelPoints = pool.getLevelPoints.bind(pool);
+    pool.getLevelPoints = async options => {
+      if (window.engineAPI) {
+        await pool._initP;
+        return window.engineAPI.poolGetLevelPoints({
+          ...options,
+          arr: Array.from(options.arr || []),
+        });
+      }
+      return originalPoolGetLevelPoints(options);
+    };
+  }
+
+  if (typeof doSearch === "function") {
+    doSearch = async function(arr, color) {
+      lastParam = { arr, color };
+      setBusy(true);
+      window._clearVCF();
+      window._clearAnalysis();
+      resetVcfGroups();
+      const simplify = Boolean(simplifyCheck.checked);
+      setStatus(`正在搜索 ${color===1?"黑子":"白子"} VCF${simplify ? "並精簡手順" : ""}...`);
+      try {
+        const t0 = performance.now();
+        const info = await engine.findVCF({
+          arr,
+          color,
+          mode: "single",
+          simplify,
+          maxVCF: 1,
+          maxDepth: 200,
+          maxNode: 5000000,
+        });
+        if (info && info.winMoves && info.winMoves[0] && info.winMoves[0].length) {
+          lastVCFMoves = info.winMoves[0];
+          window._showVCF(lastVCFMoves, color);
+          const note = simplify ? "，已精簡手順" : "";
+          setStatus(`${color===1?"黑子":"白子"} VCF 找到，共 ${lastVCFMoves.length} 手${note}（${elapsed(t0)}，${fmtNodes(info.nodeCount)}，${fmtRate(info.nodeCount, t0)}）`);
+        } else {
+          setStatus(`${color===1?"黑子":"白子"} VCF 未找到（${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}）`);
+        }
+      } catch (e) {
+        console.error(e);
+        setStatus("搜索失敗：" + (e && e.message || String(e)));
+      }
+      setBusy(false);
+    };
+  }
+
+  if (typeof doAddVCF === "function") {
+    doAddVCF = async function(arr, placeColor) {
+      const color = getAColor();
+      const placeName = placeColor===1 ? "黑" : "白";
+      const vcfName = color===1 ? "黑" : "白";
+      const searchMode = addModeSelect.value === "shortest" ? "shortest" : "single";
+      const modeName = searchMode === "shortest" ? "多組 VCF／最少步" : "單組 VCF／速度";
+      const lightColor = "#7799ee";
+      const darkColor = "#001188";
+      setBusy(true);
+      window._clearAnalysis();
+      try {
+        setStatus(`補${placeName}逐點試下，找${vcfName} VCF（${modeName}，${pool.workerCount} 核並行）...`);
+        const t0 = performance.now();
+        const data = await pool.getLevelPoints({
+          arr,
+          color,
+          placeColor,
+          searchMode,
+          simplify: searchMode === "shortest",
+          maxDepth: 200,
+          maxNode: 5000000,
+        });
+        if (!data) return;
+        const { items: result, nodeCount } = data;
+        if (result.length) {
+          const vcfLabels = result.filter(r => r.label !== "4" && r.label !== "5").map(r => Number(r.label));
+          const minL = vcfLabels.length ? Math.min(...vcfLabels) : 0;
+          const maxL = vcfLabels.length ? Math.max(...vcfLabels) : 0;
+          window._showAnalysisLabels(result, item => {
+            if (item.label === "5") return "#ff66aa";
+            if (item.label === "4") return "#c05000";
+            const t = maxL === minL ? 1 : (Number(item.label) - minL) / (maxL - minL);
+            return lerpColor(lightColor, darkColor, t);
+          }, "#fff");
+          if (vcfLabels.length) {
+            const targetLength = searchMode === "shortest" ? minL : maxL;
+            const ringIdx = result
+              .filter(r => r.label !== "4" && r.label !== "5" && Number(r.label) === targetLength)
+              .map(r => r.idx);
+            window._showAnalysisRing(ringIdx, "#00ccff");
+          }
+          const n5 = result.filter(r => r.label === "5").length;
+          const n4 = result.filter(r => r.label === "4").length;
+          const nV = result.length - n5 - n4;
+          const s5 = n5 ? `連五 ${n5} 個，` : "";
+          const stepNote = searchMode === "shortest" && vcfLabels.length ? `，最少 ${minL} 手` : "";
+          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${s5}四 ${n4} 個，VCF ${nV} 個${stepNote}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`);
+        } else {
+          window._clearAnalysis();
+          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：無結果（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`);
+        }
+      } finally {
+        setBusy(false);
+      }
+    };
+  }
 
   const status = panel.querySelector("#bb-engine-status");
   Promise.all([
@@ -50,7 +220,7 @@
     window.VCFBitboard?.main?.ready,
   ]).then(() => {
     status.className = "bb-engine-status ready";
-    status.textContent = "Bitboard C++ Wasm 已就緒；所有主功能不會回退到 eval/worker.js。";
+    status.textContent = "Bitboard C++ Wasm 已就緒；單組與多組搜尋已使用各自的同型表。";
   }).catch(error => {
     status.className = "bb-engine-status error";
     status.textContent = `Bitboard 引擎初始化失敗：${error?.message || error}`;
