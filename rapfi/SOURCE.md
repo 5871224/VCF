@@ -1,9 +1,12 @@
-# Rapfi WebAssembly 來源、隔離與授權
+# VCF Bitboard、Rapfi WebAssembly 來源與隔離
 
-本頁同時載入兩個彼此獨立的 WebAssembly 模組：
+`/VCF/rapfi/` 現在是完整的 VCF Bitboard C++ WebAssembly 工作台；原本的 Rapfi／棋型比較頁保留在 `/VCF/rapfi/lab.html`。
 
-1. 官方 Rapfi C++ 引擎。
-2. VCF 自行實作的 C++ Wasm 14 種棋型引擎。
+本專案使用三個彼此獨立的 WebAssembly 輸出：
+
+1. 官方 Rapfi C++ 引擎，只供實驗室對照。
+2. VCF 自行實作的 14 種棋型／禁手模組。
+3. VCF 自行實作的 Bitboard VCF 搜尋模組。
 
 ## 官方 Rapfi
 
@@ -41,17 +44,7 @@ rapfi-single-simd128.wasm
 rapfi-single-simd128.data
 ```
 
-頁面只透過 Rapfi 已存在的文字協定取得結果：
-
-- `TRACEBOARD`：取得每個空點的官方 Pattern4。
-- `YXSHOWFORBID`：取得官方禁手點清單。
-- `YXBLOCK`／`YXBLOCKRESET`：計算純 VCF 前，封鎖不屬於眠四（死四）、活四或成五的根候選。
-- `YXNBEST N`：只對 C++ Wasm 篩出的 `N` 個合法衝四以上根候選進入 Rapfi 官方 QVCF。
-- `YXSEARCHDEFEND`：把根節點剩餘合法點列為 MultiPV，逐一計算防守結果。
-
-VCF 工具只解析 Rapfi 原本就會輸出的 `EVAL`、`NODES`、`TOTALNODES`、`TOTALTIME`、`SPEED` 與 `BESTLINE`，沒有新增 Rapfi 匯出函式。
-
-Rapfi 官方協定沒有逐方向輸出 Pattern2x，因此頁面不會用 VCF 的方向棋型冒充 Rapfi 結果。
+實驗室只透過 Rapfi 已存在的文字協定取得結果，包括 `TRACEBOARD`、`YXSHOWFORBID`、`YXBLOCK`、`YXNBEST` 與 `YXSEARCHDEFEND`。沒有新增 Rapfi 匯出函式。
 
 ## VCF 獨立 C++ Wasm 棋型引擎
 
@@ -77,6 +70,47 @@ vcf-pattern-engine.wasm
 - 兩張 1024 輔助表加三進位表。
 - 二進位 `2^20` 大表。
 
-三種方法使用相同的棋型分類規格與不同索引方式。模組載入時會窮舉所有有效線型，確認三張表完全一致；GitHub Actions 另外會執行原生 C++ 測試，包括 2,000 組隨機盤面、長連與正五案例。
+三種方法使用相同棋型分類規格與不同索引方式。載入時會窮舉有效線型確認三張表完全一致；GitHub Actions 另執行原生 C++ 隨機盤面、長連與正五測試。
 
-純 VCF 根候選由 `rapfi/vcf-candidate-worker.js` 在獨立 Worker 中呼叫此 C++ Wasm：只接受至少一個方向為 `B4`、`F4` 或 `F5`，並排除連珠禁手。官方 Rapfi 和 VCF 棋型模組各自擁有獨立記憶體與匯出函式，網頁只負責協調與顯示結果。
+## VCF Bitboard C++ Wasm 搜尋引擎
+
+原始碼：
+
+```text
+rapfi/vcf-bitboard-engine.cpp
+```
+
+它和 `vcf-pattern-engine.cpp` 連結成另一個完全獨立的模組：
+
+```text
+vcf-bitboard-engine.js
+vcf-bitboard-engine.wasm
+```
+
+主要架構：
+
+- 黑白各使用四個 `uint64_t`，表示完整 225 位棋盤。
+- 落子與回復同步更新 Bitboard 及 225 格相容陣列。
+- 空點以位元掃描產生，不由 JavaScript 逐格遞迴。
+- 純 VCF 攻擊節點只展開合法的 `B4`、`F4`、`F5`。
+- 防守節點驗證唯一成五點、雙成五點、守方立即成五及連珠禁手。
+- VCF 路線、單一路線防守、全部防守候選、VCT／加子逐點掃描及節點統計都在 C++ Wasm 內執行。
+- 多點掃描可使用多個彼此獨立的單執行緒 Wasm Worker，不需要 SharedArrayBuffer。
+
+JavaScript 只負責：
+
+- 棋盤介面與路線繪製。
+- 按鈕、暫停／重新啟動及結果顯示。
+- 圖片／拍照匯入與校正介面。
+- 題目產生器的候選組合流程。
+
+題目產生器需要的 `getLevelPoint`、`isFoul`、`testLineFour`、`getBlockFourPoint` 由 Bitboard 模組提供相容介面；候選的 VCF 驗證與去重透過 `window.engineAPI` 呼叫 C++ Wasm，不回退到舊 `eval/worker.js`。
+
+## Pages 路由
+
+GitHub Actions 部署時：
+
+- 將原本 `rapfi/index.html` 保存為 `/rapfi/lab.html`。
+- 以原主頁 `makevcf.html` 生成新的 `/rapfi/index.html`，保留原主頁的全部操作、圖片匯入及題目產生器。
+- 在原主頁 JavaScript 建立舊引擎前，先載入 `vcf-bitboard-engine.js` 與 `vcf-bitboard-main.js`。
+- `/rapfi/` 不載入 `eval/EvaluatorCore.js`、`eval/Evaluator.js` 或舊搜尋 Worker。
