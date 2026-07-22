@@ -6,6 +6,7 @@
 - Rapfi Networks：https://github.com/dhbloo/rapfi-networks
 - Rapfi 授權：GNU General Public License v3.0 或後續版本
 - VCF 建置設定：`.github/workflows/pages.yml`
+- VCF 棋型基準原始碼：`rapfi/vcf-pattern-benchmark.cpp`
 
 目前部署固定使用以下版本：
 
@@ -35,4 +36,4 @@ coord_conversion_mode = "X_flipY"
 coord_conversion_mode = "none"
 ```
 
-除此之外，Rapfi 搜尋、棋型、禁手與 NNUE 原始碼保持官方版本。
+Rapfi 的搜尋、棋型、禁手與 NNUE 原始碼保持官方版本。VCF 只額外編入一個獨立的 WebAssembly 基準函式，用來量測官方 `lookupPattern` 與 `PCODE` 熱路徑；該函式不參與下棋或搜尋結果。
