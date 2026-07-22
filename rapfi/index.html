@@ -65,7 +65,7 @@
     #bestline { overflow-wrap: anywhere; }
     .benchmark-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
     .benchmark-wrap { overflow-x: auto; margin-top: 10px; }
-    .benchmark-table { width: 100%; min-width: 590px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    .benchmark-table { width: 100%; min-width: 650px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
     .benchmark-table th, .benchmark-table td { border-bottom: 1px solid #e2ded4; padding: 8px 9px; text-align: right; white-space: nowrap; }
     .benchmark-table th:first-child, .benchmark-table td:first-child { text-align: left; white-space: normal; }
     .benchmark-table thead th { color: #625d53; font-size: .8rem; background: #f4f2ed; }
@@ -142,7 +142,7 @@
 
       <div class="benchmark-section">
         <h2>棋型判斷速度</h2>
-        <button id="benchmarkButton" type="button" disabled>比較 Rapfi 與 JavaScript</button>
+        <button id="benchmarkButton" type="button" disabled>比較 Rapfi、Wasm 與 JavaScript</button>
         <div class="benchmark-wrap">
           <table class="benchmark-table">
             <thead>
@@ -151,6 +151,9 @@
             <tbody>
               <tr><td>Rapfi Wasm：fused key 已維護，直接查 Pattern2x</td><td id="wasmFusedTotal">—</td><td id="wasmFusedPerOp">—</td></tr>
               <tr><td>Rapfi Wasm：raw 2-bit key → fuseKey → Pattern2x</td><td id="wasmRawTotal">—</td><td id="wasmRawPerOp">—</td></tr>
+              <tr class="group-start"><td>C++ Wasm：三進位 key 已維護，查一次</td><td id="wasmTernaryTotal">—</td><td id="wasmTernaryPerOp">—</td></tr>
+              <tr><td>C++ Wasm：兩張 1024 輔助表＋三進位表</td><td id="wasmHelperTotal">—</td><td id="wasmHelperPerOp">—</td></tr>
+              <tr><td>C++ Wasm：二進位 2^20 大表</td><td id="wasmBinaryTotal">—</td><td id="wasmBinaryPerOp">—</td></tr>
               <tr class="group-start"><td>JavaScript：三進位 key 已維護，查一次</td><td id="jsTernaryTotal">—</td><td id="jsTernaryPerOp">—</td></tr>
               <tr><td>JavaScript：兩張 1024 輔助表＋三進位表</td><td id="jsHelperTotal">—</td><td id="jsHelperPerOp">—</td></tr>
               <tr><td>JavaScript：二進位 2^20 大表</td><td id="jsBinaryTotal">—</td><td id="jsBinaryPerOp">—</td></tr>
@@ -158,7 +161,7 @@
             </tbody>
           </table>
         </div>
-        <p id="benchmarkDetail" class="benchmark-detail">每項執行 100 萬次、共 9 輪取中位數；全部在同一個 Web Worker 與同一台裝置測量。</p>
+        <p id="benchmarkDetail" class="benchmark-detail">每項執行 100 萬次、共 9 輪交錯執行並取中位數；全部在同一個 Web Worker 與同一台裝置測量。</p>
       </div>
 
       <div id="console" class="console" aria-live="polite"></div>
