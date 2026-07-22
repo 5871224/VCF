@@ -49,27 +49,50 @@ function writeRoute(route) {
   return moves.length;
 }
 
+function searchModeValue(mode, maxVCF = 1) {
+  if (mode === "shortest" || Number(mode) === 2) return 2;
+  if (mode === "multi" || Number(mode) === 1 || Number(maxVCF) > 1) return 1;
+  return 0;
+}
+
 function findVCF(param) {
   const board = toBoard(param.arr);
   writeBoard(board);
   const maxVCF = Math.max(1, Math.min(MAX_ROUTES, Number(param.maxVCF) || 1));
   const maxDepth = Math.max(1, Math.min(MAX_ROUTE_PLY, Number(param.maxDepth) || 200));
   const maxNode = Math.max(1, Math.min(0xffffffff, Number(param.maxNode) || 5_000_000));
+  const mode = searchModeValue(param.mode, maxVCF);
+  const simplify = mode !== 0 || Boolean(param.simplify);
   moduleInstance.HEAPU8.fill(0, ptr.moves, ptr.moves + MAX_ROUTES * MAX_ROUTE_PLY);
   moduleInstance.HEAPU16.fill(0, ptr.lengths >>> 1, (ptr.lengths >>> 1) + MAX_ROUTES);
 
-  const count = api.find(
-    ptr.board,
-    Number(param.color) || 1,
-    Number(param.rules ?? currentRules),
-    maxVCF,
-    maxDepth,
-    maxNode,
-    ptr.moves,
-    ptr.lengths,
-    MAX_ROUTE_PLY,
-    ptr.stats,
-  );
+  const count = api.findMode
+    ? api.findMode(
+      ptr.board,
+      Number(param.color) || 1,
+      Number(param.rules ?? currentRules),
+      mode,
+      simplify ? 1 : 0,
+      maxVCF,
+      maxDepth,
+      maxNode,
+      ptr.moves,
+      ptr.lengths,
+      MAX_ROUTE_PLY,
+      ptr.stats,
+    )
+    : api.find(
+      ptr.board,
+      Number(param.color) || 1,
+      Number(param.rules ?? currentRules),
+      maxVCF,
+      maxDepth,
+      maxNode,
+      ptr.moves,
+      ptr.lengths,
+      MAX_ROUTE_PLY,
+      ptr.stats,
+    );
 
   const lengths = moduleInstance.HEAPU16.subarray(ptr.lengths >>> 1, (ptr.lengths >>> 1) + count);
   const winMoves = [];
@@ -78,7 +101,13 @@ function findVCF(param) {
     const start = ptr.moves + route * MAX_ROUTE_PLY;
     winMoves.push(Array.from(moduleInstance.HEAPU8.subarray(start, start + length)));
   }
-  return { ...readStats(), vcfCount: count, winMoves };
+  return {
+    ...readStats(),
+    vcfCount: count,
+    winMoves,
+    searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
+    simplified: simplify,
+  };
 }
 
 function validateRoute(param) {
@@ -130,26 +159,51 @@ function getLevelPoints(param) {
   moduleInstance.HEAPU16.fill(0, ptr.outIndices >>> 1, (ptr.outIndices >>> 1) + BOARD_CELLS);
   moduleInstance.HEAPU16.fill(0, ptr.labels >>> 1, (ptr.labels >>> 1) + BOARD_CELLS);
 
-  const count = api.scan(
-    ptr.board,
-    Number(param.color) || 1,
-    Number(param.placeColor || param.color) || 1,
-    Number(param.rules ?? currentRules),
-    indices.length ? ptr.indices : 0,
-    indices.length,
-    Math.max(1, Math.min(MAX_ROUTE_PLY, Number(param.maxDepth) || 200)),
-    Math.max(1, Number(param.maxNode) || 5_000_000),
-    ptr.outIndices,
-    ptr.labels,
-    BOARD_CELLS,
-    ptr.stats,
-  );
+  const maxDepth = Math.max(1, Math.min(MAX_ROUTE_PLY, Number(param.maxDepth) || 200));
+  const maxNode = Math.max(1, Number(param.maxNode) || 5_000_000);
+  const mode = searchModeValue(param.searchMode, 1);
+  const simplify = mode !== 0 || Boolean(param.simplify);
+  const count = api.scanMode
+    ? api.scanMode(
+      ptr.board,
+      Number(param.color) || 1,
+      Number(param.placeColor || param.color) || 1,
+      Number(param.rules ?? currentRules),
+      mode,
+      simplify ? 1 : 0,
+      indices.length ? ptr.indices : 0,
+      indices.length,
+      maxDepth,
+      maxNode,
+      ptr.outIndices,
+      ptr.labels,
+      BOARD_CELLS,
+      ptr.stats,
+    )
+    : api.scan(
+      ptr.board,
+      Number(param.color) || 1,
+      Number(param.placeColor || param.color) || 1,
+      Number(param.rules ?? currentRules),
+      indices.length ? ptr.indices : 0,
+      indices.length,
+      maxDepth,
+      maxNode,
+      ptr.outIndices,
+      ptr.labels,
+      BOARD_CELLS,
+      ptr.stats,
+    );
 
   const outIdx = moduleInstance.HEAPU16.subarray(ptr.outIndices >>> 1, (ptr.outIndices >>> 1) + count);
   const labels = moduleInstance.HEAPU16.subarray(ptr.labels >>> 1, (ptr.labels >>> 1) + count);
   const items = [];
   for (let i = 0; i < count; i++) items.push({ idx: outIdx[i], label: String(labels[i]) });
-  return { ...readStats(), items };
+  return {
+    ...readStats(),
+    items,
+    searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
+  };
 }
 
 function trimVCFGroups(param) {
@@ -197,14 +251,19 @@ async function init(url) {
     moduleInstance = await self.VCFBitboardModule({ locateFile: file => new URL(file, base).href });
     api = {
       find: moduleInstance.cwrap("vcfBbFind", "number", Array(10).fill("number")),
+      findMode: moduleInstance.cwrap("vcfBbFindMode", "number", Array(12).fill("number")),
       validate: moduleInstance.cwrap("vcfBbValidateRoute", "number", Array(7).fill("number")),
       routeDefense: moduleInstance.cwrap("vcfBbRouteDefense", "number", Array(9).fill("number")),
       scan: moduleInstance.cwrap("vcfBbScanPoints", "number", Array(12).fill("number")),
+      scanMode: moduleInstance.cwrap("vcfBbScanPointsMode", "number", Array(14).fill("number")),
       levelPoint: moduleInstance.cwrap("vcfBbLegacyGetLevelPoint", "number", Array(4).fill("number")),
       selfTest: moduleInstance.cwrap("vcfBbSelfTest", "number", []),
+      searchV2SelfTest: moduleInstance.cwrap("vcfBbSearchV2SelfTest", "number", []),
     };
     const test = api.selfTest();
     if (test !== 0) throw new Error(`Bitboard C++ Wasm 自我檢查失敗：${test}`);
+    const searchTest = api.searchV2SelfTest();
+    if (searchTest !== 0) throw new Error(`Bitboard 搜尋 V2 自我檢查失敗：${searchTest}`);
 
     ptr.board = moduleInstance._malloc(BOARD_CELLS);
     ptr.moves = moduleInstance._malloc(MAX_ROUTES * MAX_ROUTE_PLY);
@@ -215,7 +274,7 @@ async function init(url) {
     ptr.indices = moduleInstance._malloc(BOARD_CELLS * 2);
     ptr.outIndices = moduleInstance._malloc(BOARD_CELLS * 2);
     ptr.labels = moduleInstance._malloc(BOARD_CELLS * 2);
-    return { selfTest: test };
+    return { selfTest: test, searchV2SelfTest: searchTest };
   })();
   return readyPromise;
 }
