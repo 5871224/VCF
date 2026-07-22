@@ -187,8 +187,16 @@ function genFinalizeValidatedResult(candidate, target, info, groups, previousRes
   };
 }
 
-async function genFindAnalyzedGroups(candidate) {
-  const info = await genEngine.findVCF(candidate.board, candidate.attacker, 64);
+async function genFindAnalyzedGroups(candidate, expectedSteps) {
+  // 最短 VCF 的實際路線長度最多約為「攻方步數 × 2 + 最後致勝手」。
+  // 額外保留 2 ply，避免活四／四四終止型態的邊界差異；不再對每個候選搜尋到 200 ply。
+  const maxDepth = Math.min(200, Math.max(3, expectedSteps * 2 + 3));
+  const info = await genEngine.findVCF(candidate.board, candidate.attacker, 64, {
+    mode: "shortest",
+    simplify: true,
+    maxDepth,
+    maxNode: 5000000,
+  });
   if (genCancelled || !info || !info.winMoves || !info.winMoves.length) return null;
   const raw = info.winMoves.filter(moves => moves && moves.length);
   if (!raw.length) return null;
@@ -201,7 +209,7 @@ async function genValidateCandidate(candidate, expectedSteps) {
   const expectedBoard = genBuildExpectedBaseBoard(candidate);
   if (!expectedBoard) return null;
 
-  const found = await genFindAnalyzedGroups(candidate);
+  const found = await genFindAnalyzedGroups(candidate, expectedSteps);
   if (!found) return null;
   const { info, groups } = found;
 
@@ -231,7 +239,7 @@ async function genValidateExtensionCandidate(candidate, previousResult, targetSt
   const expectedBoard = genBuildExpectedExtendedBoard(previousResult, candidate);
   if (!expectedBoard) return null;
 
-  const found = await genFindAnalyzedGroups(candidate);
+  const found = await genFindAnalyzedGroups(candidate, targetSteps);
   if (!found) return null;
   const { info, groups } = found;
 
