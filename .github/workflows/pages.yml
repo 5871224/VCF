@@ -43,8 +43,15 @@ jobs:
           path: .cache/vcf-pattern-engine
           key: vcf-pattern-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp') }}
 
+      - name: Restore Bitboard VCF engine cache
+        id: bitboard-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcf-bitboard-engine
+          key: vcf-bitboard-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp') }}
+
       - name: Install Emscripten SDK
-        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true'
+        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -127,9 +134,47 @@ jobs:
           test -s .cache/vcf-pattern-engine/vcf-pattern-engine.js
           test -s .cache/vcf-pattern-engine/vcf-pattern-engine.wasm
 
+      - name: Test and build Bitboard VCF WebAssembly
+        if: steps.bitboard-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .build/emsdk/emsdk_env.sh
+          rm -rf .cache/vcf-bitboard-engine
+          mkdir -p .cache/vcf-bitboard-engine
+
+          # 搜尋核心與棋型核心以獨立 VCF 原始碼連結；不包含 Rapfi 原始碼。
+          g++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp \
+            -O2 \
+            -std=c++17 \
+            -DVCF_BITBOARD_TEST_MAIN \
+            -o /tmp/vcf-bitboard-engine-test
+          /tmp/vcf-bitboard-engine-test
+
+          em++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp \
+            -O3 \
+            -std=c++17 \
+            -msimd128 \
+            --no-entry \
+            -s WASM=1 \
+            -s MODULARIZE=1 \
+            -s EXPORT_NAME=VCFBitboardModule \
+            -s ENVIRONMENT='web,worker' \
+            -s FILESYSTEM=0 \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbSelfTest','_malloc','_free']" \
+            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+            -o .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
+
+          test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
+          test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.wasm
+          ls -lh .cache/vcf-bitboard-engine
+
       - name: Prepare static site
         shell: bash
         run: |
+          set -euxo pipefail
+          rm -rf _site
           mkdir -p _site
           cp makevcf.html _site/index.html
           cp makevcf.html _site/makevcf.html
@@ -142,11 +187,16 @@ jobs:
           mkdir -p _site/rapfi/engine
           cp .cache/rapfi-wasm/rapfi-single-simd128.* _site/rapfi/engine/
           cp .cache/vcf-pattern-engine/vcf-pattern-engine.* _site/rapfi/engine/
+          cp .cache/vcf-bitboard-engine/vcf-bitboard-engine.* _site/rapfi/engine/
+
+          # 舊 Rapfi／棋型比較頁保留為實驗室；/rapfi/ 改成完整 Bitboard 工作台。
+          mv _site/rapfi/index.html _site/rapfi/lab.html
+          cp makevcf.html _site/rapfi/index.html
 
           python - <<'PY'
           from pathlib import Path
 
-          scripts = '''
+          root_scripts = '''
           <!-- 手機棋盤自適應 -->
           <script src="makevcf-mobile.js"></script>
           <!-- VCF 題目產生器：與主分析頁共用同一棋盤 -->
@@ -176,13 +226,51 @@ jobs:
               path = Path("_site") / filename
               text = path.read_text(encoding="utf-8")
               if "makevcf-generator-integrated.js" not in text:
-                  text = text.replace("</body>", scripts + "\n</body>")
+                  text = text.replace("</body>", root_scripts + "\n</body>")
               path.write_text(text, encoding="utf-8")
+
+          rapfi_path = Path("_site/rapfi/index.html")
+          rapfi_text = rapfi_path.read_text(encoding="utf-8")
+          rapfi_text = rapfi_text.replace("<head>", '<head>\n<base href="../">', 1)
+          bridge = '''
+          <!-- 在舊頁面程式建立引擎前，先注入 Bitboard C++ Wasm 相容層。 -->
+          <script src="rapfi/engine/vcf-bitboard-engine.js"></script>
+          <script src="rapfi/vcf-bitboard-main.js"></script>
+          '''
+          rapfi_text = rapfi_text.replace("<script>", bridge + "\n<script>", 1)
+          rapfi_scripts = '''
+          <!-- 手機介面與原主頁題目產生器；棋型／搜尋介面由 Bitboard Wasm 提供。 -->
+          <script src="makevcf-mobile.js"></script>
+          <script src="emoji/emoji.js"></script>
+          <script src="makevcf-generator-core.js"></script>
+          <script src="makevcf-generator-base.js"></script>
+          <script src="makevcf-generator-layer.js"></script>
+          <script src="makevcf-generator-validate.js"></script>
+          <script src="makevcf-generator-integrated.js"></script>
+          <script src="makevcf-generator-reuse-bonus.js"></script>
+          <script src="makevcf-generator-concentration.js"></script>
+          <script src="makevcf-generator-main.js"></script>
+          <script src="makevcf-generator-order-mode.js"></script>
+          <script src="makevcf-generator-balance.js"></script>
+          <script src="makevcf-generator-unique.js"></script>
+          <script src="makevcf-generator-summary.js"></script>
+          <script src="makevcf-layout.js"></script>
+          <script src="rapfi/rapfi-bitboard-dashboard.js"></script>
+          '''
+          rapfi_text = rapfi_text.replace("</body>", rapfi_scripts + "\n</body>")
+          rapfi_path.write_text(rapfi_text, encoding="utf-8")
+
+          assert 'base href="../"' in rapfi_text
+          assert 'vcf-bitboard-engine.js' in rapfi_text
+          assert 'vcf-bitboard-main.js' in rapfi_text
+          assert 'eval/EvaluatorCore.js' not in rapfi_scripts
+          assert Path("_site/rapfi/lab.html").is_file()
           PY
 
           touch _site/.nojekyll
           du -sh _site
           ls -lh _site/rapfi/engine
+          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard" _site/rapfi/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
