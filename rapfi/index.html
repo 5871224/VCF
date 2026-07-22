@@ -20,6 +20,7 @@
     body { margin: 0; }
     main { width: min(100% - 20px, 1220px); margin: 16px auto 40px; }
     h1 { margin: 0 0 6px; font-size: clamp(1.4rem, 4vw, 2rem); }
+    h2 { margin: 0 0 10px; font-size: 1.15rem; }
     .intro { margin: 0 0 14px; color: #625e54; line-height: 1.6; }
     .status-bar {
       display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
@@ -58,16 +59,23 @@
     button:disabled { opacity: .45; cursor: default; }
     label { display: grid; gap: 4px; font-size: .88rem; color: #5d584e; }
     .result { margin-top: 12px; padding: 10px; border-radius: 8px; background: #f5f1e7; min-height: 46px; line-height: 1.55; }
-    .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 12px 0; font-variant-numeric: tabular-nums; }
-    .stats div { padding: 7px 9px; background: #f7f6f2; border-radius: 7px; }
-    .stats strong { display: block; font-size: .78rem; color: #706a5e; }
-    .console { height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 8px 0; padding: 10px; border-radius: 8px; background: #171717; color: #d7f5de; font: .8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .stats, .benchmark-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin: 12px 0; font-variant-numeric: tabular-nums; }
+    .stats div, .benchmark-grid div { padding: 7px 9px; background: #f7f6f2; border-radius: 7px; min-width: 0; }
+    .stats strong, .benchmark-grid strong { display: block; font-size: .78rem; color: #706a5e; margin-bottom: 2px; }
+    #bestline { overflow-wrap: anywhere; }
+    .benchmark-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+    .benchmark-detail { min-height: 1.4em; margin: 7px 0 0; color: #69645a; font-size: .84rem; line-height: 1.5; }
+    .console { height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 12px 0 8px; padding: 10px; border-radius: 8px; background: #171717; color: #d7f5de; font: .8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .command-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     .command-row input { min-width: 0; border: 1px solid #aaa; border-radius: 8px; padding: 8px 10px; }
     .note { margin-top: 12px; color: #69645a; font-size: .82rem; line-height: 1.55; }
     a { color: #145f3c; }
     @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
-    @media (max-width: 520px) { main { width: min(100% - 12px, 1220px); margin-top: 8px; } .panel { padding: 10px; } .stats { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) {
+      main { width: min(100% - 12px, 1220px); margin-top: 8px; }
+      .panel { padding: 10px; }
+      .stats, .benchmark-grid { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -113,7 +121,7 @@
     </section>
 
     <section class="panel">
-      <h2 style="margin-top:0">搜尋資訊</h2>
+      <h2>搜尋資訊</h2>
       <div class="stats">
         <div><strong>深度</strong><span id="depth">—</span></div>
         <div><strong>選擇深度</strong><span id="seldepth">—</span></div>
@@ -121,7 +129,20 @@
         <div><strong>速度</strong><span id="speed">—</span></div>
         <div><strong>評分</strong><span id="evaluation">—</span></div>
         <div><strong>勝率</strong><span id="winrate">—</span></div>
+        <div><strong>搜尋時間</strong><span id="searchTime">—</span></div>
+        <div><strong>最佳路線</strong><span id="bestline">—</span></div>
       </div>
+
+      <div class="benchmark-section">
+        <h2>棋型判斷速度</h2>
+        <button id="benchmarkButton" type="button" disabled>測試目前裝置</button>
+        <div class="benchmark-grid">
+          <div><strong>單方向 Pattern2x</strong><span id="directionBenchmark">—</span></div>
+          <div><strong>四方向＋PCODE</strong><span id="pointBenchmark">—</span></div>
+        </div>
+        <p id="benchmarkDetail" class="benchmark-detail">直接測量 Rapfi C++ Wasm 的棋型熱路徑，不包含 JavaScript 與畫面更新。</p>
+      </div>
+
       <div id="console" class="console" aria-live="polite"></div>
       <form id="commandForm" class="command-row">
         <input id="commandInput" autocomplete="off" placeholder="輸入 Rapfi 指令，例如 ABOUT">
