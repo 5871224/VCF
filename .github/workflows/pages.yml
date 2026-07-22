@@ -271,6 +271,7 @@ jobs:
           <script src="makevcf-generator-unique.js"></script>
           <script src="makevcf-generator-summary.js"></script>
           <script src="makevcf-layout.js"></script>
+          <script src="rapfi/vcf-bitboard-speed.js"></script>
           <script src="rapfi/rapfi-bitboard-dashboard.js"></script>
           '''
           rapfi_text = rapfi_text.replace("</body>", rapfi_scripts + "\n</body>")
@@ -280,6 +281,7 @@ jobs:
           assert 'vcf-bitboard-engine.js' in rapfi_text
           assert 'vcf-bitboard-main.js' in rapfi_text
           assert 'vcf-bitboard-generator-compat.js' in rapfi_text
+          assert 'vcf-bitboard-speed.js' in rapfi_text
           assert 'eval/EvaluatorCore.js' not in rapfi_scripts
           assert Path("_site/rapfi/lab.html").is_file()
           PY
