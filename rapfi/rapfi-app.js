@@ -5,6 +5,33 @@ const EMPTY = 0;
 const BLACK = 1;
 const WHITE = 2;
 
+const PATTERN_NAMES = [
+  "DEAD", "OL", "B1", "F1", "B2", "F2", "F2A", "F2B",
+  "B3", "F3", "F3S", "B4", "F4", "F5",
+];
+const PATTERN_ZH = [
+  "死型", "長連／同線雙四", "眠一", "活一", "眠二", "活二", "跳活二", "強活二",
+  "眠三", "活三", "強活三", "眠四", "活四", "五連",
+];
+const PATTERN4_NAMES = [
+  "NONE", "FORBID", "L_FLEX2", "K_BLOCK3", "J_FLEX2_2X", "I_BLOCK3_PLUS",
+  "H_FLEX3", "G_FLEX3_PLUS", "F_FLEX3_2X", "E_BLOCK4", "D_BLOCK4_PLUS",
+  "C_BLOCK4_FLEX3", "B_FLEX4", "A_FIVE",
+];
+const PATTERN4_ZH = [
+  "無顯著棋型", "禁手候選", "活二", "眠三", "雙活二", "眠三複合",
+  "活三", "活三複合", "雙活三", "眠四", "眠四複合", "四三", "活四／雙眠四", "成五",
+];
+const FORBIDDEN_TYPES = [
+  "不適用", "合法", "合法正五", "長連禁手", "四四禁手", "三三禁手", "假禁手", "不可落子",
+];
+const DIRECTION_NAMES = ["橫向", "縱向", "左上－右下", "左下－右上"];
+const CPP_METHOD_NAMES = [
+  "C++ Wasm：三進位 key 已維護",
+  "C++ Wasm：兩張 1024 輔助表",
+  "C++ Wasm：二進位 2^20 大表",
+];
+
 const boardElement = document.querySelector("#board");
 const statusDot = document.querySelector("#statusDot");
 const statusText = document.querySelector("#statusText");
@@ -23,6 +50,9 @@ const consoleElement = document.querySelector("#console");
 const commandForm = document.querySelector("#commandForm");
 const commandInput = document.querySelector("#commandInput");
 const benchmarkDetail = document.querySelector("#benchmarkDetail");
+const compareTitle = document.querySelector("#compareTitle");
+const compareStatus = document.querySelector("#compareStatus");
+const compareBody = document.querySelector("#patternCompareBody");
 
 const benchmarkCells = {
   wasmTernary: {
@@ -66,13 +96,33 @@ const stones = new Uint8Array(SIZE * SIZE);
 const history = [];
 let nextStone = BLACK;
 let suggestion = -1;
+let hoveredIndex = -1;
 let worker = null;
 let engineReady = false;
 let engineBusy = false;
 let benchmarkBusy = false;
+let hoverTimer = 0;
+let inspectRequestId = 0;
+let boardVersion = 0;
 
 function stoneName(stone) {
   return stone === BLACK ? "黑棋" : "白棋";
+}
+
+function coordinateName(idx) {
+  return `${String.fromCharCode(65 + (idx % SIZE))}${Math.floor(idx / SIZE) + 1}`;
+}
+
+function patternLabel(code) {
+  return Number.isInteger(code) && PATTERN_NAMES[code]
+    ? `${PATTERN_NAMES[code]}／${PATTERN_ZH[code]}`
+    : "—";
+}
+
+function pattern4Label(code) {
+  return Number.isInteger(code) && PATTERN4_NAMES[code]
+    ? `${PATTERN4_NAMES[code]}／${PATTERN4_ZH[code]}`
+    : "—";
 }
 
 function log(prefix, text) {
@@ -90,6 +140,7 @@ function setStatus(kind, text) {
 function renderPoint(index) {
   const point = boardElement.children[index];
   point.replaceChildren();
+  point.classList.toggle("hovered", index === hoveredIndex);
   const stone = stones[index];
   if (stone !== EMPTY) {
     const disc = document.createElement("span");
@@ -117,6 +168,20 @@ function renderAll() {
   }
 }
 
+function resetComparison(message = "將滑鼠移到空點，查看落子後的四方向棋型與禁手判斷。") {
+  compareTitle.textContent = "空點棋型比較";
+  compareStatus.className = "compare-status neutral";
+  compareStatus.textContent = message;
+  compareBody.replaceChildren();
+}
+
+function markBoardChanged() {
+  boardVersion++;
+  inspectRequestId++;
+  clearTimeout(hoverTimer);
+  resetComparison();
+}
+
 function clearSuggestion() {
   const previous = suggestion;
   suggestion = -1;
@@ -129,9 +194,18 @@ function play(index, stone = nextStone) {
   stones[index] = stone;
   history.push({ index, stone });
   nextStone = stone === BLACK ? WHITE : BLACK;
+  markBoardChanged();
   renderPoint(index);
   renderAll();
   return true;
+}
+
+function scheduleInspect(index) {
+  if (index < 0 || stones[index] !== EMPTY) return;
+  hoveredIndex = index;
+  renderAll();
+  clearTimeout(hoverTimer);
+  hoverTimer = setTimeout(() => inspectPoint(index), 80);
 }
 
 for (let y = 0; y < SIZE; y++) {
@@ -144,6 +218,8 @@ for (let y = 0; y < SIZE; y++) {
     point.dataset.y = String(y);
     point.setAttribute("aria-label", `座標 ${x}, ${y}`);
     point.addEventListener("click", () => play(index));
+    point.addEventListener("mouseenter", () => scheduleInspect(index));
+    point.addEventListener("focus", () => scheduleInspect(index));
     boardElement.append(point);
   }
 }
@@ -178,6 +254,33 @@ function buildBoardCommand(commandName = "YXBOARD") {
   return parts.join(" ");
 }
 
+function positionKey(rule, side) {
+  let key = `${boardVersion}:${rule}:${side}:`;
+  for (let i = 0; i < stones.length; i++) key += stones[i];
+  return key;
+}
+
+function inspectPoint(index) {
+  if (!engineReady || engineBusy || benchmarkBusy || stones[index] !== EMPTY) return;
+  const requestId = ++inspectRequestId;
+  const rule = Number(ruleSelect.value);
+  compareTitle.textContent = `${coordinateName(index)} 落下${stoneName(nextStone)}後`;
+  compareStatus.className = "compare-status loading";
+  compareStatus.textContent = "C++ Wasm 與官方 Rapfi 判斷中…";
+  worker.postMessage({
+    type: "inspect",
+    data: {
+      requestId,
+      board: Array.from(stones),
+      idx: index,
+      side: nextStone,
+      rule,
+      positionKey: positionKey(rule, nextStone),
+      boardCommand: buildBoardCommand("YXBOARD"),
+    },
+  });
+}
+
 function parseStatusProgress(status) {
   const match = String(status).match(/\((\d+)\/(\d+)\)/);
   if (!match) return;
@@ -202,7 +305,6 @@ function formatBenchmark(cells, ns, iterations) {
 
 function parseStdout(output) {
   log("<", output);
-
   const infoMatch = output.match(/^INFO\s+(\S+)(?:\s+(.+))?$/);
   if (infoMatch) {
     const key = infoMatch[1];
@@ -227,11 +329,78 @@ function parseStdout(output) {
     const y = Number(moveMatch[2]);
     const index = y * SIZE + x;
     engineBusy = false;
-    if (x >= 0 && x < SIZE && y >= 0 && y < SIZE && stones[index] === EMPTY) {
-      suggestion = index;
-    }
+    if (x >= 0 && x < SIZE && y >= 0 && y < SIZE && stones[index] === EMPTY) suggestion = index;
     renderAll();
   }
+}
+
+function sameCppResult(a, b) {
+  return a.pattern4 === b.pattern4
+    && a.forbidden === b.forbidden
+    && a.forbiddenType === b.forbiddenType
+    && a.directions.every((value, index) => value === b.directions[index]);
+}
+
+function addCell(row, text, className = "") {
+  const cell = document.createElement("td");
+  cell.textContent = text;
+  if (className) cell.className = className;
+  row.append(cell);
+}
+
+function renderInspection(data) {
+  if (data.requestId !== inspectRequestId) return;
+  const baseline = data.cppResults[0];
+  const cppAllMatch = data.cppResults.every((item) => sameCppResult(item, baseline));
+  compareBody.replaceChildren();
+
+  data.cppResults.forEach((item, methodIndex) => {
+    const row = document.createElement("tr");
+    addCell(row, CPP_METHOD_NAMES[methodIndex], "method-cell");
+    item.directions.forEach((pattern, direction) => {
+      const matches = pattern === baseline.directions[direction];
+      addCell(row, patternLabel(pattern), matches ? "match" : "mismatch");
+    });
+    addCell(row, pattern4Label(item.pattern4), item.pattern4 === baseline.pattern4 ? "match" : "mismatch");
+    const forbidText = item.forbidden
+      ? `是／${FORBIDDEN_TYPES[item.forbiddenType] ?? "禁手"}`
+      : `否／${FORBIDDEN_TYPES[item.forbiddenType] ?? "合法"}`;
+    addCell(row, forbidText,
+      item.forbidden === baseline.forbidden && item.forbiddenType === baseline.forbiddenType
+        ? "match" : "mismatch");
+    addCell(row, methodIndex === 0 ? "比較基準" : sameCppResult(item, baseline) ? "一致" : "有差異",
+      methodIndex === 0 || sameCppResult(item, baseline) ? "match" : "mismatch");
+    compareBody.append(row);
+  });
+
+  const rapfiRow = document.createElement("tr");
+  rapfiRow.className = "rapfi-row";
+  addCell(rapfiRow, "Rapfi 官方", "method-cell");
+  DIRECTION_NAMES.forEach(() => addCell(rapfiRow, "官方協定未提供", "unavailable"));
+  const p4Comparable = Number.isInteger(data.rapfi.pattern4);
+  const p4Match = p4Comparable && data.rapfi.pattern4 === baseline.pattern4;
+  addCell(rapfiRow, p4Comparable ? pattern4Label(data.rapfi.pattern4) : "未取得",
+    p4Match ? "match" : "mismatch");
+
+  let forbidText = "不適用";
+  let forbidMatch = true;
+  if (data.rapfi.forbiddenApplicable) {
+    forbidText = data.rapfi.forbidden ? "是／官方禁手" : "否／官方合法";
+    forbidMatch = data.rapfi.forbidden === baseline.forbidden;
+  }
+  addCell(rapfiRow, forbidText, forbidMatch ? "match" : "mismatch");
+  const rapfiParts = [p4Match ? "Pattern4 一致" : "Pattern4 有差異"];
+  if (data.rapfi.forbiddenApplicable) rapfiParts.push(forbidMatch ? "禁手一致" : "禁手有差異");
+  rapfiParts.push("方向不可比較");
+  addCell(rapfiRow, rapfiParts.join("；"), p4Match && forbidMatch ? "partial-match" : "mismatch");
+  compareBody.append(rapfiRow);
+
+  compareTitle.textContent = `${coordinateName(data.idx)} 落下${stoneName(data.side)}後`;
+  const officialComparable = p4Match && forbidMatch;
+  compareStatus.className = `compare-status ${cppAllMatch && officialComparable ? "ok" : "warning"}`;
+  compareStatus.textContent = cppAllMatch
+    ? `三種 C++ Wasm 完全一致；Rapfi ${officialComparable ? "Pattern4／禁手一致" : "存在差異"}。Rapfi 官方協定沒有逐方向 Pattern2x 輸出。`
+    : "三種 C++ Wasm 出現差異，請以紅色欄位定位。";
 }
 
 function startWorker() {
@@ -244,7 +413,7 @@ function startWorker() {
   benchmarkButton.disabled = true;
   loadProgress.value = 0;
   loadDetail.textContent = "";
-  setStatus("loading", "正在載入官方 Rapfi 與獨立測試模組…");
+  setStatus("loading", "正在載入官方 Rapfi 與獨立 C++ Wasm 棋型模組…");
   log("#", "建立 Rapfi Worker");
 
   worker.onmessage = (event) => {
@@ -261,6 +430,16 @@ function startWorker() {
       log("!", String(data));
       return;
     }
+    if (type === "inspect") {
+      renderInspection(data);
+      return;
+    }
+    if (type === "inspectError") {
+      if (data.requestId !== inspectRequestId) return;
+      compareStatus.className = "compare-status warning";
+      compareStatus.textContent = `棋型比較失敗：${data.message}`;
+      return;
+    }
     if (type === "benchmark") {
       benchmarkBusy = false;
       formatBenchmark(benchmarkCells.wasmTernary, data.wasmTernaryNs, data.iterations);
@@ -269,15 +448,15 @@ function startWorker() {
       formatBenchmark(benchmarkCells.jsTernary, data.jsTernaryNs, data.iterations);
       formatBenchmark(benchmarkCells.jsHelper, data.jsHelperNs, data.iterations);
       formatBenchmark(benchmarkCells.jsBinary, data.jsBinaryNs, data.iterations);
-      benchmarkDetail.textContent = `每項 ${data.iterations.toLocaleString("zh-TW")} 次，共 ${data.rounds} 輪交錯執行並顯示中位數；測試模組與官方 Rapfi 完全分離。`;
-      resultElement.textContent = "獨立 WebAssembly 與 JavaScript 查表速度比較完成。";
+      benchmarkDetail.textContent = `每項 ${data.iterations.toLocaleString("zh-TW")} 次，共 ${data.rounds} 輪交錯執行並顯示中位數。C++ Wasm 使用真正 14 種棋型表；JS 列仍是相同尺寸的查表速度基準。`;
+      resultElement.textContent = "C++ Wasm 與 JavaScript 查表速度比較完成。";
       renderAll();
       return;
     }
     if (type === "benchmarkError") {
       benchmarkBusy = false;
       benchmarkDetail.textContent = String(data);
-      resultElement.textContent = "查表速度比較失敗。";
+      resultElement.textContent = "棋型速度比較失敗。";
       log("!", String(data));
       renderAll();
       return;
@@ -285,8 +464,8 @@ function startWorker() {
     if (type === "ready") {
       engineReady = true;
       loadProgress.value = 1;
-      loadDetail.textContent = "載入完成";
-      setStatus("ready", "官方 Rapfi 已就緒；測試模組獨立載入");
+      loadDetail.textContent = "載入完成；三種棋型表自我檢查 0 差異";
+      setStatus("ready", "Rapfi 與 C++ Wasm 棋型模組已就緒");
       sendCommand("START 15");
       renderAll();
       return;
@@ -295,7 +474,7 @@ function startWorker() {
       engineReady = false;
       engineBusy = false;
       benchmarkBusy = false;
-      setStatus("error", "Rapfi 或測試模組載入失敗");
+      setStatus("error", "引擎載入失敗");
       log("!", String(data));
       renderAll();
       return;
@@ -313,7 +492,7 @@ function startWorker() {
     engineReady = false;
     engineBusy = false;
     benchmarkBusy = false;
-    setStatus("error", "Rapfi Worker 發生錯誤");
+    setStatus("error", "Worker 發生錯誤");
     log("!", error.message || String(error));
     renderAll();
   };
@@ -322,7 +501,7 @@ function startWorker() {
     type: "init",
     data: {
       engineURL: new URL("./engine/rapfi-single-simd128.js", location.href).href,
-      benchmarkURL: new URL("./engine/vcf-lookup-benchmark.js", location.href).href,
+      patternURL: new URL("./engine/vcf-pattern-engine.js", location.href).href,
     },
   });
 }
@@ -334,7 +513,7 @@ undoButton.addEventListener("click", () => {
   if (!move) return;
   stones[move.index] = EMPTY;
   nextStone = move.stone;
-  renderPoint(move.index);
+  markBoardChanged();
   renderAll();
 });
 
@@ -344,12 +523,20 @@ clearButton.addEventListener("click", () => {
   history.length = 0;
   nextStone = BLACK;
   suggestion = -1;
+  hoveredIndex = -1;
   resetStats();
+  markBoardChanged();
   renderAll();
 });
 
 acceptButton.addEventListener("click", () => {
   if (suggestion >= 0) play(suggestion);
+});
+
+ruleSelect.addEventListener("change", () => {
+  inspectRequestId++;
+  resetComparison("規則已變更，將滑鼠移到空點重新分析。");
+  if (hoveredIndex >= 0 && stones[hoveredIndex] === EMPTY) scheduleInspect(hoveredIndex);
 });
 
 analyzeButton.addEventListener("click", () => {
@@ -359,7 +546,6 @@ analyzeButton.addEventListener("click", () => {
   engineBusy = true;
   renderAll();
   resultElement.textContent = "Rapfi 搜尋中，資訊表會隨搜尋更新…";
-
   sendCommand(`INFO RULE ${ruleSelect.value}`);
   sendCommand("INFO THREAD_NUM 1");
   sendCommand("INFO SHOW_DETAIL 3");
@@ -376,12 +562,14 @@ benchmarkButton.addEventListener("click", () => {
   if (!engineReady || engineBusy || benchmarkBusy) return;
   benchmarkBusy = true;
   resetBenchmarkCells("測試中…");
-  benchmarkDetail.textContent = "獨立 C++ Wasm 與 JavaScript 正在同一個 Worker 中依序測量；不會呼叫或修改 Rapfi 內部程式。";
-  resultElement.textContent = "正在比較獨立 WebAssembly 與 JavaScript 查表熱路徑…";
+  benchmarkDetail.textContent = "真正 14 種 C++ Wasm 棋型表與 JavaScript 查表基準正在同一個 Worker 中依序測量。";
+  resultElement.textContent = "正在比較 C++ Wasm 與 JavaScript 查表速度…";
   renderAll();
   worker.postMessage({
     type: "benchmark",
     data: {
+      rule: Number(ruleSelect.value),
+      side: nextStone,
       iterations: 1000000,
       rounds: 9,
     },
@@ -393,6 +581,7 @@ restartButton.addEventListener("click", () => {
   benchmarkBusy = false;
   engineReady = false;
   suggestion = -1;
+  inspectRequestId++;
   startWorker();
   renderAll();
 });
@@ -405,5 +594,6 @@ commandForm.addEventListener("submit", (event) => {
   commandInput.value = "";
 });
 
+resetComparison();
 renderAll();
 startWorker();
