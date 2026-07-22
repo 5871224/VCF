@@ -56,7 +56,10 @@
     constructor() {
       this.rules = 2;
       this.main = new RpcWorker();
-      this.pool = Array.from({ length: desiredWorkers }, () => new RpcWorker());
+      // 單次 VCF 只使用 main；批次掃點第一次呼叫時才建立 Worker 池，
+      // 避免頁面啟動時無條件載入最多 8 份 Wasm 引擎。
+      this.pool = [];
+      this.poolReady = null;
       this.syncModule = null;
       this.syncBoardPtr = 0;
       this.cancelPromise = null;
@@ -137,6 +140,25 @@
       };
     }
 
+    async ensurePool() {
+      if (this.pool.length === desiredWorkers && !this.poolReady) return this.pool;
+      if (!this.poolReady) {
+        this.pool = Array.from({ length: desiredWorkers }, () => new RpcWorker());
+        this.poolReady = Promise.all(
+          this.pool.map(worker => worker.call("setGameRules", { rules: this.rules })),
+        ).then(() => {
+          this.poolReady = null;
+          return this.pool;
+        }).catch(error => {
+          this.pool.forEach(worker => worker.terminate());
+          this.pool = [];
+          this.poolReady = null;
+          throw error;
+        });
+      }
+      return this.poolReady;
+    }
+
     async broadcastRules(rules) {
       this.rules = Number(rules) || 2;
       await Promise.all([
@@ -172,13 +194,14 @@
     }
 
     async poolGetLevelPoints(param) {
+      const pool = await this.ensurePool();
       const arr = Array.from(param.arr || []).slice(0, 225);
       const sourceIndices = Array.isArray(param.indices)
         ? param.indices.filter(idx => arr[idx] === 0)
         : Array.from({ length: 225 }, (_, idx) => idx).filter(idx => arr[idx] === 0);
-      const chunks = Array.from({ length: this.pool.length }, () => []);
+      const chunks = Array.from({ length: pool.length }, () => []);
       sourceIndices.forEach((idx, i) => chunks[i % chunks.length].push(idx));
-      const results = await Promise.all(this.pool.map((worker, i) => {
+      const results = await Promise.all(pool.map((worker, i) => {
         if (!chunks[i].length) return Promise.resolve({ items: [], nodeCount: 0, elapsedMs: 0, aborted: false });
         return worker.call("getLevelPoints", {
           ...param,
@@ -201,7 +224,8 @@
         this.main.terminate();
         this.pool.forEach(worker => worker.terminate());
         this.main = new RpcWorker();
-        this.pool = Array.from({ length: desiredWorkers }, () => new RpcWorker());
+        this.pool = [];
+        this.poolReady = null;
         await this.broadcastRules(this.rules);
         return true;
       })();
