@@ -2,7 +2,6 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <string>
 #include <unordered_map>
@@ -28,6 +27,8 @@ constexpr int BOARD_SIZE = 15;
 constexpr int BOARD_CELLS = 225;
 constexpr int BIT_WORDS = 4;
 constexpr int MAX_ROUTE_PLY = 224;
+constexpr int FREESTYLE = 0;
+constexpr int STANDARD = 1;
 constexpr int RENJU = 2;
 constexpr uint8_t EMPTY = 0;
 constexpr uint8_t BLACK = 1;
@@ -41,6 +42,9 @@ constexpr int MODE_MULTI = 1;
 constexpr int MODE_SHORTEST = 2;
 constexpr int PRUNING_STRICT = 0;
 constexpr int PRUNING_FAST = 1;
+constexpr int CENTER = 7 * BOARD_SIZE + 7;
+constexpr int DX[4] = {1, 0, 1, 1};
+constexpr int DY[4] = {0, 1, 1, -1};
 
 #pragma pack(push, 1)
 struct PatternExportResult {
@@ -63,27 +67,10 @@ struct SearchStats {
     uint8_t aborted;
     uint8_t reserved;
 };
-
-struct SingleTTEntry {
-    uint32_t signature;
-    uint8_t bestMove;
-    uint8_t result;
-    uint8_t depth;
-    uint8_t mateLen;
-    uint16_t generation;
-    uint16_t reserved;
-};
-
-struct SingleTTBucket {
-    SingleTTEntry entries[5];
-    uint8_t padding[4];
-};
 #pragma pack(pop)
 
 static_assert(sizeof(PatternExportResult) == 16, "pattern ABI mismatch");
 static_assert(sizeof(SearchStats) == 16, "stats ABI mismatch");
-static_assert(sizeof(SingleTTEntry) == 12, "single TT entry must be 12 bytes");
-static_assert(sizeof(SingleTTBucket) == 64, "single TT bucket must fit one cache line");
 
 extern "C" int vcfAnalyzePoint(const uint8_t *board,
                                 int idx,
@@ -91,13 +78,6 @@ extern "C" int vcfAnalyzePoint(const uint8_t *board,
                                 int rule,
                                 int method,
                                 PatternExportResult *out);
-extern "C" int vcfBbValidateRoute(const uint8_t *board,
-                                   int attacker,
-                                   int rule,
-                                   const uint8_t *route,
-                                   int routeLen,
-                                   uint32_t maxNodes,
-                                   SearchStats *stats);
 extern "C" int vcfPatternSelfTest();
 
 uint64_t splitmix64(uint64_t &state)
@@ -125,8 +105,8 @@ struct ZobristData {
 
     ZobristData()
     {
-        uint64_t seed1 = 0x5643462d42495431ULL;
-        uint64_t seed2 = 0x5643462d42495432ULL;
+        uint64_t seed1 = 0x5643462d4c454731ULL;
+        uint64_t seed2 = 0x5643462d4c454732ULL;
         for (int side = 0; side < 3; side++) {
             for (int idx = 0; idx < BOARD_CELLS; idx++) {
                 stone1[side][idx] = splitmix64(seed1);
@@ -140,7 +120,7 @@ struct ZobristData {
 
 const ZobristData ZOBRIST;
 
-struct BitBoardStateV2 {
+struct BitBoardState {
     std::array<uint8_t, BOARD_CELLS> cells {};
     std::array<uint64_t, BIT_WORDS> black {};
     std::array<uint64_t, BIT_WORDS> white {};
@@ -152,7 +132,8 @@ struct BitBoardStateV2 {
         cells.fill(EMPTY);
         black.fill(0);
         white.fill(0);
-        hash1 = hash2 = 0;
+        hash1 = 0;
+        hash2 = 0;
     }
 
     void load(const uint8_t *source)
@@ -161,7 +142,7 @@ struct BitBoardStateV2 {
         if (!source)
             return;
         for (int idx = 0; idx < BOARD_CELLS; idx++) {
-            const uint8_t side = source[idx];
+            const int side = source[idx];
             if (side == BLACK || side == WHITE)
                 play(idx, side);
         }
@@ -170,6 +151,14 @@ struct BitBoardStateV2 {
     bool isEmpty(int idx) const
     {
         return idx >= 0 && idx < BOARD_CELLS && cells[idx] == EMPTY;
+    }
+
+    bool has(int idx, int side) const
+    {
+        if (idx < 0 || idx >= BOARD_CELLS)
+            return false;
+        const uint64_t bit = uint64_t(1) << (idx & 63);
+        return ((side == BLACK ? black[idx >> 6] : white[idx >> 6]) & bit) != 0;
     }
 
     void play(int idx, int side)
@@ -187,7 +176,7 @@ struct BitBoardStateV2 {
 
     void undo(int idx)
     {
-        const uint8_t side = cells[idx];
+        const int side = cells[idx];
         if (side != BLACK && side != WHITE)
             return;
         const int word = idx >> 6;
@@ -227,119 +216,144 @@ struct BitBoardStateV2 {
     {
         return hash1 ^ ZOBRIST.attacker1[attacker] ^ ZOBRIST.rule1[std::clamp(rule, 0, 2)];
     }
-
-    uint64_t multiKey1() const { return hash1; }
-    uint64_t multiKey2() const { return hash2; }
 };
 
-struct MoveAnalysisV2 {
-    PatternExportResult value {};
-    bool valid = false;
-};
-
-MoveAnalysisV2 analyzePointV2(const BitBoardStateV2 &board, int idx, int side, int rule)
+bool inBoard(int x, int y)
 {
-    MoveAnalysisV2 result;
+    return x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE;
+}
+
+int moveIndex(int idx, int offset, int direction)
+{
+    const int x = idx % BOARD_SIZE + DX[direction] * offset;
+    const int y = idx / BOARD_SIZE + DY[direction] * offset;
+    return inBoard(x, y) ? y * BOARD_SIZE + x : BOARD_CELLS;
+}
+
+int contiguousAfterMove(const BitBoardState &board, int idx, int side, int direction)
+{
+    int count = 1;
+    for (int sign : {-1, 1}) {
+        for (int distance = 1; distance < BOARD_SIZE; distance++) {
+            const int point = moveIndex(idx, sign * distance, direction);
+            if (point >= BOARD_CELLS || !board.has(point, side))
+                break;
+            count++;
+        }
+    }
+    return count;
+}
+
+bool couldCreateFive(const BitBoardState &board, int idx, int side)
+{
     if (!board.isEmpty(idx))
-        return result;
-    result.valid = vcfAnalyzePoint(board.cells.data(), idx, side, rule, 0, &result.value) != 0;
-    return result;
-}
-
-bool legalMoveV2(const MoveAnalysisV2 &analysis, int side, int rule)
-{
-    return analysis.valid && !(rule == RENJU && side == BLACK && analysis.value.forbidden);
-}
-
-bool createsFiveV2(const MoveAnalysisV2 &analysis)
-{
-    if (!analysis.valid)
         return false;
-    if (analysis.value.pattern4 == A_FIVE)
+    for (int direction = 0; direction < 4; direction++)
+        if (contiguousAfterMove(board, idx, side, direction) >= 5)
+            return true;
+    return false;
+}
+
+bool analyzeFull(const BitBoardState &board,
+                 int idx,
+                 int side,
+                 int rule,
+                 PatternExportResult &result)
+{
+    if (!board.isEmpty(idx))
+        return false;
+    result = PatternExportResult {};
+    return vcfAnalyzePoint(board.cells.data(), idx, side, rule, 0, &result) != 0;
+}
+
+bool legalMoveFull(const BitBoardState &board, int idx, int side, int rule)
+{
+    if (!board.isEmpty(idx))
+        return false;
+    if (rule != RENJU || side != BLACK)
         return true;
-    for (uint8_t pattern : analysis.value.directions)
+    PatternExportResult result {};
+    return analyzeFull(board, idx, side, rule, result) && !result.forbidden;
+}
+
+bool winningMove(const BitBoardState &board, int idx, int side, int rule)
+{
+    if (!couldCreateFive(board, idx, side))
+        return false;
+    PatternExportResult result {};
+    if (!analyzeFull(board, idx, side, rule, result))
+        return false;
+    if (rule == RENJU && side == BLACK && result.forbidden)
+        return false;
+    if (result.pattern4 == A_FIVE)
+        return true;
+    for (uint8_t pattern : result.directions)
         if (pattern == F5)
             return true;
     return false;
 }
 
-int forcingRankV2(const MoveAnalysisV2 &analysis)
-{
-    if (!analysis.valid)
-        return 99;
-    bool blockFour = false;
-    bool flexFour = false;
-    for (uint8_t pattern : analysis.value.directions) {
-        if (pattern == F5)
-            return 0;
-        if (pattern == F4)
-            flexFour = true;
-        else if (pattern == B4)
-            blockFour = true;
-    }
-    return flexFour ? 1 : blockFour ? 2 : 99;
-}
-
-struct WinningPointsV2 {
+struct WinningPoints {
     uint8_t count = 0;
     std::array<uint8_t, 2> points {255, 255};
 
     void add(int idx)
     {
+        for (int i = 0; i < count; i++)
+            if (points[i] == idx)
+                return;
         if (count < points.size())
             points[count++] = uint8_t(idx);
     }
 };
 
-WinningPointsV2 immediateWinningPointsFullV2(const BitBoardStateV2 &board, int side, int rule)
+WinningPoints immediateWinningPoints(const BitBoardState &board, int side, int rule)
 {
-    WinningPointsV2 wins;
+    WinningPoints result;
     board.forEachEmpty([&](int idx) {
-        if (wins.count >= 2)
-            return;
-        const MoveAnalysisV2 analysis = analyzePointV2(board, idx, side, rule);
-        if (legalMoveV2(analysis, side, rule) && createsFiveV2(analysis))
-            wins.add(idx);
+        if (result.count < 2 && winningMove(board, idx, side, rule))
+            result.add(idx);
     });
-    return wins;
+    return result;
 }
 
-WinningPointsV2 winningPointsThroughMoveV2(const BitBoardStateV2 &board,
-                                            int side,
-                                            int rule,
-                                            int move,
-                                            const MoveAnalysisV2 &attack)
+WinningPoints winningPointsThroughMove(const BitBoardState &board,
+                                       int attackMove,
+                                       int attacker,
+                                       int rule)
 {
-    static constexpr int DX[4] = {1, 0, 1, 1};
-    static constexpr int DY[4] = {0, 1, 1, -1};
-    std::array<uint8_t, BOARD_CELLS> seen {};
-    WinningPointsV2 wins;
-    const int x0 = move % BOARD_SIZE;
-    const int y0 = move / BOARD_SIZE;
-
-    for (int direction = 0; direction < 4 && wins.count < 2; direction++) {
-        if (attack.value.directions[direction] != B4 && attack.value.directions[direction] != F4)
-            continue;
-        for (int delta = -4; delta <= 4 && wins.count < 2; delta++) {
-            if (!delta)
+    WinningPoints result;
+    std::array<uint64_t, BIT_WORDS> mask {};
+    for (int direction = 0; direction < 4; direction++) {
+        for (int offset = -5; offset <= 5; offset++) {
+            if (!offset)
                 continue;
-            const int x = x0 + DX[direction] * delta;
-            const int y = y0 + DY[direction] * delta;
-            if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE)
-                continue;
-            const int idx = y * BOARD_SIZE + x;
-            if (seen[idx] || !board.isEmpty(idx))
-                continue;
-            seen[idx] = 1;
-            const MoveAnalysisV2 analysis = analyzePointV2(board, idx, side, rule);
-            if (legalMoveV2(analysis, side, rule) && createsFiveV2(analysis))
-                wins.add(idx);
+            const int idx = moveIndex(attackMove, offset, direction);
+            if (idx < BOARD_CELLS && board.isEmpty(idx))
+                mask[idx >> 6] |= uint64_t(1) << (idx & 63);
         }
     }
-    return wins;
+
+    for (int word = 0; word < BIT_WORDS && result.count < 2; word++) {
+        uint64_t bits = mask[word];
+        while (bits && result.count < 2) {
+#if defined(_MSC_VER)
+            unsigned long bitIndex = 0;
+            _BitScanForward64(&bitIndex, bits);
+            const int bit = int(bitIndex);
+#else
+            const int bit = __builtin_ctzll(bits);
+#endif
+            const int idx = word * 64 + bit;
+            if (winningMove(board, idx, attacker, rule))
+                result.add(idx);
+            bits &= bits - 1;
+        }
+    }
+    return result;
 }
 
-struct CandidateMoveV2 {
+struct CandidateMove {
     uint8_t idx = 0;
     uint8_t rank = 99;
     uint8_t defenseCount = 0;
@@ -348,56 +362,63 @@ struct CandidateMoveV2 {
     bool immediateWin = false;
 };
 
-std::vector<CandidateMoveV2> forcingMovesV2(BitBoardStateV2 &board, int attacker, int rule)
+std::vector<CandidateMove> forcingMoves(BitBoardState &board,
+                                        int attacker,
+                                        int rule,
+                                        int center)
 {
-    std::vector<CandidateMoveV2> moves;
+    std::vector<CandidateMove> moves;
     const int defender = 3 - attacker;
-    const WinningPointsV2 defenderWins = immediateWinningPointsFullV2(board, defender, rule);
+    const WinningPoints defenderWins = immediateWinningPoints(board, defender, rule);
 
     board.forEachEmpty([&](int idx) {
-        const MoveAnalysisV2 attack = analyzePointV2(board, idx, attacker, rule);
-        if (!legalMoveV2(attack, attacker, rule))
-            return;
-        const int rank = forcingRankV2(attack);
-        if (rank >= 99)
-            return;
-
-        CandidateMoveV2 candidate;
+        CandidateMove candidate;
         candidate.idx = uint8_t(idx);
-        candidate.rank = uint8_t(rank);
-        candidate.immediateWin = createsFiveV2(attack);
-        if (candidate.immediateWin) {
+
+        if (winningMove(board, idx, attacker, rule)) {
+            candidate.rank = 0;
+            candidate.immediateWin = true;
             moves.push_back(candidate);
             return;
         }
 
-        if (defenderWins.count > 1 || (defenderWins.count == 1 && defenderWins.points[0] != idx))
+        if (defenderWins.count > 1
+            || (defenderWins.count == 1 && defenderWins.points[0] != idx))
             return;
 
         board.play(idx, attacker);
-        const WinningPointsV2 defenses = winningPointsThroughMoveV2(board, attacker, rule, idx, attack);
+        const WinningPoints wins = winningPointsThroughMove(board, idx, attacker, rule);
         board.undo(idx);
-        if (!defenses.count)
+        if (!wins.count)
             return;
-        candidate.defenseCount = defenses.count;
-        candidate.defense1 = defenses.points[0];
-        candidate.defense2 = defenses.points[1];
+
+        // 舊版只對已確認是衝四候選的黑棋做完整禁手判斷，
+        // 不再對全盤每個空點遞迴檢查真假三三。
+        if (!legalMoveFull(board, idx, attacker, rule))
+            return;
+
+        candidate.rank = wins.count >= 2 ? 1 : 2;
+        candidate.defenseCount = wins.count;
+        candidate.defense1 = wins.points[0];
+        candidate.defense2 = wins.points[1];
         moves.push_back(candidate);
     });
 
-    std::stable_sort(moves.begin(), moves.end(), [](const CandidateMoveV2 &a, const CandidateMoveV2 &b) {
+    const int cx = center % BOARD_SIZE;
+    const int cy = center / BOARD_SIZE;
+    std::stable_sort(moves.begin(), moves.end(), [&](const CandidateMove &a, const CandidateMove &b) {
         if (a.rank != b.rank)
             return a.rank < b.rank;
-        const int ax = int(a.idx) % BOARD_SIZE - 7;
-        const int ay = int(a.idx) / BOARD_SIZE - 7;
-        const int bx = int(b.idx) % BOARD_SIZE - 7;
-        const int by = int(b.idx) / BOARD_SIZE - 7;
+        const int ax = int(a.idx) % BOARD_SIZE - cx;
+        const int ay = int(a.idx) / BOARD_SIZE - cy;
+        const int bx = int(b.idx) % BOARD_SIZE - cx;
+        const int by = int(b.idx) / BOARD_SIZE - cy;
         return ax * ax + ay * ay < bx * bx + by * by;
     });
     return moves;
 }
 
-struct SearchContextV2 {
+struct SearchContext {
     uint32_t maxNodes = 5000000;
     int maxDepth = 200;
     uint32_t nodes = 0;
@@ -420,6 +441,26 @@ struct SearchContextV2 {
         return maxNodes > nodes ? maxNodes - nodes : 0;
     }
 };
+
+#pragma pack(push, 1)
+struct SingleTTEntry {
+    uint32_t signature = 0;
+    uint16_t generation = 0;
+    uint8_t result = 0;
+    uint8_t bestMove = 255;
+    uint8_t depth = 0;
+    uint8_t mateLen = 0;
+    uint16_t reserved = 0;
+};
+
+struct SingleTTBucket {
+    SingleTTEntry entries[5];
+    uint8_t padding[4] {};
+};
+#pragma pack(pop)
+
+static_assert(sizeof(SingleTTEntry) == 12, "single TT entry must be 12 bytes");
+static_assert(sizeof(SingleTTBucket) == 64, "single TT bucket must fit one cache line");
 
 constexpr size_t SINGLE_TT_BUCKET_COUNT = size_t(1) << 17;
 std::vector<SingleTTBucket> SINGLE_TT(SINGLE_TT_BUCKET_COUNT);
@@ -464,30 +505,31 @@ void singleTTStore(uint64_t key, uint8_t result, uint8_t bestMove, int depth, in
         return;
     *replace = SingleTTEntry {};
     replace->signature = signature;
-    replace->bestMove = bestMove;
+    replace->generation = SINGLE_TT_GENERATION;
     replace->result = result;
+    replace->bestMove = bestMove;
     replace->depth = uint8_t(std::clamp(depth, 0, 255));
     replace->mateLen = uint8_t(std::clamp(mateLen, 0, 255));
-    replace->generation = SINGLE_TT_GENERATION;
 }
 
-bool searchSingleV2(BitBoardStateV2 &board,
-                    int attacker,
-                    int rule,
-                    int ply,
-                    SearchContextV2 &ctx,
-                    std::vector<uint8_t> &route);
+bool searchSingle(BitBoardState &board,
+                  int attacker,
+                  int rule,
+                  int ply,
+                  SearchContext &ctx,
+                  std::vector<uint8_t> &route);
 
-bool trySingleCandidateV2(BitBoardStateV2 &board,
-                          int attacker,
-                          int rule,
-                          int ply,
-                          const CandidateMoveV2 &candidate,
-                          SearchContextV2 &ctx,
-                          std::vector<uint8_t> &route)
+bool trySingleCandidate(BitBoardState &board,
+                        int attacker,
+                        int rule,
+                        int ply,
+                        const CandidateMove &candidate,
+                        SearchContext &ctx,
+                        std::vector<uint8_t> &route)
 {
     if (!ctx.touch(ply + 1))
         return false;
+
     const size_t oldSize = route.size();
     board.play(candidate.idx, attacker);
     route.push_back(candidate.idx);
@@ -504,8 +546,7 @@ bool trySingleCandidateV2(BitBoardStateV2 &board,
 
     const int defender = 3 - attacker;
     const uint8_t defense = candidate.defense1;
-    const MoveAnalysisV2 defenseAnalysis = analyzePointV2(board, defense, defender, rule);
-    if (!legalMoveV2(defenseAnalysis, defender, rule)) {
+    if (!legalMoveFull(board, defense, defender, rule)) {
         board.undo(candidate.idx);
         return true;
     }
@@ -517,7 +558,7 @@ bool trySingleCandidateV2(BitBoardStateV2 &board,
 
     board.play(defense, defender);
     route.push_back(defense);
-    const bool won = searchSingleV2(board, attacker, rule, ply + 2, ctx, route);
+    const bool won = searchSingle(board, attacker, rule, ply + 2, ctx, route);
     if (!won)
         route.resize(oldSize);
     board.undo(defense);
@@ -525,12 +566,12 @@ bool trySingleCandidateV2(BitBoardStateV2 &board,
     return won;
 }
 
-bool searchSingleV2(BitBoardStateV2 &board,
-                    int attacker,
-                    int rule,
-                    int ply,
-                    SearchContextV2 &ctx,
-                    std::vector<uint8_t> &route)
+bool searchSingle(BitBoardState &board,
+                  int attacker,
+                  int rule,
+                  int ply,
+                  SearchContext &ctx,
+                  std::vector<uint8_t> &route)
 {
     if (ctx.aborted || ply >= ctx.maxDepth)
         return false;
@@ -546,18 +587,19 @@ bool searchSingleV2(BitBoardStateV2 &board,
             bestMove = entry->bestMove;
     }
 
-    std::vector<CandidateMoveV2> moves = forcingMovesV2(board, attacker, rule);
+    const int center = route.size() >= 2 ? route[route.size() - 2] : CENTER;
+    std::vector<CandidateMove> moves = forcingMoves(board, attacker, rule, center);
     if (bestMove < BOARD_CELLS) {
-        const auto it = std::find_if(moves.begin(), moves.end(), [&](const CandidateMoveV2 &move) {
+        const auto it = std::find_if(moves.begin(), moves.end(), [&](const CandidateMove &move) {
             return move.idx == bestMove;
         });
         if (it != moves.end())
             std::rotate(moves.begin(), it, it + 1);
     }
 
-    for (const CandidateMoveV2 &candidate : moves) {
+    for (const CandidateMove &candidate : moves) {
         const size_t oldSize = route.size();
-        if (trySingleCandidateV2(board, attacker, rule, ply, candidate, ctx, route)) {
+        if (trySingleCandidate(board, attacker, rule, ply, candidate, ctx, route)) {
             singleTTStore(key, 1, candidate.idx, remainingDepth, int(route.size() - oldSize));
             return true;
         }
@@ -571,27 +613,67 @@ bool searchSingleV2(BitBoardStateV2 &board,
     return false;
 }
 
-bool applyPrefixV2(const uint8_t *initialBoard,
-                   int attacker,
-                   const std::vector<uint8_t> &route,
-                   int endExclusive,
-                   std::array<uint8_t, BOARD_CELLS> &board)
+bool routeStillWins(BitBoardState board,
+                    int attacker,
+                    int rule,
+                    const std::vector<uint8_t> &moves)
 {
-    std::copy_n(initialBoard, BOARD_CELLS, board.begin());
+    const int defender = 3 - attacker;
+    uint8_t expectedDefense = 255;
+
+    for (size_t ply = 0; ply < moves.size(); ply++) {
+        const int idx = moves[ply];
+        if (!board.isEmpty(idx))
+            return false;
+
+        if ((ply & 1) == 0) {
+            if (winningMove(board, idx, attacker, rule))
+                return true;
+            if (!legalMoveFull(board, idx, attacker, rule))
+                return false;
+
+            board.play(idx, attacker);
+            if (immediateWinningPoints(board, defender, rule).count)
+                return false;
+            const WinningPoints wins = winningPointsThroughMove(board, idx, attacker, rule);
+            if (wins.count >= 2)
+                return true;
+            if (wins.count != 1)
+                return false;
+            expectedDefense = wins.points[0];
+            if (ply + 1 >= moves.size() || moves[ply + 1] != expectedDefense)
+                return false;
+        }
+        else {
+            if (idx != expectedDefense || !legalMoveFull(board, idx, defender, rule))
+                return false;
+            board.play(idx, defender);
+            expectedDefense = 255;
+        }
+    }
+    return false;
+}
+
+bool applyPrefix(const uint8_t *initialBoard,
+                 int attacker,
+                 const std::vector<uint8_t> &route,
+                 int endExclusive,
+                 BitBoardState &board)
+{
+    board.load(initialBoard);
     for (int i = 0; i < endExclusive; i++) {
         const int idx = route[i];
-        if (idx < 0 || idx >= BOARD_CELLS || board[idx] != EMPTY)
+        if (!board.isEmpty(idx))
             return false;
-        board[idx] = uint8_t((i & 1) ? 3 - attacker : attacker);
+        board.play(idx, (i & 1) ? 3 - attacker : attacker);
     }
     return true;
 }
 
-std::vector<uint8_t> simplifyRouteV2(const uint8_t *initialBoard,
-                                     int attacker,
-                                     int rule,
-                                     const std::vector<uint8_t> &source,
-                                     SearchContextV2 &ctx)
+std::vector<uint8_t> simplifyRoute(const uint8_t *initialBoard,
+                                   int attacker,
+                                   int rule,
+                                   const std::vector<uint8_t> &source)
 {
     std::vector<uint8_t> route = source;
     if (!initialBoard || route.size() < 3)
@@ -600,28 +682,11 @@ std::vector<uint8_t> simplifyRouteV2(const uint8_t *initialBoard,
     for (int pairStart = int(route.size()) - 3; pairStart >= 0; pairStart -= 2) {
         if (pairStart + 2 >= int(route.size()))
             continue;
-        std::array<uint8_t, BOARD_CELLS> prefixBoard {};
-        if (!applyPrefixV2(initialBoard, attacker, route, pairStart, prefixBoard))
+        BitBoardState prefix;
+        if (!applyPrefix(initialBoard, attacker, route, pairStart, prefix))
             continue;
-
-        const uint8_t *suffix = route.data() + pairStart + 2;
-        const int suffixLen = int(route.size()) - pairStart - 2;
-        SearchStats local {};
-        const uint32_t budget = std::max<uint32_t>(1, ctx.remainingNodes());
-        const bool valid = vcfBbValidateRoute(prefixBoard.data(),
-                                               attacker,
-                                               rule,
-                                               suffix,
-                                               suffixLen,
-                                               budget,
-                                               &local) != 0;
-        ctx.nodes = uint32_t(std::min<uint64_t>(uint64_t(ctx.maxNodes), uint64_t(ctx.nodes) + local.nodes));
-        ctx.maxPlySeen = std::max(ctx.maxPlySeen, int(local.maxPly));
-        if (local.aborted) {
-            ctx.aborted = true;
-            break;
-        }
-        if (valid)
+        const std::vector<uint8_t> suffix(route.begin() + pairStart + 2, route.end());
+        if (routeStillWins(prefix, attacker, rule, suffix))
             route.erase(route.begin() + pairStart, route.begin() + pairStart + 2);
     }
     return route;
@@ -659,13 +724,13 @@ struct EnumState {
     uint8_t hasWin = 0;
 };
 
-struct CompactPositionV2 {
+struct CompactPosition {
     std::array<uint64_t, BIT_WORDS> black {};
     std::array<uint64_t, BIT_WORDS> white {};
 };
 
-bool bitboardSubsetV2(const std::array<uint64_t, BIT_WORDS> &small,
-                      const std::array<uint64_t, BIT_WORDS> &large)
+bool bitboardSubset(const std::array<uint64_t, BIT_WORDS> &small,
+                    const std::array<uint64_t, BIT_WORDS> &large)
 {
     for (int word = 0; word < BIT_WORDS; word++)
         if ((small[word] & large[word]) != small[word])
@@ -673,45 +738,45 @@ bool bitboardSubsetV2(const std::array<uint64_t, BIT_WORDS> &small,
     return true;
 }
 
-struct NodeOutcomeV2 {
+struct NodeOutcome {
     bool complete = true;
     bool hasWin = false;
 };
 
-using NoWinDepthTableV2 = std::unordered_map<EnumKey, uint8_t, EnumKeyHasher>;
+using NoWinDepthTable = std::unordered_map<EnumKey, uint8_t, EnumKeyHasher>;
 
-struct MultiSearchV2 {
+struct MultiSearch {
     const uint8_t *initialBoard = nullptr;
     int attacker = BLACK;
     int rule = RENJU;
     int maxRoutes = 20;
     int pruning = PRUNING_STRICT;
     bool simplify = true;
-    SearchContextV2 *ctx = nullptr;
-    NoWinDepthTableV2 *sharedNoWin = nullptr;
+    SearchContext *ctx = nullptr;
+    NoWinDepthTable *sharedNoWin = nullptr;
     std::vector<std::vector<uint8_t>> routes;
     std::unordered_map<EnumKey, EnumState, EnumKeyHasher> states;
-    std::vector<std::vector<CompactPositionV2>> winningSubsetsByPly;
+    std::vector<std::vector<CompactPosition>> winningSubsetsByPly;
 
     bool full() const { return int(routes.size()) >= maxRoutes; }
 
-    bool fastDominated(const BitBoardStateV2 &board, int ply) const
+    bool fastDominated(const BitBoardState &board, int ply) const
     {
-        if (pruning != PRUNING_FAST)
+        if (pruning != PRUNING_FAST || winningSubsetsByPly.empty())
             return false;
         const int maxBucket = std::min<int>(ply / 2, int(winningSubsetsByPly.size()) - 1);
         for (int bucket = maxBucket; bucket >= 0; bucket--) {
-            const auto &list = winningSubsetsByPly[bucket];
-            for (auto it = list.rbegin(); it != list.rend(); ++it) {
-                if (bitboardSubsetV2(it->black, board.black)
-                    && bitboardSubsetV2(it->white, board.white))
+            for (auto it = winningSubsetsByPly[bucket].rbegin();
+                 it != winningSubsetsByPly[bucket].rend(); ++it) {
+                if (bitboardSubset(it->black, board.black)
+                    && bitboardSubset(it->white, board.white))
                     return true;
             }
         }
         return false;
     }
 
-    void rememberWinningSubset(const BitBoardStateV2 &board, int ply)
+    void rememberWinningSubset(const BitBoardState &board, int ply)
     {
         if (pruning != PRUNING_FAST)
             return;
@@ -725,8 +790,10 @@ struct MultiSearchV2 {
     {
         if (full() || ctx->aborted)
             return;
-        std::vector<uint8_t> route = simplify ? simplifyRouteV2(initialBoard, attacker, rule, raw, *ctx) : raw;
-        if (route.empty() || ctx->aborted)
+        std::vector<uint8_t> route = simplify
+            ? simplifyRoute(initialBoard, attacker, rule, raw)
+            : raw;
+        if (route.empty())
             return;
 
         for (size_t i = routes.size(); i-- > 0;) {
@@ -742,25 +809,25 @@ struct MultiSearchV2 {
     }
 };
 
-NodeOutcomeV2 enumerateAttackV2(BitBoardStateV2 &board,
-                                int ply,
-                                std::vector<uint8_t> &route,
-                                MultiSearchV2 &search);
+NodeOutcome enumerateAttack(BitBoardState &board,
+                            int ply,
+                            std::vector<uint8_t> &route,
+                            MultiSearch &search);
 
-NodeOutcomeV2 enumerateCandidateV2(BitBoardStateV2 &board,
-                                   int ply,
-                                   const CandidateMoveV2 &candidate,
-                                   std::vector<uint8_t> &route,
-                                   MultiSearchV2 &search)
+NodeOutcome enumerateCandidate(BitBoardState &board,
+                               int ply,
+                               const CandidateMove &candidate,
+                               std::vector<uint8_t> &route,
+                               MultiSearch &search)
 {
-    SearchContextV2 &ctx = *search.ctx;
+    SearchContext &ctx = *search.ctx;
     if (search.full() || ctx.aborted || !ctx.touch(ply + 1))
         return {false, false};
 
     const size_t oldSize = route.size();
     board.play(candidate.idx, search.attacker);
     route.push_back(candidate.idx);
-    NodeOutcomeV2 outcome;
+    NodeOutcome outcome;
 
     if (candidate.immediateWin || candidate.defenseCount >= 2) {
         search.addRoute(route);
@@ -769,15 +836,14 @@ NodeOutcomeV2 enumerateCandidateV2(BitBoardStateV2 &board,
     else if (candidate.defenseCount == 1) {
         const int defender = 3 - search.attacker;
         const uint8_t defense = candidate.defense1;
-        const MoveAnalysisV2 defenseAnalysis = analyzePointV2(board, defense, defender, search.rule);
-        if (!legalMoveV2(defenseAnalysis, defender, search.rule)) {
+        if (!legalMoveFull(board, defense, defender, search.rule)) {
             search.addRoute(route);
             outcome.hasWin = true;
         }
         else if (ply + 2 <= ctx.maxDepth && !search.full()) {
             board.play(defense, defender);
             route.push_back(defense);
-            outcome = enumerateAttackV2(board, ply + 2, route, search);
+            outcome = enumerateAttack(board, ply + 2, route, search);
             board.undo(defense);
         }
     }
@@ -789,18 +855,18 @@ NodeOutcomeV2 enumerateCandidateV2(BitBoardStateV2 &board,
     return outcome;
 }
 
-NodeOutcomeV2 enumerateAttackV2(BitBoardStateV2 &board,
-                                int ply,
-                                std::vector<uint8_t> &route,
-                                MultiSearchV2 &search)
+NodeOutcome enumerateAttack(BitBoardState &board,
+                            int ply,
+                            std::vector<uint8_t> &route,
+                            MultiSearch &search)
 {
-    SearchContextV2 &ctx = *search.ctx;
+    SearchContext &ctx = *search.ctx;
     if (ctx.aborted || search.full())
         return {false, false};
     if (ply >= ctx.maxDepth)
         return {true, false};
 
-    const EnumKey key {board.multiKey1(), board.multiKey2()};
+    const EnumKey key {board.hash1, board.hash2};
     const int remainingDepth = ctx.maxDepth - ply;
     if (search.sharedNoWin) {
         const auto noWin = search.sharedNoWin->find(key);
@@ -818,10 +884,11 @@ NodeOutcomeV2 enumerateAttackV2(BitBoardStateV2 &board,
         return {true, true};
 
     search.states.emplace(key, EnumState {1, 0});
-    NodeOutcomeV2 result;
-    std::vector<CandidateMoveV2> moves = forcingMovesV2(board, search.attacker, search.rule);
-    for (const CandidateMoveV2 &candidate : moves) {
-        const NodeOutcomeV2 child = enumerateCandidateV2(board, ply, candidate, route, search);
+    NodeOutcome result;
+    const int center = route.size() >= 2 ? route[route.size() - 2] : CENTER;
+    std::vector<CandidateMove> moves = forcingMoves(board, search.attacker, search.rule, center);
+    for (const CandidateMove &candidate : moves) {
+        const NodeOutcome child = enumerateCandidate(board, ply, candidate, route, search);
         result.complete = result.complete && child.complete;
         result.hasWin = result.hasWin || child.hasWin;
         if (ctx.aborted || search.full()) {
@@ -847,45 +914,54 @@ NodeOutcomeV2 enumerateAttackV2(BitBoardStateV2 &board,
     return result;
 }
 
-std::vector<std::vector<uint8_t>> runSingleV2(BitBoardStateV2 board,
-                                               const uint8_t *initialBoard,
-                                               int attacker,
-                                               int rule,
-                                               bool simplify,
-                                               int maxDepth,
-                                               uint32_t maxNodes,
-                                               SearchContextV2 &ctx,
-                                               int &rootCandidates)
+std::vector<std::vector<uint8_t>> runSingle(BitBoardState board,
+                                            const uint8_t *initialBoard,
+                                            int attacker,
+                                            int rule,
+                                            bool simplify,
+                                            int maxDepth,
+                                            uint32_t maxNodes,
+                                            SearchContext &ctx,
+                                            int &rootCandidates)
 {
     ctx.maxDepth = std::clamp(maxDepth, 1, MAX_ROUTE_PLY);
     ctx.maxNodes = std::max<uint32_t>(1, maxNodes);
-    rootCandidates = int(forcingMovesV2(board, attacker, rule).size());
     ++SINGLE_TT_GENERATION;
     if (!SINGLE_TT_GENERATION)
         ++SINGLE_TT_GENERATION;
 
+    // 根節點只生成一次候選；舊 V2 會為統計與搜尋各掃一次全盤。
+    std::vector<CandidateMove> moves = forcingMoves(board, attacker, rule, CENTER);
+    rootCandidates = int(moves.size());
     std::vector<uint8_t> route;
-    if (!searchSingleV2(board, attacker, rule, 0, ctx, route))
-        return {};
-    if (simplify)
-        route = simplifyRouteV2(initialBoard, attacker, rule, route, ctx);
-    return route.empty() ? std::vector<std::vector<uint8_t>> {} : std::vector<std::vector<uint8_t>> {route};
+    for (const CandidateMove &candidate : moves) {
+        if (trySingleCandidate(board, attacker, rule, 0, candidate, ctx, route)) {
+            if (simplify)
+                route = simplifyRoute(initialBoard, attacker, rule, route);
+            if (!route.empty())
+                return {route};
+            return {};
+        }
+        route.clear();
+        if (ctx.aborted)
+            break;
+    }
+    return {};
 }
 
-std::vector<std::vector<uint8_t>> runMultiAtDepthV2(BitBoardStateV2 board,
-                                                     const uint8_t *initialBoard,
-                                                     int attacker,
-                                                     int rule,
-                                                     int pruning,
-                                                     int maxRoutes,
-                                                     bool simplify,
-                                                     int maxDepth,
-                                                     SearchContextV2 &ctx,
-                                                     int &rootCandidates,
-                                                     NoWinDepthTableV2 *sharedNoWin)
+std::vector<std::vector<uint8_t>> runMultiAtDepth(BitBoardState board,
+                                                   const uint8_t *initialBoard,
+                                                   int attacker,
+                                                   int rule,
+                                                   int pruning,
+                                                   int maxRoutes,
+                                                   bool simplify,
+                                                   int maxDepth,
+                                                   SearchContext &ctx,
+                                                   int &rootCandidates,
+                                                   NoWinDepthTable *sharedNoWin)
 {
-    rootCandidates = int(forcingMovesV2(board, attacker, rule).size());
-    MultiSearchV2 search;
+    MultiSearch search;
     search.initialBoard = initialBoard;
     search.attacker = attacker;
     search.rule = rule;
@@ -895,70 +971,61 @@ std::vector<std::vector<uint8_t>> runMultiAtDepthV2(BitBoardStateV2 board,
     search.ctx = &ctx;
     search.sharedNoWin = sharedNoWin;
     search.winningSubsetsByPly.resize(std::max(1, maxDepth / 2 + 1));
+
     std::vector<uint8_t> route;
-    enumerateAttackV2(board, 0, route, search);
+    std::vector<CandidateMove> rootMoves = forcingMoves(board, attacker, rule, CENTER);
+    rootCandidates = int(rootMoves.size());
+    for (const CandidateMove &candidate : rootMoves) {
+        enumerateCandidate(board, 0, candidate, route, search);
+        if (search.full() || ctx.aborted)
+            break;
+    }
     return search.routes;
 }
 
-std::vector<std::vector<uint8_t>> runSearchV2(BitBoardStateV2 board,
-                                               const uint8_t *initialBoard,
-                                               int attacker,
-                                               int rule,
-                                               int mode,
-                                               bool simplify,
-                                               int pruning,
-                                               int maxRoutes,
-                                               int maxDepth,
-                                               uint32_t maxNodes,
-                                               SearchContextV2 &ctx,
-                                               int &rootCandidates)
+std::vector<std::vector<uint8_t>> runSearch(BitBoardState board,
+                                             const uint8_t *initialBoard,
+                                             int attacker,
+                                             int rule,
+                                             int mode,
+                                             bool simplify,
+                                             int pruning,
+                                             int maxRoutes,
+                                             int maxDepth,
+                                             uint32_t maxNodes,
+                                             SearchContext &ctx,
+                                             int &rootCandidates)
 {
     mode = std::clamp(mode, MODE_SINGLE, MODE_SHORTEST);
     pruning = std::clamp(pruning, PRUNING_STRICT, PRUNING_FAST);
     maxRoutes = std::clamp(maxRoutes, 1, 64);
     maxDepth = std::clamp(maxDepth, 1, MAX_ROUTE_PLY);
     maxNodes = std::max<uint32_t>(1, maxNodes);
+
     if (mode == MODE_SINGLE)
-        return runSingleV2(board, initialBoard, attacker, rule, simplify, maxDepth, maxNodes, ctx, rootCandidates);
+        return runSingle(board, initialBoard, attacker, rule, simplify, maxDepth, maxNodes, ctx, rootCandidates);
 
     if (mode == MODE_MULTI) {
         ctx.maxDepth = maxDepth;
         ctx.maxNodes = maxNodes;
-        return runMultiAtDepthV2(board,
-                                 initialBoard,
-                                 attacker,
-                                 rule,
-                                 pruning,
-                                 maxRoutes,
-                                 true,
-                                 maxDepth,
-                                 ctx,
-                                 rootCandidates,
-                                 nullptr);
+        return runMultiAtDepth(board, initialBoard, attacker, rule, pruning, maxRoutes,
+                               true, maxDepth, ctx, rootCandidates, nullptr);
     }
 
-    SearchContextV2 total;
+    SearchContext total;
     total.maxDepth = maxDepth;
     total.maxNodes = maxNodes;
-    NoWinDepthTableV2 sharedNoWin;
+    NoWinDepthTable sharedNoWin;
     std::vector<std::vector<uint8_t>> routes;
     int lastCandidates = 0;
     for (int depth = 1; depth <= maxDepth; depth += 2) {
-        SearchContextV2 iteration;
+        SearchContext iteration;
         iteration.maxDepth = depth;
         iteration.maxNodes = std::max<uint32_t>(1, total.remainingNodes());
-        auto found = runMultiAtDepthV2(board,
-                                       initialBoard,
-                                       attacker,
-                                       rule,
-                                       pruning,
-                                       maxRoutes,
-                                       true,
-                                       depth,
-                                       iteration,
-                                       lastCandidates,
-                                       &sharedNoWin);
-        total.nodes = uint32_t(std::min<uint64_t>(uint64_t(total.maxNodes), uint64_t(total.nodes) + iteration.nodes));
+        auto found = runMultiAtDepth(board, initialBoard, attacker, rule, pruning, maxRoutes,
+                                     true, depth, iteration, lastCandidates, &sharedNoWin);
+        total.nodes = uint32_t(std::min<uint64_t>(uint64_t(total.maxNodes),
+                                                  uint64_t(total.nodes) + iteration.nodes));
         total.maxPlySeen = std::max(total.maxPlySeen, iteration.maxPlySeen);
         if (!found.empty()) {
             routes = std::move(found);
@@ -974,12 +1041,12 @@ std::vector<std::vector<uint8_t>> runSearchV2(BitBoardStateV2 board,
     return routes;
 }
 
-void writeStatsV2(SearchStats *out,
-                  const SearchContextV2 &ctx,
-                  double startMs,
-                  int routes,
-                  int candidates,
-                  bool abortedOverride = false)
+void writeStats(SearchStats *out,
+                const SearchContext &ctx,
+                double startMs,
+                int routes,
+                int candidates,
+                bool abortedOverride = false)
 {
     if (!out)
         return;
@@ -992,43 +1059,33 @@ void writeStatsV2(SearchStats *out,
     out->aborted = (ctx.aborted || abortedOverride) ? 1 : 0;
 }
 
-int findModeImplV2(const uint8_t *board,
-                   int attacker,
-                   int rule,
-                   int mode,
-                   int simplify,
-                   int pruning,
-                   int maxRoutes,
-                   int maxDepth,
-                   uint32_t maxNodes,
-                   uint8_t *outMoves,
-                   uint16_t *outLengths,
-                   int maxMovesPerRoute,
-                   SearchStats *stats)
+int findModeImpl(const uint8_t *board,
+                 int attacker,
+                 int rule,
+                 int mode,
+                 int simplify,
+                 int pruning,
+                 int maxRoutes,
+                 int maxDepth,
+                 uint32_t maxNodes,
+                 uint8_t *outMoves,
+                 uint16_t *outLengths,
+                 int maxMovesPerRoute,
+                 SearchStats *stats)
 {
     const double start = v2NowMs();
-    SearchContextV2 ctx;
+    SearchContext ctx;
     int rootCandidates = 0;
     if (!board || !outMoves || !outLengths || (attacker != BLACK && attacker != WHITE)
-        || rule < 0 || rule > 2 || maxRoutes <= 0 || maxMovesPerRoute <= 0) {
-        writeStatsV2(stats, ctx, start, 0, 0, true);
+        || rule < FREESTYLE || rule > RENJU || maxRoutes <= 0 || maxMovesPerRoute <= 0) {
+        writeStats(stats, ctx, start, 0, 0, true);
         return 0;
     }
 
-    BitBoardStateV2 position;
+    BitBoardState position;
     position.load(board);
-    const auto routes = runSearchV2(position,
-                                    board,
-                                    attacker,
-                                    rule,
-                                    mode,
-                                    simplify != 0,
-                                    pruning,
-                                    maxRoutes,
-                                    maxDepth,
-                                    maxNodes,
-                                    ctx,
-                                    rootCandidates);
+    const auto routes = runSearch(position, board, attacker, rule, mode, simplify != 0,
+                                  pruning, maxRoutes, maxDepth, maxNodes, ctx, rootCandidates);
     int written = 0;
     for (const auto &route : routes) {
         if (written >= maxRoutes)
@@ -1038,38 +1095,39 @@ int findModeImplV2(const uint8_t *board,
         std::copy_n(route.begin(), length, outMoves + written * maxMovesPerRoute);
         written++;
     }
-    writeStatsV2(stats, ctx, start, written, rootCandidates);
+    writeStats(stats, ctx, start, written, rootCandidates);
     return written;
 }
 
-int scanPointsImplV2(const uint8_t *board,
-                     int attacker,
-                     int placeColor,
-                     int rule,
-                     int mode,
-                     int simplify,
-                     int pruning,
-                     const uint16_t *indices,
-                     int indexCount,
-                     int maxDepth,
-                     uint32_t maxNodes,
-                     uint16_t *outIndices,
-                     uint16_t *outLabels,
-                     int maxResults,
-                     SearchStats *stats)
+int scanPointsImpl(const uint8_t *board,
+                   int attacker,
+                   int placeColor,
+                   int rule,
+                   int mode,
+                   int simplify,
+                   int pruning,
+                   const uint16_t *indices,
+                   int indexCount,
+                   int maxDepth,
+                   uint32_t maxNodes,
+                   uint16_t *outIndices,
+                   uint16_t *outLabels,
+                   int maxResults,
+                   SearchStats *stats)
 {
     const double start = v2NowMs();
-    SearchContextV2 total;
+    SearchContext total;
     total.maxNodes = std::numeric_limits<uint32_t>::max();
     total.maxDepth = std::clamp(maxDepth, 1, MAX_ROUTE_PLY);
     if (!board || !outIndices || !outLabels || maxResults <= 0
         || (attacker != BLACK && attacker != WHITE)
-        || (placeColor != BLACK && placeColor != WHITE)) {
-        writeStatsV2(stats, total, start, 0, 0, true);
+        || (placeColor != BLACK && placeColor != WHITE)
+        || rule < FREESTYLE || rule > RENJU) {
+        writeStats(stats, total, start, 0, 0, true);
         return 0;
     }
 
-    BitBoardStateV2 original;
+    BitBoardState original;
     original.load(board);
     std::vector<int> scan;
     if (indices && indexCount > 0) {
@@ -1086,35 +1144,33 @@ int scanPointsImplV2(const uint8_t *board,
     for (int idx : scan) {
         if (resultCount >= maxResults || !original.isEmpty(idx))
             continue;
-        const MoveAnalysisV2 placement = analyzePointV2(original, idx, placeColor, rule);
-        if (!legalMoveV2(placement, placeColor, rule))
-            continue;
 
         uint16_t label = 0;
-        if (placeColor == attacker) {
-            if (createsFiveV2(placement))
-                label = 5;
-            else if (forcingRankV2(placement) <= 2)
-                label = 4;
+        const bool winsNow = placeColor == attacker
+            && winningMove(original, idx, attacker, rule);
+        if (winsNow) {
+            label = 5;
+        }
+        else {
+            if (!legalMoveFull(original, idx, placeColor, rule))
+                continue;
+            if (placeColor == attacker) {
+                BitBoardState tested = original;
+                tested.play(idx, attacker);
+                if (winningPointsThroughMove(tested, idx, attacker, rule).count)
+                    label = 4;
+            }
         }
 
         if (!label) {
-            BitBoardStateV2 tested = original;
+            BitBoardState tested = original;
             tested.play(idx, placeColor);
-            SearchContextV2 local;
+            SearchContext local;
             int rootCandidates = 0;
-            const auto routes = runSearchV2(tested,
-                                            tested.cells.data(),
-                                            attacker,
-                                            rule,
-                                            mode,
-                                            simplify != 0,
-                                            pruning,
-                                            mode == MODE_SINGLE ? 1 : 64,
-                                            maxDepth,
-                                            maxNodes,
-                                            local,
-                                            rootCandidates);
+            const auto routes = runSearch(tested, tested.cells.data(), attacker, rule, mode,
+                                          simplify != 0, pruning,
+                                          mode == MODE_SINGLE ? 1 : 64,
+                                          maxDepth, maxNodes, local, rootCandidates);
             total.nodes = uint32_t(std::min<uint64_t>(std::numeric_limits<uint32_t>::max(),
                                                        uint64_t(total.nodes) + local.nodes));
             total.maxPlySeen = std::max(total.maxPlySeen, local.maxPlySeen);
@@ -1129,7 +1185,7 @@ int scanPointsImplV2(const uint8_t *board,
             resultCount++;
         }
     }
-    writeStatsV2(stats, total, start, resultCount, int(scan.size()));
+    writeStats(stats, total, start, resultCount, int(scan.size()));
     return resultCount;
 }
 
@@ -1149,8 +1205,8 @@ extern "C" VCF_BB_V2_KEEPALIVE int vcfBbFindModeV3(const uint8_t *board,
                                                       int maxMovesPerRoute,
                                                       SearchStats *stats)
 {
-    return findModeImplV2(board, attacker, rule, mode, simplify, pruning, maxRoutes, maxDepth,
-                          maxNodes, outMoves, outLengths, maxMovesPerRoute, stats);
+    return findModeImpl(board, attacker, rule, mode, simplify, pruning, maxRoutes, maxDepth,
+                        maxNodes, outMoves, outLengths, maxMovesPerRoute, stats);
 }
 
 extern "C" VCF_BB_V2_KEEPALIVE int vcfBbFindMode(const uint8_t *board,
@@ -1166,8 +1222,8 @@ extern "C" VCF_BB_V2_KEEPALIVE int vcfBbFindMode(const uint8_t *board,
                                                     int maxMovesPerRoute,
                                                     SearchStats *stats)
 {
-    return findModeImplV2(board, attacker, rule, mode, simplify, PRUNING_STRICT, maxRoutes, maxDepth,
-                          maxNodes, outMoves, outLengths, maxMovesPerRoute, stats);
+    return findModeImpl(board, attacker, rule, mode, simplify, PRUNING_STRICT, maxRoutes,
+                        maxDepth, maxNodes, outMoves, outLengths, maxMovesPerRoute, stats);
 }
 
 extern "C" VCF_BB_V2_KEEPALIVE int vcfBbScanPointsModeV3(const uint8_t *board,
@@ -1186,8 +1242,8 @@ extern "C" VCF_BB_V2_KEEPALIVE int vcfBbScanPointsModeV3(const uint8_t *board,
                                                             int maxResults,
                                                             SearchStats *stats)
 {
-    return scanPointsImplV2(board, attacker, placeColor, rule, mode, simplify, pruning, indices,
-                            indexCount, maxDepth, maxNodes, outIndices, outLabels, maxResults, stats);
+    return scanPointsImpl(board, attacker, placeColor, rule, mode, simplify, pruning, indices,
+                          indexCount, maxDepth, maxNodes, outIndices, outLabels, maxResults, stats);
 }
 
 extern "C" VCF_BB_V2_KEEPALIVE int vcfBbScanPointsMode(const uint8_t *board,
@@ -1205,9 +1261,9 @@ extern "C" VCF_BB_V2_KEEPALIVE int vcfBbScanPointsMode(const uint8_t *board,
                                                           int maxResults,
                                                           SearchStats *stats)
 {
-    return scanPointsImplV2(board, attacker, placeColor, rule, mode, simplify, PRUNING_STRICT,
-                            indices, indexCount, maxDepth, maxNodes, outIndices, outLabels,
-                            maxResults, stats);
+    return scanPointsImpl(board, attacker, placeColor, rule, mode, simplify, PRUNING_STRICT,
+                          indices, indexCount, maxDepth, maxNodes, outIndices, outLabels,
+                          maxResults, stats);
 }
 
 extern "C" VCF_BB_V2_KEEPALIVE int vcfBbSearchV2SelfTest()
@@ -1216,9 +1272,29 @@ extern "C" VCF_BB_V2_KEEPALIVE int vcfBbSearchV2SelfTest()
         return 1;
     if (SINGLE_TT.size() != SINGLE_TT_BUCKET_COUNT)
         return 2;
-    std::array<uint64_t, BIT_WORDS> small {1, 2, 0, 0};
-    std::array<uint64_t, BIT_WORDS> large {3, 6, 0, 0};
-    if (!bitboardSubsetV2(small, large) || bitboardSubsetV2(large, small))
+
+    BitBoardState board;
+    board.clear();
+    board.play(7 * BOARD_SIZE + 3, BLACK);
+    board.play(7 * BOARD_SIZE + 4, BLACK);
+    board.play(7 * BOARD_SIZE + 5, BLACK);
+    const auto before = board.black;
+    const uint64_t hashBefore = board.hash1;
+    board.play(0, WHITE);
+    board.undo(0);
+    if (before != board.black || board.cells[0] != EMPTY || hashBefore != board.hash1)
         return 3;
+
+    std::vector<CandidateMove> candidates = forcingMoves(board, BLACK, RENJU, CENTER);
+    if (candidates.empty())
+        return 4;
+
+    SearchContext ctx;
+    int rootCandidates = 0;
+    const auto routes = runSingle(board, board.cells.data(), BLACK, RENJU, true,
+                                  20, 100000, ctx, rootCandidates);
+    if (routes.empty() || routes.front().empty())
+        return 5;
+
     return vcfPatternSelfTest();
 }
