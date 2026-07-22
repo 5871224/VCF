@@ -11,6 +11,13 @@
       精簡手順
     </label>
     <label class="vcf-option-select">
+      多組剪枝：
+      <select id="vcf-multi-pruning">
+        <option value="fast">高速多組 VCF（集合子集）</option>
+        <option value="strict">嚴格多組 VCF（完全同盤）</option>
+      </select>
+    </label>
+    <label class="vcf-option-select">
       補子搜尋：
       <select id="vcf-add-search-mode">
         <option value="single">單組 VCF（速度）</option>
@@ -27,14 +34,14 @@
     <div class="bb-title-row">
       <div>
         <h1>VCF Bitboard C++ WebAssembly 工作台</h1>
-        <p>單組使用固定式勝負 TT；多組使用完整列舉同型表。棋型、禁手、VCF 遞迴、防守驗證與逐點掃描皆由獨立 C++ Wasm 執行。</p>
+        <p>單組使用固定式勝負 TT；多組可切換嚴格同盤剪枝或高速集合子集剪枝。棋型、禁手、VCF 遞迴、防守驗證與逐點掃描皆由獨立 C++ Wasm 執行。</p>
       </div>
       <a class="bb-lab-link" href="rapfi/lab.html">Rapfi 官方對照／棋型實驗室</a>
     </div>
     <div class="bb-status-grid">
       <div><strong>單組 VCF</strong><span>Rapfi 式固定 bucket TT，找到一組立即回傳</span></div>
-      <div><strong>多組 VCF</strong><span>舊版語意同型表，持續展開相同第一手的其他分支</span></div>
-      <div><strong>精簡手順</strong><span>由最後攻防層往第 1 層，以 isVCF 驗證後刪除</span></div>
+      <div><strong>多組 VCF</strong><span>嚴格完全同盤／高速黑白集合子集兩種剪枝</span></div>
+      <div><strong>精簡手順</strong><span>前段放盤上，只以 isVCF 驗證被刪層後的尾段</span></div>
       <div><strong>平行</strong><span>${window.engineAPI?.workerCount || 1} 個獨立 Wasm Worker</span></div>
     </div>
     <p id="bb-engine-status" class="bb-engine-status">Bitboard 引擎初始化中……</p>
@@ -71,23 +78,32 @@
   document.body.insertBefore(panel, document.body.firstChild);
 
   const simplifyCheck = document.getElementById("vcf-simplify-route");
+  const pruningSelect = document.getElementById("vcf-multi-pruning");
   const addModeSelect = document.getElementById("vcf-add-search-mode");
   try {
     simplifyCheck.checked = localStorage.getItem("vcf_simplify_route") === "1";
+    pruningSelect.value = localStorage.getItem("vcf_multi_pruning") === "strict" ? "strict" : "fast";
     addModeSelect.value = localStorage.getItem("vcf_add_search_mode") === "shortest" ? "shortest" : "single";
   } catch (_) {}
   simplifyCheck.addEventListener("change", () => {
     try { localStorage.setItem("vcf_simplify_route", simplifyCheck.checked ? "1" : "0"); } catch (_) {}
   });
+  pruningSelect.addEventListener("change", () => {
+    try { localStorage.setItem("vcf_multi_pruning", pruningSelect.value); } catch (_) {}
+  });
   addModeSelect.addEventListener("change", () => {
     try { localStorage.setItem("vcf_add_search_mode", addModeSelect.value); } catch (_) {}
   });
+
+  const selectedPruning = () => pruningSelect.value === "strict" ? "strict" : "fast";
+  const pruningName = () => selectedPruning() === "fast" ? "高速剪枝" : "嚴格剪枝";
 
   if (typeof setBusy === "function") {
     const originalSetBusy = setBusy;
     setBusy = function(v) {
       originalSetBusy(v);
       simplifyCheck.disabled = Boolean(v);
+      pruningSelect.disabled = Boolean(v);
       addModeSelect.disabled = Boolean(v);
     };
   }
@@ -98,6 +114,7 @@
       const normalized = { ...options };
       normalized.mode = normalized.mode || (Number(normalized.maxVCF || 1) > 1 ? "multi" : "single");
       if (normalized.simplify == null) normalized.simplify = normalized.mode === "multi" || normalized.mode === "shortest";
+      if (normalized.pruning == null && normalized.mode !== "single") normalized.pruning = selectedPruning();
       if (window.engineAPI) {
         await engine._initP;
         return (await window.engineAPI.send("findVCF", normalized)) || { winMoves: [] };
@@ -113,10 +130,28 @@
         await pool._initP;
         return window.engineAPI.poolGetLevelPoints({
           ...options,
+          pruning: options.pruning || selectedPruning(),
           arr: Array.from(options.arr || []),
         });
       }
       return originalPoolGetLevelPoints(options);
+    };
+  }
+
+  if (typeof genEngine !== "undefined" && genEngine && typeof genEngine.post === "function") {
+    genEngine.findVCF = async (arr, color, maxVCF = 64, options = {}) => {
+      await genEngine.ready;
+      const useBitboardGeneratorMode = Boolean(window.engineAPI);
+      return (await genEngine.post("findVCF", {
+        arr: arr.slice(),
+        color,
+        maxVCF,
+        mode: options.mode || (useBitboardGeneratorMode ? "shortest" : undefined),
+        simplify: options.simplify ?? useBitboardGeneratorMode,
+        pruning: options.pruning || selectedPruning(),
+        maxDepth: Math.max(1, Number(options.maxDepth) || 200),
+        maxNode: Math.max(1, Number(options.maxNode) || 5000000),
+      })) || { winMoves: [], nodeCount: 0 };
     };
   }
 
@@ -162,7 +197,7 @@
       const placeName = placeColor===1 ? "黑" : "白";
       const vcfName = color===1 ? "黑" : "白";
       const searchMode = addModeSelect.value === "shortest" ? "shortest" : "single";
-      const modeName = searchMode === "shortest" ? "多組 VCF／最少步" : "單組 VCF／速度";
+      const modeName = searchMode === "shortest" ? `多組 VCF／最少步／${pruningName()}` : "單組 VCF／速度";
       const lightColor = "#7799ee";
       const darkColor = "#001188";
       setBusy(true);
@@ -175,6 +210,7 @@
           color,
           placeColor,
           searchMode,
+          pruning: selectedPruning(),
           simplify: searchMode === "shortest",
           maxDepth: 200,
           maxNode: 5000000,
@@ -220,7 +256,7 @@
     window.VCFBitboard?.main?.ready,
   ]).then(() => {
     status.className = "bb-engine-status ready";
-    status.textContent = "Bitboard C++ Wasm 已就緒；單組與多組搜尋已使用各自的同型表。";
+    status.textContent = "Bitboard C++ Wasm 已就緒；可切換嚴格或高速多組 VCF 剪枝。";
   }).catch(error => {
     status.className = "bb-engine-status error";
     status.textContent = `Bitboard 引擎初始化失敗：${error?.message || error}`;
