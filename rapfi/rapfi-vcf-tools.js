@@ -2,7 +2,9 @@
 
 const BLACK = 1;
 const WHITE = 2;
+const EMPTY = 0;
 const SIZE = 15;
+const BOARD_CELLS = SIZE * SIZE;
 
 function whenReady() {
   const board = document.querySelector("#board");
@@ -36,6 +38,14 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     .vcf-result-table .success { background: #edf8f1; color: #145f3c; font-weight: 700; }
     .vcf-result-table .failed { background: #ffe8e6; color: #8c211c; font-weight: 700; }
     .vcf-result-table .unknown { background: #fff6df; color: #6f4a00; }
+    .vcf-defense-legend { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 9px; color: #69645a; font-size: .84rem; }
+    .vcf-defense-legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 5px; border-radius: 50%; vertical-align: -1px; }
+    .vcf-defense-legend .candidate::before { background: #148552; }
+    .vcf-defense-legend .failed::before { background: #c73731; }
+    .vcf-defense-legend .unknown::before { background: #d49622; }
+    .point.vcf-defense-candidate { box-shadow: inset 0 0 0 4px #148552, 0 0 0 1px rgb(255 255 255 / 85%); background-color: rgb(20 133 82 / 18%); }
+    .point.vcf-defense-failed { box-shadow: inset 0 0 0 4px #c73731, 0 0 0 1px rgb(255 255 255 / 85%); background-color: rgb(199 55 49 / 18%); }
+    .point.vcf-defense-unknown { box-shadow: inset 0 0 0 4px #d49622, 0 0 0 1px rgb(255 255 255 / 85%); background-color: rgb(212 150 34 / 18%); }
     body.rapfi-vcf-searching #board { pointer-events: none; opacity: .92; }
   `;
   document.head.append(style);
@@ -48,7 +58,7 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
       <button id="vcfSearchButton" class="primary" type="button" disabled>計算 VCF</button>
       <button id="vcfDefendButton" type="button" disabled>對單一 VCF 算防守</button>
     </div>
-    <p id="vcfToolsSummary" class="vcf-tools-summary">「計算 VCF」使用 Rapfi 深度 1 主搜尋進入官方 QVCF；「算防守」使用官方 YXSEARCHDEFEND，逐一檢查目前輪到方的防守點。</p>
+    <p id="vcfToolsSummary" class="vcf-tools-summary">「計算 VCF」會先由獨立 C++ Wasm 篩選合法的眠四（死四）、活四或成五根手，再只讓 Rapfi 搜尋這些候選；「算防守」使用官方 YXSEARCHDEFEND。</p>
     <div class="stats" id="vcfToolsStats">
       <div><strong>模式</strong><span id="vcfMode">—</span></div>
       <div><strong>判定</strong><span id="vcfVerdict">—</span></div>
@@ -64,6 +74,11 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
         <thead><tr><th>排名</th><th>第一手</th><th>判定</th><th>評分</th><th>節點</th><th>路線</th></tr></thead>
         <tbody id="vcfResultBody"><tr><td colspan="6">尚未計算</td></tr></tbody>
       </table>
+    </div>
+    <div class="vcf-defense-legend">
+      <span class="candidate">綠色：候選防守</span>
+      <span class="failed">紅色：仍被 VCF</span>
+      <span class="unknown">黃色：結果不完整</span>
     </div>
     <p class="note">「未證明被殺」只表示在目前時間限制與 Rapfi QVCF 搜尋範圍內沒有得到負將死分數，不等於一般完整搜尋下必然安全。Rapfi 官方程式碼與 Wasm 檔案維持原樣。</p>
   `;
@@ -85,10 +100,51 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
   };
 
   const trackedHistory = [];
+  const pendingCandidateRequests = new Map();
   let occupied = new Map();
   let active = null;
   let currentPv = null;
   let sequence = 0;
+  let candidateSequence = 0;
+  let candidateReady = false;
+
+  const candidateWorker = new Worker("./vcf-candidate-worker.js");
+  candidateWorker.onmessage = (event) => {
+    const { type, data } = event.data || {};
+    if (type === "ready") {
+      candidateReady = true;
+      updateAvailability();
+      return;
+    }
+    if (type === "candidates" || type === "candidateError") {
+      const pending = pendingCandidateRequests.get(data?.requestId);
+      if (!pending) return;
+      pendingCandidateRequests.delete(data.requestId);
+      clearTimeout(pending.timer);
+      if (type === "candidates") pending.resolve(data);
+      else pending.reject(new Error(data.message || "C++ Wasm 根候選判斷失敗"));
+      return;
+    }
+    if (type === "error") {
+      candidateReady = false;
+      const error = new Error(String(data || "C++ Wasm 根候選模組載入失敗"));
+      for (const pending of pendingCandidateRequests.values()) pending.reject(error);
+      pendingCandidateRequests.clear();
+      summary.className = "vcf-tools-summary warning";
+      summary.textContent = error.message;
+      updateAvailability();
+    }
+  };
+  candidateWorker.onerror = (event) => {
+    candidateReady = false;
+    summary.className = "vcf-tools-summary warning";
+    summary.textContent = `C++ Wasm 根候選 Worker 錯誤：${event.message || "未知錯誤"}`;
+    updateAvailability();
+  };
+  candidateWorker.postMessage({
+    type: "init",
+    data: { patternURL: new URL("./engine/vcf-pattern-engine.js", location.href).href },
+  });
 
   function readOccupied() {
     const map = new Map();
@@ -97,6 +153,16 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
       else if (point.querySelector(".stone.white")) map.set(index, WHITE);
     });
     return map;
+  }
+
+  function clearBoardMarks() {
+    for (const point of board.children) {
+      point.classList.remove("vcf-defense-candidate", "vcf-defense-failed", "vcf-defense-unknown");
+      if (point.dataset.vcfDefenseMark === "1") {
+        delete point.dataset.vcfDefenseMark;
+        point.removeAttribute("title");
+      }
+    }
   }
 
   function syncTrackedHistory() {
@@ -123,14 +189,26 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     occupied = next;
   }
 
-  board.addEventListener("click", () => queueMicrotask(syncTrackedHistory));
-  document.querySelector("#acceptButton")?.addEventListener("click", () => queueMicrotask(syncTrackedHistory));
-  document.querySelector("#undoButton")?.addEventListener("click", () => queueMicrotask(syncTrackedHistory));
-  document.querySelector("#clearButton")?.addEventListener("click", () => queueMicrotask(syncTrackedHistory));
+  function onBoardChanged() {
+    clearBoardMarks();
+    queueMicrotask(syncTrackedHistory);
+  }
+
+  board.addEventListener("click", onBoardChanged);
+  document.querySelector("#acceptButton")?.addEventListener("click", onBoardChanged);
+  document.querySelector("#undoButton")?.addEventListener("click", onBoardChanged);
+  document.querySelector("#clearButton")?.addEventListener("click", onBoardChanged);
+  ruleSelect?.addEventListener("change", clearBoardMarks);
 
   function currentSide() {
     const text = document.querySelector("#result")?.textContent || "";
     return text.includes("白棋") ? WHITE : BLACK;
+  }
+
+  function boardArray() {
+    const values = new Uint8Array(BOARD_CELLS);
+    for (const [index, stone] of occupied) values[index] = stone;
+    return Array.from(values);
   }
 
   function buildBoardCommand() {
@@ -145,6 +223,18 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     return parts.join(" ");
   }
 
+  function indexToCoord(index) {
+    return `${index % SIZE},${Math.floor(index / SIZE)}`;
+  }
+
+  function coordToIndex(coord) {
+    const match = String(coord || "").match(/^(\d+),(\d+)$/);
+    if (!match) return -1;
+    const x = Number(match[1]);
+    const y = Number(match[2]);
+    return x >= 0 && x < SIZE && y >= 0 && y < SIZE ? y * SIZE + x : -1;
+  }
+
   function submitCommand(command) {
     commandInput.value = command;
     commandForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
@@ -156,7 +246,7 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
 
   function updateAvailability() {
     const ready = engineIsReady();
-    vcfSearchButton.disabled = !ready || Boolean(active);
+    vcfSearchButton.disabled = !ready || !candidateReady || Boolean(active);
     vcfDefendButton.disabled = !ready || Boolean(active);
   }
   setInterval(updateAvailability, 300);
@@ -201,8 +291,8 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     resultBody.innerHTML = '<tr><td colspan="6">Rapfi 計算中…</td></tr>';
     summary.className = "vcf-tools-summary running";
     summary.textContent = mode === "vcf"
-      ? "Rapfi 正在以深度 1 主搜尋進入官方 QVCF，尋找連續四衝勝。"
-      : "Rapfi 正在用官方 YXSEARCHDEFEND 檢查所有根節點防守；空點很多時可能只來得及完成部分候選。";
+      ? "C++ Wasm 正在篩選合法的眠四（死四）、活四與成五根候選。"
+      : "Rapfi 正在用官方 YXSEARCHDEFEND 檢查根節點防守，結果會直接標在棋盤上。";
   }
 
   function waitForInspectionThen(callback, attempts = 80) {
@@ -215,6 +305,104 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     setTimeout(() => waitForInspectionThen(callback, attempts - 1), 50);
   }
 
+  function requestVcfCandidates(job) {
+    return new Promise((resolve, reject) => {
+      if (!candidateReady) {
+        reject(new Error("C++ Wasm 根候選模組尚未就緒"));
+        return;
+      }
+      const requestId = ++candidateSequence;
+      const timer = setTimeout(() => {
+        pendingCandidateRequests.delete(requestId);
+        reject(new Error("C++ Wasm 根候選判斷逾時"));
+      }, 10000);
+      pendingCandidateRequests.set(requestId, { resolve, reject, timer });
+      candidateWorker.postMessage({
+        type: "findCandidates",
+        data: {
+          requestId,
+          board: boardArray(),
+          side: currentSide(),
+          rule: Number(ruleSelect.value),
+          jobId: job.id,
+        },
+      });
+    });
+  }
+
+  function commonCommands() {
+    return [
+      `INFO RULE ${ruleSelect.value}`,
+      "INFO THREAD_NUM 1",
+      "INFO SHOW_DETAIL 3",
+      "INFO START_DEPTH 1",
+      "INFO MAX_DEPTH 1",
+      "INFO MAX_NODE 0",
+      `INFO TIMEOUT_TURN ${timeSelect.value}`,
+      "INFO TIMEOUT_MATCH 100000000",
+      "INFO TIME_LEFT 2147483647",
+      buildBoardCommand(),
+      "YXBLOCKRESET",
+    ];
+  }
+
+  function completeWithoutCandidate(job, elapsedMs) {
+    if (!active || active.id !== job.id) return;
+    fields.verdict.textContent = "沒有純 VCF 根候選";
+    fields.time.textContent = "0 ms";
+    fields.wallTime.textContent = `${(performance.now() - job.startedAt).toFixed(1)} ms`;
+    fields.nodes.textContent = "0";
+    fields.speed.textContent = "—";
+    fields.depth.textContent = "—";
+    fields.lineCount.textContent = "0";
+    resultBody.innerHTML = '<tr><td colspan="6">C++ Wasm 未找到合法的眠四（死四）、活四或成五根手</td></tr>';
+    summary.className = "vcf-tools-summary warning";
+    summary.textContent = `根候選篩選完成（${elapsedMs.toFixed(2)} ms），盤面目前沒有符合純 VCF 定義的第一手。`;
+    active = null;
+    currentPv = null;
+    setLocked(false);
+  }
+
+  async function prepareAndRun(job) {
+    if (!active || active.id !== job.id) return;
+    try {
+      let candidateResult = null;
+      if (job.mode === "vcf") {
+        candidateResult = await requestVcfCandidates(job);
+        if (!active || active.id !== job.id) return;
+        job.candidateCount = candidateResult.candidates.length;
+        job.filterMs = candidateResult.elapsedMs;
+        if (!job.candidateCount) {
+          completeWithoutCandidate(job, candidateResult.elapsedMs);
+          return;
+        }
+      }
+
+      for (const command of commonCommands()) submitCommand(command);
+
+      if (job.mode === "vcf") {
+        const allowed = new Set(candidateResult.candidates.map((item) => item.idx));
+        const blocked = [];
+        for (let idx = 0; idx < BOARD_CELLS; idx++) {
+          if (!occupied.has(idx) && !allowed.has(idx)) blocked.push(indexToCoord(idx));
+        }
+        if (blocked.length) submitCommand(`YXBLOCK ${blocked.join(" ")} DONE`);
+        summary.textContent = `C++ Wasm 找到 ${allowed.size} 個合法衝四以上根候選（${candidateResult.elapsedMs.toFixed(2)} ms）；Rapfi 只搜尋這些位置。`;
+        submitCommand(`YXNBEST ${allowed.size}`);
+      } else {
+        submitCommand("YXSEARCHDEFEND");
+      }
+    } catch (error) {
+      if (!active || active.id !== job.id) return;
+      summary.className = "vcf-tools-summary warning";
+      summary.textContent = `VCF 計算啟動失敗：${error.message}`;
+      fields.verdict.textContent = "啟動失敗";
+      active = null;
+      currentPv = null;
+      setLocked(false);
+    }
+  }
+
   function start(mode) {
     if (active || !engineIsReady()) return;
     syncTrackedHistory();
@@ -223,33 +411,21 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
       summary.textContent = "無法取得完整落子順序，請清空棋盤後重新擺盤。";
       return;
     }
+    clearBoardMarks();
     active = {
       id: ++sequence,
       mode,
       startedAt: performance.now(),
       lines: new Map(),
       lastMetrics: {},
+      candidateCount: 0,
+      filterMs: 0,
     };
+    const job = active;
     currentPv = null;
     resetDisplay(mode);
     setLocked(true);
-    waitForInspectionThen(() => {
-      if (!active || active.mode !== mode) return;
-      const common = [
-        `INFO RULE ${ruleSelect.value}`,
-        "INFO THREAD_NUM 1",
-        "INFO SHOW_DETAIL 3",
-        "INFO START_DEPTH 1",
-        "INFO MAX_DEPTH 1",
-        "INFO MAX_NODE 0",
-        `INFO TIMEOUT_TURN ${timeSelect.value}`,
-        "INFO TIMEOUT_MATCH 100000000",
-        "INFO TIME_LEFT 2147483647",
-        buildBoardCommand(),
-      ];
-      for (const command of common) submitCommand(command);
-      submitCommand(mode === "vcf" ? "YXNBEST 1" : "YXSEARCHDEFEND");
-    });
+    waitForInspectionThen(() => prepareAndRun(job));
   }
 
   function isPositiveMate(value) {
@@ -270,6 +446,23 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     return Number.isFinite(number) ? number.toLocaleString("zh-TW") : "—";
   }
 
+  function markDefensePoints(lines) {
+    clearBoardMarks();
+    for (const line of lines) {
+      const coord = firstMove(line.BESTLINE);
+      const index = coordToIndex(coord);
+      if (index < 0 || occupied.has(index)) continue;
+      const point = board.children[index];
+      const failed = isNegativeMate(line.EVAL);
+      const unknown = !line.EVAL;
+      point.classList.add(unknown
+        ? "vcf-defense-unknown"
+        : failed ? "vcf-defense-failed" : "vcf-defense-candidate");
+      point.dataset.vcfDefenseMark = "1";
+      point.title = `${coord}：${unknown ? "結果不完整" : failed ? "仍被 VCF" : "候選防守"}${line.EVAL ? `（${line.EVAL}）` : ""}`;
+    }
+  }
+
   function renderLines(final = false) {
     if (!active) return;
     const lines = [...active.lines.values()].sort((a, b) => Number(a.index) - Number(b.index));
@@ -277,13 +470,13 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     if (!lines.length) {
       resultBody.innerHTML = '<tr><td colspan="6">尚未收到完整路線</td></tr>';
     } else {
-      for (const line of lines.slice(0, 120)) {
+      for (const line of lines.slice(0, 225)) {
         const row = document.createElement("tr");
         const failed = active.mode === "defend" && isNegativeMate(line.EVAL);
-        const success = active.mode === "vcf" ? isPositiveMate(line.EVAL) : !failed;
+        const success = active.mode === "vcf" ? isPositiveMate(line.EVAL) : Boolean(line.EVAL) && !failed;
         const verdict = active.mode === "vcf"
           ? success ? "找到 VCF" : "未證明 VCF"
-          : failed ? "仍被 VCF" : "候選防守";
+          : !line.EVAL ? "結果不完整" : failed ? "仍被 VCF" : "候選防守";
         const values = [
           Number(line.index) + 1,
           firstMove(line.BESTLINE),
@@ -302,8 +495,10 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
       }
     }
 
-    const primary = lines[0] || active.lastMetrics;
-    const metrics = { ...active.lastMetrics, ...primary };
+    if (active.mode === "defend") markDefensePoints(lines);
+
+    const primary = lines[0] || {};
+    const metrics = { ...primary, ...active.lastMetrics };
     fields.time.textContent = metrics.TOTALTIME ? `${formatNumber(metrics.TOTALTIME)} ms` : "—";
     fields.nodes.textContent = formatNumber(metrics.TOTALNODES ?? metrics.NODES);
     fields.speed.textContent = metrics.SPEED ? `${formatNumber(metrics.SPEED)} nodes/s` : "—";
@@ -312,22 +507,23 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     fields.wallTime.textContent = `${(performance.now() - active.startedAt).toFixed(1)} ms`;
 
     if (active.mode === "vcf") {
-      const found = isPositiveMate(primary.EVAL);
-      fields.verdict.textContent = found ? "找到 VCF" : final ? "未證明 VCF" : "搜尋中";
+      const wins = lines.filter((line) => isPositiveMate(line.EVAL));
+      fields.verdict.textContent = wins.length ? `找到 ${wins.length} 個 VCF` : final ? "未證明 VCF" : "搜尋中";
       if (final) {
-        summary.className = `vcf-tools-summary ${found ? "success" : "warning"}`;
-        summary.textContent = found
-          ? `Rapfi 找到 VCF：${primary.BESTLINE || "已取得將死分數"}。`
-          : "Rapfi 在目前時間與 QVCF 範圍內未取得正將死分數；這不是嚴格證明盤面不存在更深的 VCF。";
+        summary.className = `vcf-tools-summary ${wins.length ? "success" : "warning"}`;
+        summary.textContent = wins.length
+          ? `Rapfi 在 ${active.candidateCount} 個合法衝四以上根候選中找到 ${wins.length} 個 VCF；最快路線：${wins[0].BESTLINE || "已取得將死分數"}。`
+          : `已檢查 ${active.candidateCount} 個合法衝四以上根候選，Rapfi 在目前限制內未取得正將死分數。`;
       }
     } else {
-      const candidateCount = lines.filter((line) => !isNegativeMate(line.EVAL)).length;
-      fields.verdict.textContent = final ? `${candidateCount} 個候選防守` : "搜尋中";
+      const candidates = lines.filter((line) => line.EVAL && !isNegativeMate(line.EVAL));
+      const failed = lines.filter((line) => isNegativeMate(line.EVAL));
+      fields.verdict.textContent = final ? `${candidates.length} 個候選防守` : "搜尋中";
       if (final) {
-        summary.className = `vcf-tools-summary ${candidateCount ? "success" : "warning"}`;
-        summary.textContent = candidateCount
-          ? `已取得 ${lines.length} 條防守路線，其中 ${candidateCount} 條在本次 QVCF 搜尋中未被證明仍遭 VCF。`
-          : `已取得 ${lines.length} 條路線，目前全部仍顯示負將死分數。`;
+        summary.className = `vcf-tools-summary ${candidates.length ? "success" : "warning"}`;
+        summary.textContent = candidates.length
+          ? `棋盤已用綠色標出 ${candidates.length} 個候選防守；另有 ${failed.length} 個紅色位置仍被 VCF。`
+          : `沒有取得候選防守；棋盤上的 ${failed.length} 個紅色位置仍顯示被 VCF。`;
       }
     }
   }
@@ -357,6 +553,7 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
       currentPv = null;
     }
     renderLines(true);
+    submitCommand("YXBLOCKRESET");
     active = null;
     setLocked(false);
     updateAvailability();
@@ -388,6 +585,7 @@ function initialize({ board, commandForm, commandInput, consoleElement, benchmar
     if (!active) return;
     active = null;
     currentPv = null;
+    submitCommand("YXBLOCKRESET");
     summary.className = "vcf-tools-summary warning";
     summary.textContent = "計算已透過重啟引擎中止。";
     fields.verdict.textContent = "已中止";
