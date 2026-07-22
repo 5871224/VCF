@@ -45,7 +45,8 @@ rapfi-single-simd128.data
 
 - `TRACEBOARD`：取得每個空點的官方 Pattern4。
 - `YXSHOWFORBID`：取得官方禁手點清單。
-- `YXNBEST 1`：在深度 1 主搜尋後進入 Rapfi 官方 QVCF，作為「計算 VCF」。
+- `YXBLOCK`／`YXBLOCKRESET`：計算純 VCF 前，封鎖不屬於眠四（死四）、活四或成五的根候選。
+- `YXNBEST N`：只對 C++ Wasm 篩出的 `N` 個合法衝四以上根候選進入 Rapfi 官方 QVCF。
 - `YXSEARCHDEFEND`：把根節點剩餘合法點列為 MultiPV，逐一計算防守結果。
 
 VCF 工具只解析 Rapfi 原本就會輸出的 `EVAL`、`NODES`、`TOTALNODES`、`TOTALTIME`、`SPEED` 與 `BESTLINE`，沒有新增 Rapfi 匯出函式。
@@ -78,4 +79,4 @@ vcf-pattern-engine.wasm
 
 三種方法使用相同的棋型分類規格與不同索引方式。模組載入時會窮舉所有有效線型，確認三張表完全一致；GitHub Actions 另外會執行原生 C++ 測試，包括 2,000 組隨機盤面、長連與正五案例。
 
-兩個 Wasm 模組各自擁有獨立記憶體與匯出函式，只由同一個 Web Worker 負責載入、呼叫和顯示比較結果。
+純 VCF 根候選由 `rapfi/vcf-candidate-worker.js` 在獨立 Worker 中呼叫此 C++ Wasm：只接受至少一個方向為 `B4`、`F4` 或 `F5`，並排除連珠禁手。官方 Rapfi 和 VCF 棋型模組各自擁有獨立記憶體與匯出函式，網頁只負責協調與顯示結果。
