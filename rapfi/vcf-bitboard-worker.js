@@ -55,6 +55,11 @@ function searchModeValue(mode, maxVCF = 1) {
   return 0;
 }
 
+function resolveSimplify(param, mode) {
+  // 明確傳入 true/false 時尊重呼叫端；未指定時，多組與最短模式預設精簡。
+  return param.simplify == null ? mode !== 0 : Boolean(param.simplify);
+}
+
 function findVCF(param) {
   const board = toBoard(param.arr);
   writeBoard(board);
@@ -62,7 +67,7 @@ function findVCF(param) {
   const maxDepth = Math.max(1, Math.min(MAX_ROUTE_PLY, Number(param.maxDepth) || 200));
   const maxNode = Math.max(1, Math.min(0xffffffff, Number(param.maxNode) || 5_000_000));
   const mode = searchModeValue(param.mode, maxVCF);
-  const simplify = mode !== 0 || Boolean(param.simplify);
+  const simplify = resolveSimplify(param, mode);
   moduleInstance.HEAPU8.fill(0, ptr.moves, ptr.moves + MAX_ROUTES * MAX_ROUTE_PLY);
   moduleInstance.HEAPU16.fill(0, ptr.lengths >>> 1, (ptr.lengths >>> 1) + MAX_ROUTES);
 
@@ -162,7 +167,7 @@ function getLevelPoints(param) {
   const maxDepth = Math.max(1, Math.min(MAX_ROUTE_PLY, Number(param.maxDepth) || 200));
   const maxNode = Math.max(1, Number(param.maxNode) || 5_000_000);
   const mode = searchModeValue(param.searchMode, 1);
-  const simplify = mode !== 0 || Boolean(param.simplify);
+  const simplify = resolveSimplify(param, mode);
   const count = api.scanMode
     ? api.scanMode(
       ptr.board,
