@@ -3,9 +3,129 @@
 let engineInstance = null;
 let engineBaseURL = null;
 let patternBenchmark = null;
+let jsBenchmarkData = null;
+let jsBenchmarkSink = 0;
+
+const BENCH_SAMPLE_COUNT = 4096;
+const BENCH_SAMPLE_MASK = BENCH_SAMPLE_COUNT - 1;
 
 function post(type, data) {
   self.postMessage({ type, data });
+}
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
+function prepareJsBenchmark() {
+  if (jsBenchmarkData) return jsBenchmarkData;
+
+  const powers = new Uint32Array(10);
+  powers[0] = 1;
+  for (let i = 1; i < powers.length; i++) powers[i] = powers[i - 1] * 3;
+
+  const ownToTernary = new Uint32Array(1024);
+  const blockToTernary = new Uint32Array(1024);
+  for (let mask = 0; mask < 1024; mask++) {
+    let ownKey = 0;
+    let blockKey = 0;
+    for (let bit = 0; bit < 10; bit++) {
+      if ((mask >>> bit) & 1) {
+        ownKey += powers[bit];
+        blockKey += powers[bit] * 2;
+      }
+    }
+    ownToTernary[mask] = ownKey;
+    blockToTernary[mask] = blockKey;
+  }
+
+  const ternaryTable = new Uint8Array(59049);
+  for (let i = 0; i < ternaryTable.length; i++) {
+    ternaryTable[i] = ((i * 13) ^ (i >>> 3)) & 15;
+  }
+
+  const binaryTable = new Uint8Array(1 << 20);
+  for (let i = 0; i < binaryTable.length; i++) {
+    binaryTable[i] = ((i * 7) ^ (i >>> 5)) & 15;
+  }
+
+  const ternaryKeys = new Uint32Array(BENCH_SAMPLE_COUNT);
+  const ownMasks = new Uint16Array(BENCH_SAMPLE_COUNT);
+  const blockMasks = new Uint16Array(BENCH_SAMPLE_COUNT);
+  const binaryKeys = new Uint32Array(BENCH_SAMPLE_COUNT);
+  let state = 0x9e3779b9;
+
+  for (let sample = 0; sample < BENCH_SAMPLE_COUNT; sample++) {
+    let ownMask = 0;
+    let blockMask = 0;
+    let ternaryKey = 0;
+    for (let bit = 0; bit < 10; bit++) {
+      state ^= state << 13;
+      state ^= state >>> 17;
+      state ^= state << 5;
+      const cell = (state >>> 0) % 3;
+      if (cell === 1) {
+        ownMask |= 1 << bit;
+        ternaryKey += powers[bit];
+      } else if (cell === 2) {
+        blockMask |= 1 << bit;
+        ternaryKey += powers[bit] * 2;
+      }
+    }
+    ownMasks[sample] = ownMask;
+    blockMasks[sample] = blockMask;
+    ternaryKeys[sample] = ternaryKey;
+    binaryKeys[sample] = ownMask | (blockMask << 10);
+  }
+
+  jsBenchmarkData = {
+    ownToTernary,
+    blockToTernary,
+    ternaryTable,
+    binaryTable,
+    ternaryKeys,
+    ownMasks,
+    blockMasks,
+    binaryKeys,
+  };
+  return jsBenchmarkData;
+}
+
+function runJsBenchmark(mode, iterations) {
+  const data = prepareJsBenchmark();
+  let checksum = jsBenchmarkSink;
+  const start = performance.now();
+
+  if (mode === 0) {
+    const { ternaryTable, ternaryKeys } = data;
+    for (let i = 0; i < iterations; i++) {
+      checksum += ternaryTable[ternaryKeys[i & BENCH_SAMPLE_MASK]];
+    }
+  } else if (mode === 1) {
+    const { ownToTernary, blockToTernary, ternaryTable, ownMasks, blockMasks } = data;
+    for (let i = 0; i < iterations; i++) {
+      const sample = i & BENCH_SAMPLE_MASK;
+      const key = ownToTernary[ownMasks[sample]] + blockToTernary[blockMasks[sample]];
+      checksum += ternaryTable[key];
+    }
+  } else {
+    const { binaryTable, binaryKeys } = data;
+    for (let i = 0; i < iterations; i++) {
+      checksum += binaryTable[binaryKeys[i & BENCH_SAMPLE_MASK]];
+    }
+  }
+
+  const elapsedMs = performance.now() - start;
+  jsBenchmarkSink = checksum;
+  return elapsedMs * 1000000 / iterations;
+}
+
+function runMedianBenchmark(run, iterations, rounds) {
+  run(Math.min(iterations, 200000));
+  const values = [];
+  for (let round = 0; round < rounds; round++) values.push(run(iterations));
+  return median(values);
 }
 
 self.onmessage = async (event) => {
@@ -34,6 +154,7 @@ self.onmessage = async (event) => {
         "number",
         ["number", "number", "number"],
       );
+      prepareJsBenchmark();
       post("ready", true);
     } catch (error) {
       post("error", error?.stack || error?.message || String(error));
@@ -57,16 +178,50 @@ self.onmessage = async (event) => {
     }
     try {
       const rule = Number(data?.rule ?? 2);
-      const directionIterations = Number(data?.directionIterations ?? 20000000);
-      const pointIterations = Number(data?.pointIterations ?? 5000000);
-      const directionNs = patternBenchmark(rule, 0, directionIterations);
-      const pointNs = patternBenchmark(rule, 1, pointIterations);
+      const iterations = Number(data?.iterations ?? 1000000);
+      const rounds = Number(data?.rounds ?? 9);
+
+      const wasmFusedNs = runMedianBenchmark(
+        (count) => patternBenchmark(rule, 2, count),
+        iterations,
+        rounds,
+      );
+      const wasmRawNs = runMedianBenchmark(
+        (count) => patternBenchmark(rule, 0, count),
+        iterations,
+        rounds,
+      );
+      const jsTernaryNs = runMedianBenchmark(
+        (count) => runJsBenchmark(0, count),
+        iterations,
+        rounds,
+      );
+      const jsHelperNs = runMedianBenchmark(
+        (count) => runJsBenchmark(1, count),
+        iterations,
+        rounds,
+      );
+      const jsBinaryNs = runMedianBenchmark(
+        (count) => runJsBenchmark(2, count),
+        iterations,
+        rounds,
+      );
+      const wasmPointNs = runMedianBenchmark(
+        (count) => patternBenchmark(rule, 1, count),
+        iterations,
+        rounds,
+      );
+
       post("benchmark", {
         rule,
-        directionIterations,
-        pointIterations,
-        directionNs,
-        pointNs,
+        iterations,
+        rounds,
+        wasmFusedNs,
+        wasmRawNs,
+        jsTernaryNs,
+        jsHelperNs,
+        jsBinaryNs,
+        wasmPointNs,
       });
     } catch (error) {
       post("benchmarkError", error?.stack || error?.message || String(error));
