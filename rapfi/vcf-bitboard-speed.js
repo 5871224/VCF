@@ -24,6 +24,7 @@
 
     const results = { normal: null, iterative: null };
     let normalPending = null;
+    let normalCoreResult = null;
     let busy = false;
 
     function makeButton(id, text, color) {
@@ -74,7 +75,7 @@
       const speedText = speed >= 1e6
         ? `${(speed / 1e6).toFixed(2)}M nodes/s`
         : speed >= 1000 ? `${(speed / 1000).toFixed(1)}K nodes/s` : `${Math.round(speed)} nodes/s`;
-      return `${(result.wallMs / 1000).toFixed(6)}s｜Wasm ${result.elapsedMs.toFixed(3)}ms｜${nodeText}｜${speedText}｜${outcome}${result.passes ? `｜${result.passes} 輪` : ""}`;
+      return `${(result.wallMs / 1000).toFixed(6)}s｜核心 ${result.elapsedMs.toFixed(3)}ms｜${nodeText}｜${speedText}｜${outcome}${result.passes ? `｜${result.passes} 輪` : ""}`;
     }
 
     function render() {
@@ -102,9 +103,23 @@
       }
     }
 
+    const originalFindVCF = engine.findVCF.bind(engine);
+    engine.findVCF = async options => {
+      const info = await originalFindVCF(options);
+      if (normalPending
+          && Number(options?.color) === normalPending.color
+          && Number(options?.maxVCF || 1) === 1
+          && Number(options?.maxDepth || 200) === 200
+          && Number(options?.maxNode || 5000000) === 5000000) {
+        normalCoreResult = info;
+      }
+      return info;
+    };
+
     function beginNormal(color) {
       const arr = window._getArr();
       if (!arr.slice(0, POINTS).some(value => value > 0)) return;
+      normalCoreResult = null;
       normalPending = {
         color,
         fingerprint: fingerprint(arr, color),
@@ -121,20 +136,19 @@
       const name = normalPending.color === 1 ? "黑子" : "白子";
       const complete = text.startsWith(`${name} VCF 找到`) || text.startsWith(`${name} VCF 未找到`) || text.startsWith("搜索失敗");
       if (!complete) return;
-      const nodeText = text.match(/，([\d.]+[MK]? nodes)/)?.[1] || "0 nodes";
-      const multiplier = nodeText.includes("M") ? 1e6 : nodeText.includes("K") ? 1e3 : 1;
-      const nodes = Number.parseFloat(nodeText) * multiplier || 0;
       const timeSeconds = Number(text.match(/（([\d.]+)s/)?.[1]);
       const wallMs = Number.isFinite(timeSeconds) ? timeSeconds * 1000 : performance.now() - normalPending.startedAt;
+      const info = normalCoreResult || {};
       results.normal = {
         fingerprint: normalPending.fingerprint,
         wallMs,
-        elapsedMs: wallMs,
-        nodes,
-        found: /VCF 找到/.test(text),
-        moves: Number(text.match(/共\s*(\d+)\s*手/)?.[1] || 0),
+        elapsedMs: Number(info.elapsedMs) || wallMs,
+        nodes: Number(info.nodeCount) || 0,
+        found: Boolean(info.winMoves?.[0]?.length) || /VCF 找到/.test(text),
+        moves: Number(info.winMoves?.[0]?.length || text.match(/共\s*(\d+)\s*手/)?.[1] || 0),
       };
       normalPending = null;
+      normalCoreResult = null;
       render();
     }).observe(status, { childList: true, characterData: true, subtree: true });
 
@@ -156,7 +170,7 @@
         for (const pass of SEARCH_PLAN) {
           completedPasses++;
           setStatus(`Bitboard 漸進搜尋：第 ${completedPasses}/${SEARCH_PLAN.length} 輪，深度 ${pass.maxDepth}，節點上限 ${typeof fmtNodes === "function" ? fmtNodes(pass.maxNode) : pass.maxNode}…`);
-          info = await engine.findVCF({
+          info = await originalFindVCF({
             arr,
             color,
             maxVCF: 1,
