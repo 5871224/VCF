@@ -34,7 +34,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/rapfi-wasm
-          key: rapfi-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-v1
+          key: rapfi-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-v2
 
       - name: Build Rapfi single-thread WebAssembly
         if: steps.rapfi-cache.outputs.cache-hit != 'true'
@@ -59,6 +59,26 @@ jobs:
           # VCF 棋盤以左上角為 (0,0)，不使用 Gomocalc 的 Y 軸翻轉。
           sed -i 's/coord_conversion_mode = "X_flipY"/coord_conversion_mode = "none"/' \
             .build/rapfi/Networks/config-example/gomocalc-mix9svq.toml
+
+          # 加入公開於本倉庫的 Rapfi 棋型熱路徑基準函式。
+          cp rapfi/vcf-pattern-benchmark.cpp .build/rapfi/Rapfi/vcf-pattern-benchmark.cpp
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.build/rapfi/Rapfi/CMakeLists.txt')
+          text = path.read_text(encoding='utf-8')
+          source_anchor = '    game/pattern.cpp\n'
+          export_anchor = "['_main','_gomocupLoopOnce','_emscripten_force_exit']"
+          assert source_anchor in text
+          assert export_anchor in text
+          text = text.replace(source_anchor, source_anchor + '    vcf-pattern-benchmark.cpp\n', 1)
+          text = text.replace(
+              export_anchor,
+              "['_main','_gomocupLoopOnce','_emscripten_force_exit','_vcfPatternBenchmark']",
+              1,
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
 
           git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
           .build/emsdk/emsdk install "$EMSDK_VERSION"
