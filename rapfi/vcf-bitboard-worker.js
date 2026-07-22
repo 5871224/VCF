@@ -9,6 +9,22 @@ const MAX_ROUTES = 64;
 const MAX_ROUTE_PLY = 224;
 const STATS_BYTES = 16;
 
+const EMPTY = 0;
+const BLACK = 1;
+const WHITE = 2;
+const RENJU = 2;
+const MAX = 14;
+const MAX_FREE = 15;
+const FOUL_MAX = 30;
+const FOUL_MAX_FREE = 31;
+const THREE_FREE = 7;
+const FOUR_NOFREE = 8;
+const FOUR_FREE = 9;
+const LINE_DOUBLE_FOUR = 24;
+const SIX = 28;
+const DIRECTION_X = [1, 0, 1, 1];
+const DIRECTION_Y = [0, 1, 1, -1];
+
 let ptr = {};
 let api = {};
 
@@ -151,25 +167,380 @@ function validateRoute(param) {
   return { ...readStats(), valid: Boolean(valid) };
 }
 
-function getBlockVCF(param) {
-  const board = toBoard(param.arr);
+function moveIndex(idx, offset, direction) {
+  if (idx < 0 || idx >= BOARD_CELLS || direction < 0 || direction > 3) return BOARD_CELLS;
+  const x = idx % 15 + DIRECTION_X[direction] * offset;
+  const y = Math.floor(idx / 15) + DIRECTION_Y[direction] * offset;
+  return x >= 0 && x < 15 && y >= 0 && y < 15 ? y * 15 + x : BOARD_CELLS;
+}
+
+function legacyLevelPoint(board, idx, side, rules) {
   writeBoard(board);
-  const routeLen = writeRoute(param.vcfMoves);
-  moduleInstance.HEAPU8.fill(0, ptr.points, ptr.points + BOARD_CELLS);
-  const count = api.routeDefense(
+  return api.levelPointCompat(ptr.board, idx, side, rules);
+}
+
+function legacyLineFour(board, idx, direction, side, rules) {
+  writeBoard(board);
+  return api.lineFourCompat(ptr.board, idx, direction, side, rules);
+}
+
+function legacyBlockFourPoint(board, idx, direction, side, rules, lineInfo = 0) {
+  const encoded = (Number(lineInfo) >>> 8) & 0xff;
+  if (encoded < BOARD_CELLS) return encoded;
+  writeBoard(board);
+  return api.blockFour(ptr.board, idx, direction, side, rules);
+}
+
+function legacyIsFoul(board, idx, rules) {
+  if (rules !== RENJU || idx < 0 || idx >= BOARD_CELLS) return false;
+  const previous = board[idx];
+  if (previous !== EMPTY && previous !== BLACK) return false;
+  board[idx] = EMPTY;
+  writeBoard(board);
+  const result = Boolean(api.foul(ptr.board, idx, rules));
+  board[idx] = previous;
+  return result;
+}
+
+function scanInitialCounterFours(board, defender, rules) {
+  const result = new Uint8Array(BOARD_CELLS);
+  for (let idx = 0; idx < BOARD_CELLS; idx++) {
+    if (board[idx] !== EMPTY) continue;
+    if ((legacyLevelPoint(board, idx, defender, rules) & FOUL_MAX) === FOUR_NOFREE) result[idx] = 1;
+  }
+  return result;
+}
+
+function addLineCounterFours(blockMask, board, center, direction, defender, rules) {
+  const mask = defender === BLACK && rules === RENJU ? FOUL_MAX : MAX;
+  for (let offset = -4; offset <= 4; offset++) {
+    const idx = moveIndex(center, offset, direction);
+    if (idx >= BOARD_CELLS || board[idx] !== EMPTY) continue;
+    const lineInfo = legacyLineFour(board, idx, direction, defender, rules);
+    if ((lineInfo & mask) === FOUR_NOFREE) blockMask[idx] = 1;
+  }
+}
+
+function validateDefensePoint(baseBoard, attacker, rules, routeLen, idx, maxNode) {
+  const defender = 3 - attacker;
+  if (idx < 0 || idx >= BOARD_CELLS || baseBoard[idx] !== EMPTY) {
+    return { blocks: false, stats: null };
+  }
+  if (defender === BLACK && rules === RENJU && legacyIsFoul(baseBoard, idx, rules)) {
+    return { blocks: false, stats: null };
+  }
+  const tested = baseBoard.slice();
+  tested[idx] = defender;
+  writeBoard(tested);
+  const stillWins = api.validate(
     ptr.board,
-    Number(param.color) || 1,
-    Number(param.rules ?? currentRules),
+    attacker,
+    rules,
     ptr.route,
     routeLen,
-    Math.max(1, Number(param.maxNode) || 5_000_000),
-    ptr.points,
-    BOARD_CELLS,
+    maxNode,
     ptr.stats,
   );
+  const stats = readStats();
+  return { blocks: !stillWins && !stats.aborted, stats };
+}
+
+function oldGetBlockCandidates(baseBoard, attacker, rules, route, includeFour, maxNode) {
+  const defender = 3 - attacker;
+  const blockMask = new Uint8Array(BOARD_CELLS);
+  const initialCounterFours = scanInitialCounterFours(baseBoard, defender, rules);
+  const board = baseBoard.slice();
+  let fast = true;
+  let fourCount = 0;
+  const lineInfoList = [];
+  let fFourCount = 0;
+  const fLineInfoList = [];
+  let end = 0;
+  const len = route.length;
+  const endIdx = route[len - 1];
+
+  if (attacker === BLACK && rules === RENJU) {
+    for (let i = 0; i < len; i += 2) {
+      const attack = route[end++];
+      if (attack >= BOARD_CELLS || board[attack] !== EMPTY) {
+        fast = false;
+        break;
+      }
+      board[attack] = BLACK;
+
+      let threeCount = 0;
+      for (let direction = 0; direction < 4; direction++) {
+        const lineInfo = legacyLineFour(board, attack, direction, BLACK, rules);
+        const value = lineInfo & MAX_FREE;
+        if (value === THREE_FREE) threeCount++;
+        if (end === len && value === FOUR_FREE) {
+          fourCount += 2;
+          lineInfoList.push({ lineInfo, direction });
+        }
+      }
+      if (threeCount > 1) {
+        fast = false;
+        break;
+      }
+
+      if (end < len) {
+        const defense = route[end++];
+        if (defense >= BOARD_CELLS || board[defense] !== EMPTY) {
+          fast = false;
+          break;
+        }
+        board[defense] = WHITE;
+      }
+    }
+  } else {
+    for (let i = 0; i < len; i++) {
+      const idx = route[end++];
+      if (idx >= BOARD_CELLS || board[idx] !== EMPTY) {
+        fast = false;
+        break;
+      }
+      board[idx] = (i & 1) ? defender : attacker;
+    }
+
+    if (end === len) {
+      for (let direction = 0; direction < 4; direction++) {
+        const lineInfo = legacyLineFour(board, endIdx, direction, attacker, rules);
+        switch (lineInfo & FOUL_MAX_FREE) {
+          case FOUR_FREE:
+          case LINE_DOUBLE_FOUR:
+            fourCount += 2;
+            lineInfoList.push({ lineInfo, direction });
+            break;
+          case FOUR_NOFREE:
+            fourCount += 1;
+            lineInfoList.push({ lineInfo, direction });
+            break;
+        }
+      }
+
+      if (fourCount === 1 && lineInfoList.length) {
+        const finalLine = lineInfoList[0];
+        const foulIdx = legacyBlockFourPoint(
+          board,
+          endIdx,
+          finalLine.direction,
+          attacker,
+          rules,
+          finalLine.lineInfo,
+        );
+        if (foulIdx < BOARD_CELLS && board[foulIdx] === EMPTY) {
+          blockMask[foulIdx] = 1;
+          board[foulIdx] = BLACK;
+          for (let direction = 0; direction < 4; direction++) {
+            const lineInfo = legacyLineFour(board, foulIdx, direction, BLACK, rules);
+            switch (lineInfo & FOUL_MAX_FREE) {
+              case SIX:
+                fFourCount += 3;
+                break;
+              case LINE_DOUBLE_FOUR:
+                fFourCount += 2;
+                fLineInfoList.push({ lineInfo, direction });
+                break;
+              case FOUR_FREE:
+                fFourCount += 1;
+                break;
+              case FOUR_NOFREE:
+                fFourCount += 1;
+                fLineInfoList.push({ lineInfo, direction });
+                break;
+            }
+          }
+          board[foulIdx] = EMPTY;
+          if (fFourCount < 2) fast = false;
+        } else {
+          fast = false;
+        }
+      }
+    }
+  }
+
+  if (fast) {
+    if (fourCount === 1 && fFourCount === 2 && lineInfoList.length) {
+      const finalLine = lineInfoList[0];
+      const foulIdx = legacyBlockFourPoint(
+        board,
+        endIdx,
+        finalLine.direction,
+        attacker,
+        rules,
+        finalLine.lineInfo,
+      );
+      if (foulIdx < BOARD_CELLS) {
+        for (const foulLine of fLineInfoList) {
+          const bIdx = legacyBlockFourPoint(
+            board,
+            foulIdx,
+            foulLine.direction,
+            BLACK,
+            rules,
+            foulLine.lineInfo,
+          );
+          const lineDoubleFour = (foulLine.lineInfo & FOUL_MAX_FREE) === LINE_DOUBLE_FOUR;
+          if (!lineDoubleFour && bIdx < BOARD_CELLS) board[bIdx] = BLACK;
+          for (const sign of [-1, 1]) {
+            let state = lineDoubleFour ? -1 : 0;
+            for (let distance = 1; distance <= 5; distance++) {
+              const idx = moveIndex(foulIdx, distance * sign, foulLine.direction);
+              if (idx >= BOARD_CELLS || board[idx] === WHITE) break;
+              if (board[idx] !== EMPTY) continue;
+              state++;
+              if (state) {
+                const previous = bIdx < BOARD_CELLS ? board[bIdx] : EMPTY;
+                if (bIdx < BOARD_CELLS) board[bIdx] = EMPTY;
+                board[idx] = BLACK;
+                if (!legacyIsFoul(board, foulIdx, rules)) blockMask[idx] = 1;
+                board[idx] = EMPTY;
+                if (bIdx < BOARD_CELLS) board[bIdx] = previous;
+                break;
+              }
+            }
+          }
+          if (bIdx < BOARD_CELLS) board[bIdx] = EMPTY;
+        }
+      }
+    } else if (fourCount === 2) {
+      if (lineInfoList.length === 1) {
+        const finalLine = lineInfoList[0];
+        const blockPoints = [BOARD_CELLS, BOARD_CELLS];
+        for (const sign of [-1, 1]) {
+          for (let distance = 1; distance <= 4; distance++) {
+            const idx = moveIndex(endIdx, distance * sign, finalLine.direction);
+            if (idx >= BOARD_CELLS) break;
+            if (board[idx] === EMPTY) {
+              blockMask[idx] = 1;
+              blockPoints[(sign + 1) / 2] = idx;
+              break;
+            }
+          }
+        }
+
+        if ((finalLine.lineInfo & FOUL_MAX_FREE) === FOUR_FREE) {
+          board[endIdx] = EMPTY;
+          for (let i = 0; i < 2; i++) {
+            const point = blockPoints[i];
+            if (point >= BOARD_CELLS) continue;
+            board[point] = attacker;
+            const lineInfo = legacyLineFour(board, point, finalLine.direction, attacker, rules);
+            const legal = rules !== RENJU || attacker !== BLACK || !legacyIsFoul(board, point, rules);
+            if ((lineInfo & FOUL_MAX_FREE) === FOUR_FREE && legal) {
+              const redundant = blockPoints[(i + 1) % 2];
+              if (redundant < BOARD_CELLS) blockMask[redundant] = 0;
+              board[point] = EMPTY;
+              break;
+            }
+            board[point] = EMPTY;
+          }
+          board[endIdx] = attacker;
+        }
+      } else if (lineInfoList.length >= 2) {
+        for (let i = 0; i < 2; i++) {
+          const item = lineInfoList[i];
+          const idx = legacyBlockFourPoint(board, endIdx, item.direction, attacker, rules, item.lineInfo);
+          if (idx < BOARD_CELLS) blockMask[idx] = 1;
+        }
+      }
+    }
+
+    if (end > 0) {
+      board[route[--end]] = EMPTY;
+      blockMask[route[end]] = 1;
+      for (let i = end - 1; i >= 0; i -= 2) {
+        end--;
+        const defenseMove = route[end];
+        for (let direction = 0; direction < 4; direction++) {
+          addLineCounterFours(blockMask, board, defenseMove, direction, defender, rules);
+        }
+        board[defenseMove] = EMPTY;
+        blockMask[defenseMove] = 1;
+        if (end <= 0) break;
+        board[route[--end]] = EMPTY;
+        blockMask[route[end]] = 1;
+      }
+    }
+
+    for (let idx = 0; idx < BOARD_CELLS; idx++) {
+      if (initialCounterFours[idx]) blockMask[idx] = includeFour ? 1 : 0;
+    }
+  } else {
+    for (let i = 0; i < end; i++) board[route[i]] = EMPTY;
+    for (let idx = 0; idx < BOARD_CELLS; idx++) {
+      if (!includeFour && initialCounterFours[idx]) continue;
+      if (baseBoard[idx] !== EMPTY) continue;
+      const checked = validateDefensePoint(baseBoard, attacker, rules, len, idx, maxNode);
+      if (checked.blocks) blockMask[idx] = 1;
+    }
+  }
+
+  const candidates = [];
+  for (let idx = 0; idx < BOARD_CELLS; idx++) {
+    if (!blockMask[idx] || baseBoard[idx] !== EMPTY) continue;
+    if (defender === BLACK && rules === RENJU && legacyIsFoul(baseBoard, idx, rules)) continue;
+    candidates.push(idx);
+  }
+  return { candidates, fast };
+}
+
+function getBlockVCF(param) {
+  const startedAt = performance.now();
+  const baseBoard = toBoard(param.arr);
+  const attacker = Number(param.color) || BLACK;
+  const rules = Number(param.rules ?? currentRules);
+  const route = Array.from(param.vcfMoves || [])
+    .filter(idx => Number.isInteger(idx) && idx >= 0 && idx < BOARD_CELLS)
+    .slice(0, MAX_ROUTE_PLY);
+  const routeLen = writeRoute(route);
+  const maxNode = Math.max(1, Number(param.maxNode) || 5_000_000);
+  const includeFour = param.includeFour !== false;
+
+  if (!routeLen || (routeLen & 1) === 0) {
+    return {
+      nodeCount: 0,
+      elapsedMs: performance.now() - startedAt,
+      routeCount: 0,
+      candidateCount: 0,
+      maxPly: 0,
+      aborted: false,
+      nodesPerSecond: 0,
+      points: [],
+      candidateMode: "legacy-getBlockVCF",
+    };
+  }
+
+  const generated = oldGetBlockCandidates(baseBoard, attacker, rules, route, includeFour, maxNode);
+  const points = [];
+  let totalNodes = 0;
+  let maxPly = 0;
+  let aborted = false;
+  const seen = new Set();
+
+  for (const idx of generated.candidates) {
+    if (seen.has(idx)) continue;
+    seen.add(idx);
+    const checked = validateDefensePoint(baseBoard, attacker, rules, routeLen, idx, maxNode);
+    if (checked.stats) {
+      totalNodes += checked.stats.nodeCount || 0;
+      maxPly = Math.max(maxPly, checked.stats.maxPly || 0);
+      aborted = aborted || Boolean(checked.stats.aborted);
+    }
+    if (checked.blocks) points.push(idx);
+  }
+
+  const elapsedMs = performance.now() - startedAt;
   return {
-    ...readStats(),
-    points: Array.from(moduleInstance.HEAPU8.subarray(ptr.points, ptr.points + count)),
+    nodeCount: totalNodes,
+    elapsedMs,
+    routeCount: points.length,
+    candidateCount: generated.candidates.length,
+    maxPly,
+    aborted,
+    nodesPerSecond: elapsedMs > 0 ? totalNodes * 1000 / elapsedMs : 0,
+    points,
+    candidateMode: generated.fast ? "legacy-fast" : "legacy-bruteforce",
   };
 }
 
@@ -296,6 +667,10 @@ async function init(url) {
         ? moduleInstance.cwrap("vcfBbScanPointsModeV3", "number", Array(15).fill("number"))
         : null,
       levelPoint: moduleInstance.cwrap("vcfBbLegacyGetLevelPoint", "number", Array(4).fill("number")),
+      levelPointCompat: moduleInstance.cwrap("vcfBbLegacyGetLevelPointCompat", "number", Array(4).fill("number")),
+      lineFourCompat: moduleInstance.cwrap("vcfBbLegacyTestLineFourCompat", "number", Array(5).fill("number")),
+      blockFour: moduleInstance.cwrap("vcfBbLegacyGetBlockFourPoint", "number", Array(5).fill("number")),
+      foul: moduleInstance.cwrap("vcfBbLegacyIsFoul", "number", Array(3).fill("number")),
       selfTest: moduleInstance.cwrap("vcfBbSelfTest", "number", []),
       searchV2SelfTest: moduleInstance.cwrap("vcfBbSearchV2SelfTest", "number", []),
     };
