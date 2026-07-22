@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Rapfi WebAssembly 測試</title>
+  <title>Rapfi 與 C++ Wasm 棋型比較</title>
   <style>
     :root {
       font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans TC", sans-serif;
@@ -18,7 +18,7 @@
     }
     * { box-sizing: border-box; }
     body { margin: 0; }
-    main { width: min(100% - 20px, 1220px); margin: 16px auto 40px; }
+    main { width: min(100% - 20px, 1320px); margin: 16px auto 40px; }
     h1 { margin: 0 0 6px; font-size: clamp(1.4rem, 4vw, 2rem); }
     h2 { margin: 0 0 10px; font-size: 1.15rem; }
     .intro { margin: 0 0 14px; color: #625e54; line-height: 1.6; }
@@ -32,8 +32,9 @@
     .status-dot.ready { background: var(--accent); }
     .status-dot.error { background: var(--danger); }
     progress { width: min(320px, 70vw); height: 12px; }
-    .layout { display: grid; grid-template-columns: minmax(320px, 570px) minmax(330px, 1fr); gap: 16px; align-items: start; }
+    .layout { display: grid; grid-template-columns: minmax(320px, 570px) minmax(350px, 1fr); gap: 16px; align-items: start; }
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; box-shadow: 0 3px 14px rgb(0 0 0 / 7%); }
+    .compare-panel { grid-column: 1 / -1; }
     .board-shell { padding: 10px; background: var(--board); border: 1px solid #986b30; border-radius: 10px; overflow: auto; }
     .board { display: grid; grid-template-columns: repeat(15, 1fr); width: min(88vw, 540px); aspect-ratio: 1; }
     .point { position: relative; min-width: 21px; min-height: 21px; border: 0; padding: 0; background: transparent; cursor: pointer; }
@@ -44,7 +45,8 @@
     .point[data-x="14"]::before { right: 50%; }
     .point[data-y="0"]::after { top: 50%; }
     .point[data-y="14"]::after { bottom: 50%; }
-    .point:hover { background: rgb(255 255 255 / 20%); }
+    .point:hover, .point.hovered { background: rgb(255 255 255 / 25%); }
+    .point.hovered::before, .point.hovered::after { background: #8f221e; }
     .stone { position: absolute; z-index: 2; inset: 12%; border-radius: 50%; box-shadow: 0 2px 5px rgb(0 0 0 / 35%); pointer-events: none; }
     .stone.black { background: radial-gradient(circle at 35% 30%, #666, #111 65%); }
     .stone.white { background: radial-gradient(circle at 35% 30%, #fff, #ddd 70%); border: 1px solid #aaa; }
@@ -64,23 +66,37 @@
     .stats strong { display: block; font-size: .78rem; color: #706a5e; margin-bottom: 2px; }
     #bestline { overflow-wrap: anywhere; }
     .benchmark-section { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
-    .benchmark-wrap { overflow-x: auto; margin-top: 10px; }
-    .benchmark-table { width: 100%; min-width: 590px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-    .benchmark-table th, .benchmark-table td { border-bottom: 1px solid #e2ded4; padding: 8px 9px; text-align: right; white-space: nowrap; }
-    .benchmark-table th:first-child, .benchmark-table td:first-child { text-align: left; white-space: normal; }
-    .benchmark-table thead th { color: #625d53; font-size: .8rem; background: #f4f2ed; }
-    .benchmark-table tbody tr:last-child td { border-bottom: 0; }
-    .benchmark-table .group-start td { border-top: 2px solid #cfc7b8; }
-    .benchmark-detail { min-height: 1.4em; margin: 7px 0 0; color: #69645a; font-size: .84rem; line-height: 1.5; }
-    .separation-note { padding: 9px 10px; border-left: 4px solid var(--accent); background: #eff7f2; color: #315443; font-size: .84rem; line-height: 1.55; }
-    .console { height: 260px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 12px 0 8px; padding: 10px; border-radius: 8px; background: #171717; color: #d7f5de; font: .8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .table-wrap { overflow-x: auto; margin-top: 10px; }
+    table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+    th, td { border-bottom: 1px solid #e2ded4; padding: 8px 9px; text-align: left; vertical-align: top; }
+    thead th { color: #625d53; font-size: .8rem; background: #f4f2ed; white-space: nowrap; }
+    tbody tr:last-child td { border-bottom: 0; }
+    .benchmark-table { min-width: 650px; }
+    .benchmark-table th:not(:first-child), .benchmark-table td:not(:first-child) { text-align: right; white-space: nowrap; }
+    .compare-table { min-width: 1050px; }
+    .compare-table .method-cell { min-width: 210px; font-weight: 700; }
+    .compare-table td:not(.method-cell) { min-width: 125px; }
+    .compare-table .match { background: #edf8f1; }
+    .compare-table .mismatch { background: #ffe8e6; color: #8c211c; font-weight: 700; }
+    .compare-table .unavailable { color: #777; background: #f4f4f4; }
+    .compare-table .partial-match { background: #fff6df; color: #6f4a00; }
+    .rapfi-row td { border-top: 2px solid #bcb3a4; }
+    .compare-status { margin: 0; padding: 9px 11px; border-radius: 8px; line-height: 1.5; }
+    .compare-status.neutral { background: #f5f2eb; color: #625e54; }
+    .compare-status.loading { background: #fff6df; color: #6f4a00; }
+    .compare-status.ok { background: #eaf7ef; color: #145f3c; }
+    .compare-status.warning { background: #ffe9e6; color: #8c211c; }
+    .benchmark-detail, .note { margin-top: 9px; color: #69645a; font-size: .84rem; line-height: 1.55; }
+    .console { height: 235px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 12px 0 8px; padding: 10px; border-radius: 8px; background: #171717; color: #d7f5de; font: .8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
     .command-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     .command-row input { min-width: 0; border: 1px solid #aaa; border-radius: 8px; padding: 8px 10px; }
-    .note { margin-top: 12px; color: #69645a; font-size: .82rem; line-height: 1.55; }
     a { color: #145f3c; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      .compare-panel { grid-column: auto; }
+    }
     @media (max-width: 520px) {
-      main { width: min(100% - 12px, 1220px); margin-top: 8px; }
+      main { width: min(100% - 12px, 1320px); margin-top: 8px; }
       .panel { padding: 10px; }
       .stats { grid-template-columns: 1fr; }
     }
@@ -88,8 +104,8 @@
 </head>
 <body>
 <main>
-  <h1>Rapfi WebAssembly 單執行緒測試</h1>
-  <p class="intro">官方 Rapfi C++ 引擎原封不動編譯為 WebAssembly；VCF 的測試功能使用另一個完全獨立的 Wasm 模組。</p>
+  <h1>Rapfi 與 C++ WebAssembly 棋型比較</h1>
+  <p class="intro">滑鼠移到任一空點，即時比較三種獨立 C++ Wasm 查表法的四方向 14 種棋型、Pattern4 與禁手；Rapfi 維持官方原始碼，僅透過既有 TRACEBOARD／YXSHOWFORBID 取得官方結果。</p>
 
   <div class="status-bar">
     <span id="statusDot" class="status-dot loading"></span>
@@ -129,7 +145,7 @@
     </section>
 
     <section class="panel">
-      <h2>搜尋資訊</h2>
+      <h2>Rapfi 搜尋資訊</h2>
       <div class="stats">
         <div><strong>深度</strong><span id="depth">—</span></div>
         <div><strong>選擇深度</strong><span id="seldepth">—</span></div>
@@ -142,25 +158,22 @@
       </div>
 
       <div class="benchmark-section">
-        <h2>獨立查表速度測試</h2>
-        <p class="separation-note">這張表不會呼叫、連結或修改 Rapfi 內部程式；C++ Wasm 測試與官方 Rapfi 是兩個不同的 `.wasm` 檔案。</p>
-        <button id="benchmarkButton" type="button" disabled>比較獨立 Wasm 與 JavaScript</button>
-        <div class="benchmark-wrap">
+        <h2>查表速度</h2>
+        <button id="benchmarkButton" type="button" disabled>比較 C++ Wasm 與 JavaScript</button>
+        <div class="table-wrap">
           <table class="benchmark-table">
-            <thead>
-              <tr><th>方法</th><th>100 萬次中位耗時</th><th>每次</th></tr>
-            </thead>
+            <thead><tr><th>方法</th><th>100 萬次中位耗時</th><th>每次</th></tr></thead>
             <tbody>
-              <tr><td>獨立 C++ Wasm：三進位 key 已維護，查一次</td><td id="wasmTernaryTotal">—</td><td id="wasmTernaryPerOp">—</td></tr>
-              <tr><td>獨立 C++ Wasm：兩張 1024 輔助表＋三進位表</td><td id="wasmHelperTotal">—</td><td id="wasmHelperPerOp">—</td></tr>
-              <tr><td>獨立 C++ Wasm：二進位 2^20 大表</td><td id="wasmBinaryTotal">—</td><td id="wasmBinaryPerOp">—</td></tr>
-              <tr class="group-start"><td>JavaScript：三進位 key 已維護，查一次</td><td id="jsTernaryTotal">—</td><td id="jsTernaryPerOp">—</td></tr>
+              <tr><td>C++ Wasm：三進位 key 已維護</td><td id="wasmTernaryTotal">—</td><td id="wasmTernaryPerOp">—</td></tr>
+              <tr><td>C++ Wasm：兩張 1024 輔助表＋三進位表</td><td id="wasmHelperTotal">—</td><td id="wasmHelperPerOp">—</td></tr>
+              <tr><td>C++ Wasm：二進位 2^20 大表</td><td id="wasmBinaryTotal">—</td><td id="wasmBinaryPerOp">—</td></tr>
+              <tr><td>JavaScript：三進位 key 已維護</td><td id="jsTernaryTotal">—</td><td id="jsTernaryPerOp">—</td></tr>
               <tr><td>JavaScript：兩張 1024 輔助表＋三進位表</td><td id="jsHelperTotal">—</td><td id="jsHelperPerOp">—</td></tr>
               <tr><td>JavaScript：二進位 2^20 大表</td><td id="jsBinaryTotal">—</td><td id="jsBinaryPerOp">—</td></tr>
             </tbody>
           </table>
         </div>
-        <p id="benchmarkDetail" class="benchmark-detail">每項執行 100 萬次、共 9 輪交錯執行並取中位數；全部在同一個 Web Worker 與同一台裝置測量。</p>
+        <p id="benchmarkDetail" class="benchmark-detail">C++ Wasm 使用真正的 14 種棋型表；每項執行 100 萬次、共 9 輪交錯執行並取中位數。</p>
       </div>
 
       <div id="console" class="console" aria-live="polite"></div>
@@ -168,8 +181,30 @@
         <input id="commandInput" autocomplete="off" placeholder="輸入 Rapfi 指令，例如 ABOUT">
         <button type="submit">傳送</button>
       </form>
-      <p class="note">Rapfi 搜尋在 Web Worker 中執行。單執行緒搜尋期間無法即時處理停止指令，因此「停止／重啟引擎」會終止 Worker 並重新載入。</p>
-      <p class="note">Rapfi 採 GPL v3 授權。<a href="SOURCE.md">查看來源、版本與隔離建置方式</a>。</p>
+    </section>
+
+    <section class="panel compare-panel">
+      <h2 id="compareTitle">空點棋型比較</h2>
+      <p id="compareStatus" class="compare-status neutral">將滑鼠移到空點，查看落子後的四方向棋型與禁手判斷。</p>
+      <div class="table-wrap">
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>判斷系統</th>
+              <th>橫向</th>
+              <th>縱向</th>
+              <th>左上－右下</th>
+              <th>左下－右上</th>
+              <th>Pattern4</th>
+              <th>禁手</th>
+              <th>差異結果</th>
+            </tr>
+          </thead>
+          <tbody id="patternCompareBody"></tbody>
+        </table>
+      </div>
+      <p class="note">Rapfi 官方協定可提供每個空點的 Pattern4 與禁手清單，但沒有逐方向 Pattern2x 輸出，因此 Rapfi 的四方向欄位會標示「官方協定未提供」。三種 C++ Wasm 則使用我們獨立實作的同一套 14 種分類規格，不會修改或連結 Rapfi 程式碼。</p>
+      <p class="note">Rapfi 採 GPL v3 授權。<a href="SOURCE.md">查看來源、版本與隔離方式</a>。</p>
     </section>
   </div>
 </main>
