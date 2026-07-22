@@ -74,10 +74,17 @@ vcf-pattern-engine.wasm
 
 ## VCF Bitboard C++ Wasm 搜尋引擎
 
-原始碼：
+主要原始碼：
 
 ```text
 rapfi/vcf-bitboard-engine.cpp
+```
+
+題目產生器舊編碼相容層：
+
+```text
+rapfi/vcf-bitboard-legacy-extra.cpp
+rapfi/vcf-bitboard-generator-compat.js
 ```
 
 它和 `vcf-pattern-engine.cpp` 連結成另一個完全獨立的模組：
@@ -96,6 +103,7 @@ vcf-bitboard-engine.wasm
 - 防守節點驗證唯一成五點、雙成五點、守方立即成五及連珠禁手。
 - VCF 路線、單一路線防守、全部防守候選、VCT／加子逐點掃描及節點統計都在 C++ Wasm 內執行。
 - 多點掃描可使用多個彼此獨立的單執行緒 Wasm Worker，不需要 SharedArrayBuffer。
+- 同線雙四相容層由 C++ 重新確認同方向兩個成五點，用來維持既有題目產生器的 `24` 編碼。
 
 JavaScript 只負責：
 
@@ -103,6 +111,7 @@ JavaScript 只負責：
 - 按鈕、暫停／重新啟動及結果顯示。
 - 圖片／拍照匯入與校正介面。
 - 題目產生器的候選組合流程。
+- 完整搜尋與漸進加深的速度比較流程；兩邊實際搜尋都呼叫相同的 Bitboard C++ Wasm 核心。
 
 題目產生器需要的 `getLevelPoint`、`isFoul`、`testLineFour`、`getBlockFourPoint` 由 Bitboard 模組提供相容介面；候選的 VCF 驗證與去重透過 `window.engineAPI` 呼叫 C++ Wasm，不回退到舊 `eval/worker.js`。
 
@@ -113,4 +122,6 @@ GitHub Actions 部署時：
 - 將原本 `rapfi/index.html` 保存為 `/rapfi/lab.html`。
 - 以原主頁 `makevcf.html` 生成新的 `/rapfi/index.html`，保留原主頁的全部操作、圖片匯入及題目產生器。
 - 在原主頁 JavaScript 建立舊引擎前，先載入 `vcf-bitboard-engine.js` 與 `vcf-bitboard-main.js`。
-- `/rapfi/` 不載入 `eval/EvaluatorCore.js`、`eval/Evaluator.js` 或舊搜尋 Worker。
+- 載入 `vcf-bitboard-generator-compat.js`，再載入原題目產生器腳本。
+- 以 `vcf-bitboard-speed.js` 取代原本會啟動舊 Worker 的速度比較腳本。
+- `/rapfi/` 不載入 `eval/EvaluatorCore.js`、`eval/Evaluator.js`、`makevcf-optimized-search-v2.js` 或舊搜尋 Worker。
