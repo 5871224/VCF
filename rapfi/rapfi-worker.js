@@ -121,11 +121,23 @@ function runJsBenchmark(mode, iterations) {
   return elapsedMs * 1000000 / iterations;
 }
 
-function runMedianBenchmark(run, iterations, rounds) {
-  run(Math.min(iterations, 200000));
-  const values = [];
-  for (let round = 0; round < rounds; round++) values.push(run(iterations));
-  return median(values);
+function runInterleavedBenchmarks(methods, iterations, rounds) {
+  const warmupIterations = Math.min(iterations, 200000);
+  const values = Object.fromEntries(methods.map((method) => [method.key, []]));
+
+  for (const method of methods) method.run(warmupIterations);
+
+  for (let round = 0; round < rounds; round++) {
+    const offset = round % methods.length;
+    for (let step = 0; step < methods.length; step++) {
+      const method = methods[(offset + step) % methods.length];
+      values[method.key].push(method.run(iterations));
+    }
+  }
+
+  return Object.fromEntries(
+    Object.entries(values).map(([key, samples]) => [key, median(samples)]),
+  );
 }
 
 self.onmessage = async (event) => {
@@ -180,48 +192,23 @@ self.onmessage = async (event) => {
       const rule = Number(data?.rule ?? 2);
       const iterations = Number(data?.iterations ?? 1000000);
       const rounds = Number(data?.rounds ?? 9);
-
-      const wasmFusedNs = runMedianBenchmark(
-        (count) => patternBenchmark(rule, 2, count),
-        iterations,
-        rounds,
-      );
-      const wasmRawNs = runMedianBenchmark(
-        (count) => patternBenchmark(rule, 0, count),
-        iterations,
-        rounds,
-      );
-      const jsTernaryNs = runMedianBenchmark(
-        (count) => runJsBenchmark(0, count),
-        iterations,
-        rounds,
-      );
-      const jsHelperNs = runMedianBenchmark(
-        (count) => runJsBenchmark(1, count),
-        iterations,
-        rounds,
-      );
-      const jsBinaryNs = runMedianBenchmark(
-        (count) => runJsBenchmark(2, count),
-        iterations,
-        rounds,
-      );
-      const wasmPointNs = runMedianBenchmark(
-        (count) => patternBenchmark(rule, 1, count),
-        iterations,
-        rounds,
-      );
+      const methods = [
+        { key: "wasmFusedNs", run: (count) => patternBenchmark(rule, 2, count) },
+        { key: "wasmRawNs", run: (count) => patternBenchmark(rule, 0, count) },
+        { key: "wasmTernaryNs", run: (count) => patternBenchmark(rule, 3, count) },
+        { key: "wasmHelperNs", run: (count) => patternBenchmark(rule, 4, count) },
+        { key: "wasmBinaryNs", run: (count) => patternBenchmark(rule, 5, count) },
+        { key: "jsTernaryNs", run: (count) => runJsBenchmark(0, count) },
+        { key: "jsHelperNs", run: (count) => runJsBenchmark(1, count) },
+        { key: "jsBinaryNs", run: (count) => runJsBenchmark(2, count) },
+        { key: "wasmPointNs", run: (count) => patternBenchmark(rule, 1, count) },
+      ];
 
       post("benchmark", {
         rule,
         iterations,
         rounds,
-        wasmFusedNs,
-        wasmRawNs,
-        jsTernaryNs,
-        jsHelperNs,
-        jsBinaryNs,
-        wasmPointNs,
+        ...runInterleavedBenchmarks(methods, iterations, rounds),
       });
     } catch (error) {
       post("benchmarkError", error?.stack || error?.message || String(error));
