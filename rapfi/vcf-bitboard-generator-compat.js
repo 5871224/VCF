@@ -30,3 +30,9 @@
   service.syncReady = compatReady;
   service.compatReady = compatReady;
 })(window);
+
+(function loadWorkbenchHeader() {
+  const script = document.createElement("script");
+  script.src = "rapfi/rapfi-workbench-header.js";
+  document.head.appendChild(script);
+})();
