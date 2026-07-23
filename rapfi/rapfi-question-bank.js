@@ -245,6 +245,8 @@
       if (!persist()) {
         bank.pop();
         currentIndex = findCurrentBoard();
+        updateControls();
+        return;
       }
       updateControls();
       if (typeof setStatus === "function") setStatus(`已加入題庫，目前是第 ${currentIndex + 1} 題，共 ${bank.length} 題`);
@@ -307,14 +309,11 @@
       };
     }
 
+    currentIndex = findCurrentBoard();
     try {
-      const storedIndex = Number(localStorage.getItem(INDEX_KEY));
-      const matchingIndex = findCurrentBoard();
-      if (matchingIndex >= 0) currentIndex = matchingIndex;
-      else if (Number.isInteger(storedIndex) && storedIndex >= 0 && storedIndex < bank.length) currentIndex = -1;
-    } catch (_) {
-      currentIndex = findCurrentBoard();
-    }
+      if (currentIndex >= 0) localStorage.setItem(INDEX_KEY, String(currentIndex));
+      else localStorage.removeItem(INDEX_KEY);
+    } catch (_) {}
     updateControls();
   };
 
