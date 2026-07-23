@@ -48,16 +48,18 @@ class GeneratorVCFEngine {
     this.rules = 2;
     this.worker = null;
     this.resolve = null;
+    this.backend = "legacy-generator-worker";
     this.ready = this.start();
   }
 
   async start() {
-    if (window.engineAPI) {
-      await window.engineAPI.send("setGameRules", { rules: this.rules });
-      return;
-    }
+    // 題目產生器的驗證語意依賴舊版 eval/worker.js：maxVCF=64 時會以
+    // 原本的多組 VCF 流程回傳目標路線與較短路線，供自動補守子使用。
+    // Bitboard C++ 的 multi 模式停止條件不同，從第 5 層起可能為單一候選
+    // 長時間列舉到 64 組／節點上限。主畫面搜尋仍使用 C++；只有題目產生器
+    // 固定使用自己的舊版 Worker，避免兩種語意互相污染。
     if (this.worker) this.worker.terminate();
-    this.worker = new Worker("eval/worker.js");
+    this.worker = new Worker(new URL("eval/worker.js", document.baseURI).href);
     this.worker.onmessage = event => {
       if (event.data.cmd === "resolve" && this.resolve) {
         const done = this.resolve;
@@ -77,7 +79,6 @@ class GeneratorVCFEngine {
   }
 
   post(cmd, param) {
-    if (window.engineAPI) return window.engineAPI.send(cmd, param);
     return new Promise(resolve => {
       this.resolve = resolve;
       this.worker.postMessage({ cmd, param });
@@ -92,14 +93,14 @@ class GeneratorVCFEngine {
 
   async findVCF(arr, color, maxVCF = 64, options = {}) {
     await this.ready;
-    const useBitboardGeneratorMode = Boolean(window.engineAPI);
     return (await this.post("findVCF", {
       arr: arr.slice(),
       color,
       maxVCF,
-      // 題目驗證必須同時取得目標步數與較短 VCF，預設使用固定目標深度的多組搜尋。
-      mode: options.mode || (useBitboardGeneratorMode ? "multi" : undefined),
-      simplify: options.simplify ?? useBitboardGeneratorMode,
+      // 舊版 Worker 會忽略新版 mode/pruning 欄位，但仍尊重深度與節點限制。
+      // 保留欄位讓同一介面可在測試中與 Bitboard 後端比較。
+      mode: options.mode,
+      simplify: options.simplify,
       pruning: options.pruning,
       maxDepth: Math.max(1, Number(options.maxDepth) || 200),
       maxNode: Math.max(1, Number(options.maxNode) || 5000000),
@@ -116,12 +117,6 @@ class GeneratorVCFEngine {
   }
 
   async cancel() {
-    if (window.engineAPI) {
-      await window.engineAPI.cancel();
-      this.ready = this.start();
-      await this.ready;
-      return;
-    }
     if (this.resolve) {
       const done = this.resolve;
       this.resolve = null;
