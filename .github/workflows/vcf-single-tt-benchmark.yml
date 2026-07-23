@@ -6,7 +6,7 @@ on:
     paths:
       - 'rapfi/vcf-bitboard-search-v2.cpp'
       - 'rapfi/vcf-single-tt-benchmark-set.inc'
-      - 'rapfi/vcf-single-tt-benchmark.cpp'
+      - 'rapfi/vcf-single-tt-tactical-benchmark.cpp'
       - '.github/workflows/vcf-single-tt-benchmark.yml'
   workflow_dispatch:
 
@@ -30,7 +30,7 @@ jobs:
           g++ $CXXFLAGS -c rapfi/vcf-pattern-engine.cpp -o /tmp/vcf-tt-bench/pattern.o
           g++ $CXXFLAGS -c rapfi/vcf-bitboard-engine.cpp -o /tmp/vcf-tt-bench/engine.o
           g++ $CXXFLAGS -c rapfi/vcf-bitboard-legacy-extra.cpp -o /tmp/vcf-tt-bench/legacy-extra.o
-          g++ $CXXFLAGS -c rapfi/vcf-single-tt-benchmark.cpp -o /tmp/vcf-tt-bench/benchmark.o
+          g++ $CXXFLAGS -c rapfi/vcf-single-tt-tactical-benchmark.cpp -o /tmp/vcf-tt-bench/benchmark.o
 
           build_variant() {
             local label="$1"
@@ -45,16 +45,14 @@ jobs:
               -o "/tmp/vcf-tt-bench/${label}"
           }
 
-          build_variant legacy ''
-          /tmp/vcf-tt-bench/legacy --select /tmp/vcf-tt-bench/seeds.txt | tee /tmp/vcf-tt-bench/selection.txt
-
           : > /tmp/vcf-tt-bench/results.txt
           run_variant() {
             local label="$1"
-            "/tmp/vcf-tt-bench/${label}" --run "$label" /tmp/vcf-tt-bench/seeds.txt 750000 3 \
+            "/tmp/vcf-tt-bench/${label}" "$label" 1500000 3 \
               | tee -a /tmp/vcf-tt-bench/results.txt
           }
 
+          build_variant legacy ''
           run_variant legacy
 
           build_variant direct_mixed_32k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=15'
@@ -82,15 +80,12 @@ jobs:
           run_variant two_way_recent_256k
 
           echo '=== SUMMARY RANKING ==='
-          grep '^SUMMARY ' /tmp/vcf-tt-bench/results.txt | sort -t= -k4,4n
+          grep '^SUMMARY ' /tmp/vcf-tt-bench/results.txt
 
       - name: Upload benchmark results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: single-vcf-tt-benchmark
-          path: |
-            /tmp/vcf-tt-bench/seeds.txt
-            /tmp/vcf-tt-bench/selection.txt
-            /tmp/vcf-tt-bench/results.txt
+          name: single-vcf-tt-tactical-benchmark
+          path: /tmp/vcf-tt-bench/results.txt
           if-no-files-found: warn
