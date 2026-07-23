@@ -1,5 +1,6 @@
 # Benchmark-only workflow; never merge this branch.
 # Tactical W.XXX.W transposition benchmark.
+# Synchronize trigger for PR benchmark execution.
 name: Single VCF TT Benchmark
 
 on:
