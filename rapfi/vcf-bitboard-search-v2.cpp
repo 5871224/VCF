@@ -12,7 +12,16 @@
 #include "vcf-bitboard-search-fast-part3.inc"
 #undef unordered_set
 
-int singleFourWayTransTableV5SelfTest()
+// 保留舊 V3 實作供對照，但正式匯出由 multi-v3 接管。
+#define vcfBbFindModeV3 vcfBbFindModeV3Legacy
+#define vcfBbScanPointsModeV3 vcfBbScanPointsModeV3Legacy
+#define vcfBbSearchV2SelfTest vcfBbSearchV2SelfTestLegacy
+#include "vcf-bitboard-search-fast-part4.inc"
+#undef vcfBbFindModeV3
+#undef vcfBbScanPointsModeV3
+#undef vcfBbSearchV2SelfTest
+
+static int singleFourWayTransTableV5SelfTest()
 {
     using TestTable = std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>;
 
@@ -44,15 +53,6 @@ int singleFourWayTransTableV5SelfTest()
 
     return 0;
 }
-
-// 保留舊 V3 實作供對照，但正式匯出由 multi-v3 接管。
-#define vcfBbFindModeV3 vcfBbFindModeV3Legacy
-#define vcfBbScanPointsModeV3 vcfBbScanPointsModeV3Legacy
-#define vcfBbSearchV2SelfTest vcfBbSearchV2SelfTestLegacy
-#include "vcf-bitboard-search-fast-part4.inc"
-#undef vcfBbFindModeV3
-#undef vcfBbScanPointsModeV3
-#undef vcfBbSearchV2SelfTest
 
 // 新版多組搜尋使用獨立的直接對映精確表與時間限制 context；
 // 不會改寫單組四路同型表、第一組立即返回或單組 DFS 熱路徑。
