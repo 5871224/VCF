@@ -1,81 +1,81 @@
-CASE label=legacy patterns=8 seed=11 median_ms=0.049 nodes=3 nps=61663.686 routes=1 length=5 aborted=0 valid=1
-CASE label=legacy patterns=9 seed=23 median_ms=62.695 nodes=98496 nps=1571027.582 routes=0 length=0 aborted=0 valid=1
-CASE label=legacy patterns=10 seed=37 median_ms=0.130 nodes=8 nps=61736.970 routes=1 length=15 aborted=0 valid=1
-CASE label=legacy patterns=11 seed=41 median_ms=0.157 nodes=7 nps=44601.896 routes=1 length=13 aborted=0 valid=1
-CASE label=legacy patterns=12 seed=53 median_ms=0.087 nodes=3 nps=34521.645 routes=1 length=5 aborted=0 valid=1
-CASE label=legacy patterns=13 seed=67 median_ms=0.197 nodes=7 nps=35520.554 routes=1 length=13 aborted=0 valid=1
-CASE label=legacy patterns=14 seed=79 median_ms=0.195 nodes=7 nps=35810.206 routes=1 length=13 aborted=0 valid=1
-CASE label=legacy patterns=14 seed=97 median_ms=0.189 nodes=7 nps=37020.583 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=legacy cold_ms=26.372 median_total_ms=63.699 total_nodes=98538 nps=1546932.197 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=direct_mixed_32k patterns=8 seed=11 median_ms=0.051 nodes=3 nps=58484.092 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_32k patterns=9 seed=23 median_ms=111.078 nodes=179242 nps=1613661.064 routes=0 length=0 aborted=0 valid=1
-CASE label=direct_mixed_32k patterns=10 seed=37 median_ms=0.153 nodes=8 nps=52265.036 routes=1 length=15 aborted=0 valid=1
-CASE label=direct_mixed_32k patterns=11 seed=41 median_ms=0.161 nodes=7 nps=43564.578 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_32k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35745.350 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_32k patterns=13 seed=67 median_ms=0.199 nodes=7 nps=35156.093 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_32k patterns=14 seed=79 median_ms=0.210 nodes=7 nps=33393.282 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_32k patterns=14 seed=97 median_ms=0.197 nodes=7 nps=35620.147 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=direct_mixed_32k cold_ms=26.245 median_total_ms=112.132 total_nodes=179284 nps=1598864.596 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=direct_mixed_64k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=60020.407 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_64k patterns=9 seed=23 median_ms=72.776 nodes=120308 nps=1653125.474 routes=0 length=0 aborted=0 valid=1
-CASE label=direct_mixed_64k patterns=10 seed=37 median_ms=0.131 nodes=8 nps=60861.494 routes=1 length=15 aborted=0 valid=1
-CASE label=direct_mixed_64k patterns=11 seed=41 median_ms=0.161 nodes=7 nps=43413.007 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_64k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35685.398 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_64k patterns=13 seed=67 median_ms=0.210 nodes=7 nps=33329.683 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_64k patterns=14 seed=79 median_ms=0.200 nodes=7 nps=35002.800 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_64k patterns=14 seed=97 median_ms=0.195 nodes=7 nps=35950.163 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=direct_mixed_64k cold_ms=30.144 median_total_ms=73.808 total_nodes=120350 nps=1630592.103 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=direct_mixed_128k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=59517.905 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_128k patterns=9 seed=23 median_ms=65.772 nodes=107294 nps=1631313.235 routes=0 length=0 aborted=0 valid=1
-CASE label=direct_mixed_128k patterns=10 seed=37 median_ms=0.136 nodes=8 nps=58855.987 routes=1 length=15 aborted=0 valid=1
-CASE label=direct_mixed_128k patterns=11 seed=41 median_ms=0.164 nodes=7 nps=42756.969 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_128k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35524.820 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_128k patterns=13 seed=67 median_ms=0.204 nodes=7 nps=34298.258 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_128k patterns=14 seed=79 median_ms=0.203 nodes=7 nps=34544.189 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_128k patterns=14 seed=97 median_ms=0.197 nodes=7 nps=35614.710 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=direct_mixed_128k cold_ms=25.878 median_total_ms=66.809 total_nodes=107336 nps=1606602.120 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=direct_mixed_256k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=59436.542 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_256k patterns=9 seed=23 median_ms=61.809 nodes=102594 nps=1659859.792 routes=0 length=0 aborted=0 valid=1
-CASE label=direct_mixed_256k patterns=10 seed=37 median_ms=0.132 nodes=8 nps=60667.187 routes=1 length=15 aborted=0 valid=1
-CASE label=direct_mixed_256k patterns=11 seed=41 median_ms=0.161 nodes=7 nps=43380.722 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_256k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35592.255 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_mixed_256k patterns=13 seed=67 median_ms=0.203 nodes=7 nps=34504.855 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_256k patterns=14 seed=79 median_ms=0.201 nodes=7 nps=34819.634 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_mixed_256k patterns=14 seed=97 median_ms=0.195 nodes=7 nps=35845.047 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=direct_mixed_256k cold_ms=25.911 median_total_ms=62.836 total_nodes=102636 nps=1633394.427 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=direct_raw_128k patterns=8 seed=11 median_ms=0.051 nodes=3 nps=58770.521 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_raw_128k patterns=9 seed=23 median_ms=81.703 nodes=132682 nps=1623955.673 routes=0 length=0 aborted=0 valid=1
-CASE label=direct_raw_128k patterns=10 seed=37 median_ms=0.134 nodes=8 nps=59808.612 routes=1 length=15 aborted=0 valid=1
-CASE label=direct_raw_128k patterns=11 seed=41 median_ms=0.164 nodes=7 nps=42788.332 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_raw_128k patterns=12 seed=53 median_ms=0.086 nodes=3 nps=35063.114 routes=1 length=5 aborted=0 valid=1
-CASE label=direct_raw_128k patterns=13 seed=67 median_ms=0.205 nodes=7 nps=34132.356 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_raw_128k patterns=14 seed=79 median_ms=0.207 nodes=7 nps=33882.389 routes=1 length=13 aborted=0 valid=1
-CASE label=direct_raw_128k patterns=14 seed=97 median_ms=0.201 nodes=7 nps=34812.708 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=direct_raw_128k cold_ms=26.004 median_total_ms=82.750 total_nodes=132724 nps=1603921.455 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=two_way_recent_128k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=60176.920 routes=1 length=5 aborted=0 valid=1
-CASE label=two_way_recent_128k patterns=9 seed=23 median_ms=60.542 nodes=99648 nps=1645936.045 routes=0 length=0 aborted=0 valid=1
-CASE label=two_way_recent_128k patterns=10 seed=37 median_ms=0.132 nodes=8 nps=60676.850 routes=1 length=15 aborted=0 valid=1
-CASE label=two_way_recent_128k patterns=11 seed=41 median_ms=0.172 nodes=7 nps=40607.488 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_recent_128k patterns=12 seed=53 median_ms=0.086 nodes=3 nps=34697.324 routes=1 length=5 aborted=0 valid=1
-CASE label=two_way_recent_128k patterns=13 seed=67 median_ms=0.200 nodes=7 nps=35016.808 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_recent_128k patterns=14 seed=79 median_ms=0.201 nodes=7 nps=34776.561 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_recent_128k patterns=14 seed=97 median_ms=0.195 nodes=7 nps=35832.203 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=two_way_recent_128k cold_ms=25.842 median_total_ms=61.579 total_nodes=99690 nps=1618897.919 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=two_way_shallow_recent_128k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=60455.837 routes=1 length=5 aborted=0 valid=1
-CASE label=two_way_shallow_recent_128k patterns=9 seed=23 median_ms=60.081 nodes=99376 nps=1654040.273 routes=0 length=0 aborted=0 valid=1
-CASE label=two_way_shallow_recent_128k patterns=10 seed=37 median_ms=0.135 nodes=8 nps=59153.222 routes=1 length=15 aborted=0 valid=1
-CASE label=two_way_shallow_recent_128k patterns=11 seed=41 median_ms=0.161 nodes=7 nps=43521.512 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_shallow_recent_128k patterns=12 seed=53 median_ms=0.086 nodes=3 nps=35030.360 routes=1 length=5 aborted=0 valid=1
-CASE label=two_way_shallow_recent_128k patterns=13 seed=67 median_ms=0.200 nodes=7 nps=34976.566 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_shallow_recent_128k patterns=14 seed=79 median_ms=0.210 nodes=7 nps=33329.842 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_shallow_recent_128k patterns=14 seed=97 median_ms=0.196 nodes=7 nps=35771.593 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=two_way_shallow_recent_128k cold_ms=25.721 median_total_ms=61.118 total_nodes=99418 nps=1626657.989 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
-CASE label=two_way_recent_256k patterns=8 seed=11 median_ms=0.049 nodes=3 nps=61273.258 routes=1 length=5 aborted=0 valid=1
-CASE label=two_way_recent_256k patterns=9 seed=23 median_ms=59.965 nodes=98764 nps=1647017.105 routes=0 length=0 aborted=0 valid=1
-CASE label=two_way_recent_256k patterns=10 seed=37 median_ms=0.131 nodes=8 nps=60977.934 routes=1 length=15 aborted=0 valid=1
-CASE label=two_way_recent_256k patterns=11 seed=41 median_ms=0.162 nodes=7 nps=43204.009 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_recent_256k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35656.132 routes=1 length=5 aborted=0 valid=1
-CASE label=two_way_recent_256k patterns=13 seed=67 median_ms=0.208 nodes=7 nps=33621.841 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_recent_256k patterns=14 seed=79 median_ms=0.201 nodes=7 nps=34873.583 routes=1 length=13 aborted=0 valid=1
-CASE label=two_way_recent_256k patterns=14 seed=97 median_ms=0.195 nodes=7 nps=35848.718 routes=1 length=13 aborted=0 valid=1
-SUMMARY label=two_way_recent_256k cold_ms=26.168 median_total_ms=60.996 total_nodes=98806 nps=1619879.927 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=legacy patterns=8 seed=11 median_ms=0.057 nodes=3 nps=52884.870 routes=1 length=5 aborted=0 valid=1
+CASE label=legacy patterns=9 seed=23 median_ms=63.757 nodes=98496 nps=1544855.267 routes=0 length=0 aborted=0 valid=1
+CASE label=legacy patterns=10 seed=37 median_ms=0.140 nodes=8 nps=56954.500 routes=1 length=15 aborted=0 valid=1
+CASE label=legacy patterns=11 seed=41 median_ms=0.159 nodes=7 nps=44070.059 routes=1 length=13 aborted=0 valid=1
+CASE label=legacy patterns=12 seed=53 median_ms=0.082 nodes=3 nps=36808.461 routes=1 length=5 aborted=0 valid=1
+CASE label=legacy patterns=13 seed=67 median_ms=0.195 nodes=7 nps=35843.028 routes=1 length=13 aborted=0 valid=1
+CASE label=legacy patterns=14 seed=79 median_ms=0.197 nodes=7 nps=35513.345 routes=1 length=13 aborted=0 valid=1
+CASE label=legacy patterns=14 seed=97 median_ms=0.192 nodes=7 nps=36509.865 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=legacy cold_ms=25.667 median_total_ms=64.779 total_nodes=98538 nps=1521138.903 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=direct_mixed_32k patterns=8 seed=11 median_ms=0.051 nodes=3 nps=59013.298 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_32k patterns=9 seed=23 median_ms=110.642 nodes=179242 nps=1620010.848 routes=0 length=0 aborted=0 valid=1
+CASE label=direct_mixed_32k patterns=10 seed=37 median_ms=0.131 nodes=8 nps=60866.125 routes=1 length=15 aborted=0 valid=1
+CASE label=direct_mixed_32k patterns=11 seed=41 median_ms=0.180 nodes=7 nps=38854.999 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_32k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35626.069 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_32k patterns=13 seed=67 median_ms=0.215 nodes=7 nps=32620.042 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_32k patterns=14 seed=79 median_ms=0.203 nodes=7 nps=34474.267 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_32k patterns=14 seed=97 median_ms=0.196 nodes=7 nps=35751.314 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=direct_mixed_32k cold_ms=26.062 median_total_ms=111.703 total_nodes=179284 nps=1605012.670 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=direct_mixed_64k patterns=8 seed=11 median_ms=0.051 nodes=3 nps=58948.361 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_64k patterns=9 seed=23 median_ms=73.403 nodes=120308 nps=1639009.974 routes=0 length=0 aborted=0 valid=1
+CASE label=direct_mixed_64k patterns=10 seed=37 median_ms=0.132 nodes=8 nps=60551.931 routes=1 length=15 aborted=0 valid=1
+CASE label=direct_mixed_64k patterns=11 seed=41 median_ms=0.172 nodes=7 nps=40797.058 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_64k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35541.655 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_64k patterns=13 seed=67 median_ms=0.199 nodes=7 nps=35145.149 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_64k patterns=14 seed=79 median_ms=0.201 nodes=7 nps=34835.056 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_64k patterns=14 seed=97 median_ms=0.196 nodes=7 nps=35720.300 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=direct_mixed_64k cold_ms=25.939 median_total_ms=74.438 total_nodes=120350 nps=1616783.163 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=direct_mixed_128k patterns=8 seed=11 median_ms=0.051 nodes=3 nps=59247.556 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_128k patterns=9 seed=23 median_ms=68.496 nodes=107294 nps=1566419.461 routes=0 length=0 aborted=0 valid=1
+CASE label=direct_mixed_128k patterns=10 seed=37 median_ms=0.132 nodes=8 nps=60625.810 routes=1 length=15 aborted=0 valid=1
+CASE label=direct_mixed_128k patterns=11 seed=41 median_ms=0.171 nodes=7 nps=40962.022 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_128k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35860.717 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_128k patterns=13 seed=67 median_ms=0.199 nodes=7 nps=35207.371 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_128k patterns=14 seed=79 median_ms=0.201 nodes=7 nps=34850.838 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_128k patterns=14 seed=97 median_ms=0.195 nodes=7 nps=35811.855 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=direct_mixed_128k cold_ms=27.446 median_total_ms=69.529 total_nodes=107336 nps=1543767.090 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=direct_mixed_256k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=60370.676 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_256k patterns=9 seed=23 median_ms=63.017 nodes=102594 nps=1628027.165 routes=0 length=0 aborted=0 valid=1
+CASE label=direct_mixed_256k patterns=10 seed=37 median_ms=0.147 nodes=8 nps=54501.482 routes=1 length=15 aborted=0 valid=1
+CASE label=direct_mixed_256k patterns=11 seed=41 median_ms=0.161 nodes=7 nps=43410.314 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_256k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35702.385 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_mixed_256k patterns=13 seed=67 median_ms=0.199 nodes=7 nps=35129.452 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_256k patterns=14 seed=79 median_ms=0.202 nodes=7 nps=34610.802 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_mixed_256k patterns=14 seed=97 median_ms=0.196 nodes=7 nps=35636.649 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=direct_mixed_256k cold_ms=26.407 median_total_ms=64.057 total_nodes=102636 nps=1602258.661 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=direct_raw_128k patterns=8 seed=11 median_ms=0.056 nodes=3 nps=53322.906 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_raw_128k patterns=9 seed=23 median_ms=79.428 nodes=132682 nps=1670463.931 routes=0 length=0 aborted=0 valid=1
+CASE label=direct_raw_128k patterns=10 seed=37 median_ms=0.239 nodes=8 nps=33438.386 routes=1 length=15 aborted=0 valid=1
+CASE label=direct_raw_128k patterns=11 seed=41 median_ms=0.274 nodes=7 nps=25517.458 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_raw_128k patterns=12 seed=53 median_ms=0.103 nodes=3 nps=29213.855 routes=1 length=5 aborted=0 valid=1
+CASE label=direct_raw_128k patterns=13 seed=67 median_ms=0.201 nodes=7 nps=34816.344 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_raw_128k patterns=14 seed=79 median_ms=0.203 nodes=7 nps=34436.956 routes=1 length=13 aborted=0 valid=1
+CASE label=direct_raw_128k patterns=14 seed=97 median_ms=0.199 nodes=7 nps=35138.622 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=direct_raw_128k cold_ms=25.931 median_total_ms=80.704 total_nodes=132724 nps=1644571.807 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=two_way_recent_128k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=59424.768 routes=1 length=5 aborted=0 valid=1
+CASE label=two_way_recent_128k patterns=9 seed=23 median_ms=60.279 nodes=99648 nps=1653110.529 routes=0 length=0 aborted=0 valid=1
+CASE label=two_way_recent_128k patterns=10 seed=37 median_ms=0.132 nodes=8 nps=60548.265 routes=1 length=15 aborted=0 valid=1
+CASE label=two_way_recent_128k patterns=11 seed=41 median_ms=0.163 nodes=7 nps=42946.366 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_recent_128k patterns=12 seed=53 median_ms=0.086 nodes=3 nps=34927.990 routes=1 length=5 aborted=0 valid=1
+CASE label=two_way_recent_128k patterns=13 seed=67 median_ms=0.204 nodes=7 nps=34327.187 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_recent_128k patterns=14 seed=79 median_ms=0.200 nodes=7 nps=34925.957 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_recent_128k patterns=14 seed=97 median_ms=0.199 nodes=7 nps=35260.931 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=two_way_recent_128k cold_ms=26.065 median_total_ms=61.313 total_nodes=99690 nps=1625907.529 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=two_way_shallow_recent_128k patterns=8 seed=11 median_ms=0.050 nodes=3 nps=60431.481 routes=1 length=5 aborted=0 valid=1
+CASE label=two_way_shallow_recent_128k patterns=9 seed=23 median_ms=76.799 nodes=99376 nps=1293978.737 routes=0 length=0 aborted=0 valid=1
+CASE label=two_way_shallow_recent_128k patterns=10 seed=37 median_ms=0.162 nodes=8 nps=49293.865 routes=1 length=15 aborted=0 valid=1
+CASE label=two_way_shallow_recent_128k patterns=11 seed=41 median_ms=0.172 nodes=7 nps=40730.590 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_shallow_recent_128k patterns=12 seed=53 median_ms=0.088 nodes=3 nps=33957.779 routes=1 length=5 aborted=0 valid=1
+CASE label=two_way_shallow_recent_128k patterns=13 seed=67 median_ms=0.204 nodes=7 nps=34243.057 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_shallow_recent_128k patterns=14 seed=79 median_ms=0.209 nodes=7 nps=33504.044 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_shallow_recent_128k patterns=14 seed=97 median_ms=0.197 nodes=7 nps=35477.528 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=two_way_shallow_recent_128k cold_ms=29.868 median_total_ms=77.882 total_nodes=99418 nps=1276527.627 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
+CASE label=two_way_recent_256k patterns=8 seed=11 median_ms=0.049 nodes=3 nps=61197.014 routes=1 length=5 aborted=0 valid=1
+CASE label=two_way_recent_256k patterns=9 seed=23 median_ms=59.770 nodes=98764 nps=1652388.153 routes=0 length=0 aborted=0 valid=1
+CASE label=two_way_recent_256k patterns=10 seed=37 median_ms=0.132 nodes=8 nps=60424.786 routes=1 length=15 aborted=0 valid=1
+CASE label=two_way_recent_256k patterns=11 seed=41 median_ms=0.164 nodes=7 nps=42595.658 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_recent_256k patterns=12 seed=53 median_ms=0.084 nodes=3 nps=35698.561 routes=1 length=5 aborted=0 valid=1
+CASE label=two_way_recent_256k patterns=13 seed=67 median_ms=0.198 nodes=7 nps=35300.228 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_recent_256k patterns=14 seed=79 median_ms=0.210 nodes=7 nps=33349.055 routes=1 length=13 aborted=0 valid=1
+CASE label=two_way_recent_256k patterns=14 seed=97 median_ms=0.196 nodes=7 nps=35626.129 routes=1 length=13 aborted=0 valid=1
+SUMMARY label=two_way_recent_256k cold_ms=25.968 median_total_ms=60.805 total_nodes=98806 nps=1624966.763 routes=7 aborted_cases=0 valid=1 checksum=17625890693076389945
