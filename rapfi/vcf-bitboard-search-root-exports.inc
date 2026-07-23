@@ -20,16 +20,21 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbRootCandidatesV4(const uint8_t *
     collectRootCandidates(position, attacker, rule, maxResults, root);
 
     int count = 0;
-    if (!root.immediate.empty()) {
+    const bool immediate = !root.immediate.empty();
+    if (immediate) {
         count = std::min<int>(root.immediate.size(), maxResults);
         std::copy_n(root.immediate.begin(), count, outMoves);
+        ctx.nodes = count > 0 ? 1 : 0;
+        ctx.maxPlySeen = count > 0 ? 1 : 0;
     }
     else if (!root.blocked) {
         count = std::min(root.candidates.count, maxResults);
         for (int i = 0; i < count; i++)
             outMoves[i] = root.candidates.items[i].idx;
     }
-    writeStats(stats, ctx, start, 0, count);
+    // routeCount 在列舉 API 中專門作為「這批是直接勝點」標記；
+    // candidateCount 仍保存完整根候選數量。
+    writeStats(stats, ctx, start, immediate ? count : 0, count);
     return count;
 }
 
