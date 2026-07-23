@@ -8,4 +8,7 @@
 #define scanCandidates scanCandidatesLegacy
 #include "vcf-bitboard-search-fast-part2.inc"
 #include "vcf-bitboard-search-opt-part3.inc"
+#define vcfBbSearchV2SelfTest vcfBbSearchV2SelfTestBase
 #include "vcf-bitboard-search-fast-part4.inc"
+#undef vcfBbSearchV2SelfTest
+#include "vcf-bitboard-search-opt-selftest.inc"
