@@ -31,8 +31,13 @@
   service.compatReady = compatReady;
 })(window);
 
-(function loadWorkbenchHeader() {
-  const script = document.createElement("script");
-  script.src = "rapfi/rapfi-workbench-header.js";
-  document.head.appendChild(script);
+(function loadRapfiWorkbenchTools() {
+  for (const source of [
+    "rapfi/rapfi-workbench-header.js",
+    "rapfi/rapfi-question-bank.js",
+  ]) {
+    const script = document.createElement("script");
+    script.src = source;
+    document.head.appendChild(script);
+  }
 })();
