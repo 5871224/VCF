@@ -1,0 +1,111 @@
+name: VCF Generator CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'makevcf-generator-*.js'
+      - 'rapfi/vcf-bitboard-generator-compat.js'
+      - '.github/workflows/vcf-generator-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generator-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check generator JavaScript syntax
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for file in makevcf-generator-*.js rapfi/vcf-bitboard-generator-compat.js; do
+            node --check "$file"
+          done
+
+      - name: Verify dedicated legacy generator worker
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+
+          const calls = [];
+          class WorkerMock {
+            constructor(url) {
+              this.url = String(url);
+              this.onmessage = null;
+              this.onerror = null;
+            }
+            postMessage(message) {
+              calls.push(message);
+              queueMicrotask(() => {
+                if (this.onmessage) {
+                  this.onmessage({
+                    data: {
+                      cmd: 'resolve',
+                      param: message.cmd === 'findVCF'
+                        ? { winMoves: [[1, 2, 3]], nodeCount: 3 }
+                        : true,
+                    },
+                  });
+                }
+              });
+            }
+            terminate() {}
+          }
+
+          const source = fs.readFileSync('makevcf-generator-core.js', 'utf8') +
+            '\n;globalThis.__generatorTest = { genEngine };';
+          const context = {
+            console,
+            URL,
+            Worker: WorkerMock,
+            queueMicrotask,
+            setTimeout,
+            document: {
+              baseURI: 'https://example.test/VCF/rapfi/',
+              getElementById() { return null; },
+              querySelector() { return null; },
+              querySelectorAll() { return []; },
+            },
+            window: {
+              engineAPI: {
+                send() { throw new Error('generator must not call C++ engineAPI'); },
+                cancel() { throw new Error('generator must not cancel C++ engineAPI'); },
+              },
+            },
+          };
+          context.globalThis = context;
+          vm.createContext(context);
+          vm.runInContext(source, context, { filename: 'makevcf-generator-core.js' });
+
+          (async () => {
+            const engine = context.__generatorTest.genEngine;
+            await engine.ready;
+            if (engine.backend !== 'legacy-generator-worker') {
+              throw new Error(`unexpected generator backend: ${engine.backend}`);
+            }
+            if (!engine.worker || !engine.worker.url.endsWith('/eval/worker.js')) {
+              throw new Error(`unexpected worker URL: ${engine.worker && engine.worker.url}`);
+            }
+            const result = await engine.findVCF(new Array(226).fill(0), 1, 64, {
+              mode: 'multi', maxDepth: 11, maxNode: 5000000,
+            });
+            if (!result || !result.winMoves || result.winMoves.length !== 1) {
+              throw new Error('legacy generator worker response was not returned');
+            }
+            const findCall = calls.find(call => call.cmd === 'findVCF');
+            if (!findCall || findCall.param.maxVCF !== 64 || findCall.param.maxDepth !== 11) {
+              throw new Error('generator validation limits were not forwarded');
+            }
+            console.log('Generator backend isolation test passed');
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
