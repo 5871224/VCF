@@ -1,3 +1,4 @@
+# 僅用於觸發本次 pull_request 驗證；不影響執行內容。
 name: VCF Native and Wasm CI
 
 on:
