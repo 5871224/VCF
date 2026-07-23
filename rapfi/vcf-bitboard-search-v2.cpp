@@ -19,18 +19,74 @@
 #undef vcfBbSearchV2SelfTest
 
 // 新版多組搜尋不再沿用依 ply 分桶的 unordered_set。
-// 透過區域巨集只替換 multi-v3 使用的同型表，單組熱路徑完全不變。
+// 透過區域巨集只替換 multi-v3 使用的同型表與 SearchContext，
+// 單組熱路徑完全不變。
 #include "vcf-bitboard-search-exact-tt-v3.inc"
+#include "vcf-bitboard-search-time-limit-v4.inc"
 #define LegacyTransTable ExactPositionTransTableV3
+#define SearchContext TimedSearchContextV4
+#define writeStats writeStatsMultiV4
+#define vcfBbFindModeV3 vcfBbFindModeV3MultiInternal
+#define vcfBbScanPointsModeV3 vcfBbScanPointsModeV3MultiInternal
 #define vcfBbSearchV2SelfTest vcfBbSearchV2SelfTestMultiV3
 #include "vcf-bitboard-search-multi-v3.inc"
 #undef vcfBbSearchV2SelfTest
+#undef vcfBbScanPointsModeV3
+#undef vcfBbFindModeV3
+#undef writeStats
+#undef SearchContext
 #undef LegacyTransTable
+
+extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbFindModeV3(const uint8_t *board,
+                                                               int attacker,
+                                                               int rule,
+                                                               int mode,
+                                                               int simplify,
+                                                               int pruning,
+                                                               int maxRoutes,
+                                                               int maxDepth,
+                                                               uint32_t encodedLimits,
+                                                               uint8_t *outMoves,
+                                                               uint16_t *outLengths,
+                                                               int maxMovesPerRoute,
+                                                               SearchStats *stats)
+{
+    const uint32_t maxNodes = configureMultiLimitsV4(encodedLimits);
+    return vcfBbFindModeV3MultiInternal(board, attacker, rule, mode, simplify, pruning,
+                                        maxRoutes, maxDepth, maxNodes, outMoves, outLengths,
+                                        maxMovesPerRoute, stats);
+}
+
+extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbScanPointsModeV3(const uint8_t *board,
+                                                                     int attacker,
+                                                                     int placeColor,
+                                                                     int rule,
+                                                                     int mode,
+                                                                     int simplify,
+                                                                     int pruning,
+                                                                     const uint16_t *indices,
+                                                                     int indexCount,
+                                                                     int maxDepth,
+                                                                     uint32_t encodedLimits,
+                                                                     uint16_t *outIndices,
+                                                                     uint16_t *outLabels,
+                                                                     int maxResults,
+                                                                     SearchStats *stats)
+{
+    const uint32_t maxNodes = configureMultiLimitsV4(encodedLimits);
+    return vcfBbScanPointsModeV3MultiInternal(board, attacker, placeColor, rule, mode,
+                                               simplify, pruning, indices, indexCount,
+                                               maxDepth, maxNodes, outIndices, outLabels,
+                                               maxResults, stats);
+}
 
 extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
 {
     const int multiResult = vcfBbSearchV2SelfTestMultiV3();
     if (multiResult != 0)
         return multiResult;
-    return exactPositionTransTableV3SelfTest();
+    const int exactResult = exactPositionTransTableV3SelfTest();
+    if (exactResult != 0)
+        return exactResult;
+    return multiTimeLimitV4SelfTest();
 }
