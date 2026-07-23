@@ -17,6 +17,16 @@
         <option value="strict">嚴格多組 VCF（完全同盤）</option>
       </select>
     </label>
+    <label class="vcf-option-number">
+      時間限制：
+      <input id="vcf-multi-time-seconds" type="number" min="0" max="2097151" step="1" inputmode="numeric">
+      秒
+    </label>
+    <label class="vcf-option-number">
+      節點限制：
+      <input id="vcf-multi-node-millions" type="number" min="0" max="1023" step="1" inputmode="numeric">
+      百萬
+    </label>
     <label class="vcf-option-select">
       補子搜尋：
       <select id="vcf-add-search-mode">
@@ -55,7 +65,11 @@
       border-radius:7px; background:#f7fbf4; font-size:13px;
     }
     #vcf-search-options label { display:flex; align-items:center; gap:5px; cursor:pointer; }
-    #vcf-search-options select { padding:5px 7px; border:1px solid #aaa; border-radius:5px; background:#fff; font-size:13px; }
+    #vcf-search-options select,
+    #vcf-search-options input[type="number"] {
+      padding:5px 7px; border:1px solid #aaa; border-radius:5px; background:#fff; font-size:13px;
+    }
+    #vcf-search-options input[type="number"] { width:72px; text-align:right; }
     #bitboard-architecture-panel {
       width: min(100%, 1120px); padding: 12px 14px; border: 1px solid #8ca28e;
       border-radius: 8px; background: #f5fff6; box-shadow: 0 2px 8px #0001;
@@ -79,12 +93,26 @@
 
   const simplifyCheck = document.getElementById("vcf-simplify-route");
   const pruningSelect = document.getElementById("vcf-multi-pruning");
+  const multiTimeInput = document.getElementById("vcf-multi-time-seconds");
+  const multiNodeInput = document.getElementById("vcf-multi-node-millions");
   const addModeSelect = document.getElementById("vcf-add-search-mode");
+
+  const clampInteger = (value, min, max, fallback) => {
+    const parsed = Math.trunc(Number(value));
+    return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
+  };
+
   try {
     simplifyCheck.checked = localStorage.getItem("vcf_simplify_route") === "1";
     pruningSelect.value = localStorage.getItem("vcf_multi_pruning") === "strict" ? "strict" : "fast";
     addModeSelect.value = localStorage.getItem("vcf_add_search_mode") === "shortest" ? "shortest" : "single";
-  } catch (_) {}
+    multiTimeInput.value = String(clampInteger(localStorage.getItem("vcf_multi_time_seconds"), 0, 2097151, 30));
+    multiNodeInput.value = String(clampInteger(localStorage.getItem("vcf_multi_node_millions"), 0, 1023, 20));
+  } catch (_) {
+    multiTimeInput.value = "30";
+    multiNodeInput.value = "20";
+  }
+
   simplifyCheck.addEventListener("change", () => {
     try { localStorage.setItem("vcf_simplify_route", simplifyCheck.checked ? "1" : "0"); } catch (_) {}
   });
@@ -95,8 +123,27 @@
     try { localStorage.setItem("vcf_add_search_mode", addModeSelect.value); } catch (_) {}
   });
 
+  const normalizeLimitInput = (input, key, max, fallback) => {
+    const value = clampInteger(input.value, 0, max, fallback);
+    input.value = String(value);
+    try { localStorage.setItem(key, String(value)); } catch (_) {}
+    return value;
+  };
+  multiTimeInput.addEventListener("change", () => normalizeLimitInput(multiTimeInput, "vcf_multi_time_seconds", 2097151, 30));
+  multiNodeInput.addEventListener("change", () => normalizeLimitInput(multiNodeInput, "vcf_multi_node_millions", 1023, 20));
+
   const selectedPruning = () => pruningSelect.value === "strict" ? "strict" : "fast";
   const pruningName = () => selectedPruning() === "fast" ? "高速剪枝" : "嚴格剪枝";
+  const selectedTimeSeconds = () => normalizeLimitInput(multiTimeInput, "vcf_multi_time_seconds", 2097151, 30);
+  const selectedNodeMillions = () => normalizeLimitInput(multiNodeInput, "vcf_multi_node_millions", 1023, 20);
+  const packMultiLimits = (timeSeconds, nodeMillions) => (
+    0x80000000 + timeSeconds * 1024 + nodeMillions
+  ) >>> 0;
+  const limitSummary = (timeSeconds, nodeMillions) => {
+    const timeText = timeSeconds > 0 ? `${timeSeconds} 秒` : "不限時間";
+    const nodeText = nodeMillions > 0 ? `${nodeMillions} 百萬節點` : "不限節點";
+    return `${timeText}／${nodeText}`;
+  };
 
   if (typeof setBusy === "function") {
     const originalSetBusy = setBusy;
@@ -104,6 +151,8 @@
       originalSetBusy(v);
       simplifyCheck.disabled = Boolean(v);
       pruningSelect.disabled = Boolean(v);
+      multiTimeInput.disabled = Boolean(v);
+      multiNodeInput.disabled = Boolean(v);
       addModeSelect.disabled = Boolean(v);
     };
   }
@@ -191,8 +240,8 @@
     };
   }
 
-  // 原頁面多組按鈕只取 20 組，也沒有執行中資訊。使用 capture listener 先接管事件，
-  // 固定以 64 組／500 萬節點搜尋，並在 Worker 計算期間持續顯示已執行時間。
+  // 多組固定最多回傳 64 組；使用者只設定時間（秒）與節點（百萬）限制。
+  // 時間與節點輸入 0 代表不限制。C++ 每 524,288 節點檢查一次時間。
   const multiButton = document.getElementById("btn-multi-vcf");
   if (multiButton) {
     multiButton.addEventListener("click", async event => {
@@ -209,7 +258,11 @@
       const cName = color === 1 ? "黑" : "白";
       const maxRoutes = 64;
       const maxDepth = 200;
-      const maxNode = 5000000;
+      const maxTimeSeconds = selectedTimeSeconds();
+      const maxNodeMillions = selectedNodeMillions();
+      const maxNodeCount = maxNodeMillions > 0 ? maxNodeMillions * 1000000 : 0;
+      const encodedLimits = packMultiLimits(maxTimeSeconds, maxNodeMillions);
+      const limitsText = limitSummary(maxTimeSeconds, maxNodeMillions);
       const modeName = pruningName();
       const t0 = performance.now();
       let progressTimer = 0;
@@ -221,7 +274,19 @@
 
       const updateProgress = () => {
         const seconds = ((performance.now() - t0) / 1000).toFixed(1);
-        setStatus(`搜索 ${cName} 多組 VCF（${modeName}，先去重後精簡）……已執行 ${seconds} 秒；上限 ${maxRoutes} 組／${(maxNode / 1000000).toFixed(0)} 百萬節點`);
+        setStatus(`搜索 ${cName} 多組 VCF（${modeName}，先去重後精簡）……已執行 ${seconds} 秒；固定最多 ${maxRoutes} 組；限制 ${limitsText}`);
+      };
+
+      const buildLimitNotes = info => {
+        const notes = [];
+        const nodeCount = Number(info?.nodeCount || 0);
+        const reachedNodes = Boolean(info?.aborted) && maxNodeCount > 0 && nodeCount >= maxNodeCount;
+        const reachedTime = Boolean(info?.aborted) && !reachedNodes && maxTimeSeconds > 0;
+        if ((info?.vcfCount || 0) >= maxRoutes) notes.push(`已達 ${maxRoutes} 組回傳上限，可能仍有其他路線`);
+        if (reachedNodes) notes.push(`已達 ${maxNodeMillions} 百萬節點限制，搜尋未完整`);
+        else if (reachedTime) notes.push(`已達 ${maxTimeSeconds} 秒限制，搜尋未完整`);
+        else if (info?.aborted) notes.push("搜尋已中止，結果未完整");
+        return notes;
       };
 
       try {
@@ -235,16 +300,14 @@
           pruning: selectedPruning(),
           maxVCF: maxRoutes,
           maxDepth,
-          maxNode,
+          maxNode: encodedLimits,
         });
         window.clearInterval(progressTimer);
         progressTimer = 0;
 
         const rawGroups = (info?.winMoves || []).filter(moves => moves && moves.length);
         if (!rawGroups.length) {
-          const limitNotes = [];
-          if (info?.aborted) limitNotes.push("已達 500 萬節點上限，搜尋未完整");
-          if ((info?.vcfCount || 0) >= maxRoutes) limitNotes.push("已達 64 組上限");
+          const limitNotes = buildLimitNotes(info);
           const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
           setStatus(`${cName} VCF 未找到（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
           return;
@@ -266,9 +329,7 @@
         const trimNote = rawGroups.length !== groups.length
           ? `，原 ${rawGroups.length} 組→修剪後 ${groups.length} 組`
           : `，共 ${groups.length} 組`;
-        const limitNotes = [];
-        if ((info?.vcfCount || 0) >= maxRoutes) limitNotes.push("已達 64 組上限，可能仍有其他路線");
-        if (info?.aborted) limitNotes.push("已達 500 萬節點上限，搜尋未完整");
+        const limitNotes = buildLimitNotes(info);
         const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
         setStatus(`${cName} VCF（${modeName}）：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
       } catch (error) {
