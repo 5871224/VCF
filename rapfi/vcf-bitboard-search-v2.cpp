@@ -5,9 +5,18 @@
 // 再依模式選擇嚴格完全同盤剪枝或高速勝型子集剪枝。
 //
 // 分檔僅為方便維護；inc 依序組成同一個翻譯單元。
+#if defined(VCF_SINGLE_TT_BENCHMARK)
+#include "vcf-single-tt-benchmark-set.inc"
+#define unordered_set VcfSingleTtBenchmarkSet
+#endif
+
 #include "vcf-bitboard-search-fast-part1.inc"
 #include "vcf-bitboard-search-fast-part2.inc"
 #include "vcf-bitboard-search-fast-part3.inc"
+
+#if defined(VCF_SINGLE_TT_BENCHMARK)
+#undef unordered_set
+#endif
 
 // 保留舊 V3 實作供對照，但正式匯出由 multi-v3 接管。
 #define vcfBbFindModeV3 vcfBbFindModeV3Legacy
