@@ -25,7 +25,9 @@ class VcfSingleTtBenchmarkSet {
 private:
     static constexpr size_t BUCKET_COUNT = size_t(1) << VCF_SINGLE_TT_BITS;
     static constexpr size_t BUCKET_MASK = BUCKET_COUNT - 1;
-    static constexpr size_t WAY_COUNT = VCF_SINGLE_TT_VARIANT >= 3 ? 2 : 1;
+    static constexpr size_t WAY_COUNT = VCF_SINGLE_TT_VARIANT >= 5
+        ? 4
+        : (VCF_SINGLE_TT_VARIANT >= 3 ? 2 : 1);
 
     struct Slot {
         Key key {};
@@ -145,14 +147,27 @@ public:
             }
         }
 
-#if VCF_SINGLE_TT_VARIANT == 4
+#if VCF_SINGLE_TT_VARIANT == 6
+        // 四路：第 0 格優先保留較淺局面，其餘三格循環保存近期局面。
+        Slot &depthSlot = storage.slots[base];
+        if (plyBucket < depthSlot.plyBucket)
+            writeSlot(depthSlot, key, tag, plyBucket);
+        else {
+            const size_t victim = 1 + size_t(storage.replacementCounter++ % 3ULL);
+            writeSlot(storage.slots[base + victim], key, tag, plyBucket);
+        }
+#elif VCF_SINGLE_TT_VARIANT == 5
+        // 四路最近替換：四格循環覆蓋。
+        const size_t victim = size_t(storage.replacementCounter++ & 3ULL);
+        writeSlot(storage.slots[base + victim], key, tag, plyBucket);
+#elif VCF_SINGLE_TT_VARIANT == 4
         // 二路：第 0 格偏向保留較淺局面，第 1 格保存最新局面。
         Slot &depthSlot = storage.slots[base];
         if (plyBucket < depthSlot.plyBucket)
             writeSlot(depthSlot, key, tag, plyBucket);
         else
             writeSlot(storage.slots[base + 1], key, tag, plyBucket);
-#elif VCF_SINGLE_TT_VARIANT >= 3
+#elif VCF_SINGLE_TT_VARIANT == 3
         // 二路最近替換：輪流覆蓋，避免同一格持續抖動。
         const size_t victim = size_t(storage.replacementCounter++ & 1ULL);
         writeSlot(storage.slots[base + victim], key, tag, plyBucket);
