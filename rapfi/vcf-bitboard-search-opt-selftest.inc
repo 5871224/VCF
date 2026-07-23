@@ -1,3 +1,66 @@
+bool selfTestRouteValid(Position position,
+                        int attacker,
+                        int rule,
+                        const std::vector<uint8_t> &route)
+{
+    if (route.empty() || (route.size() & 1) == 0)
+        return false;
+
+    const int defender = 3 - attacker;
+    int lastDefense = -1;
+    CandidateBuildScratch scratch;
+    CandidateList candidates;
+
+    for (size_t ply = 0; ply < route.size(); ply += 2) {
+        const int attack = route[ply];
+
+        // runAtDepth 在根節點先找直接五；直接五優先於守方原有的反四。
+        if (ply == 0) {
+            const std::vector<uint8_t> immediate = scanWinningMovesAll(position, attacker, rule, BOARD_CELLS);
+            if (std::find(immediate.begin(), immediate.end(), uint8_t(attack)) != immediate.end())
+                return route.size() == 1;
+        }
+
+        const Threat counter = ply == 0
+            ? scanThreatAll(position, defender, rule)
+            : scanThreatThrough(position, lastDefense, defender, rule);
+        if (counter.hasFive || counter.count >= 2)
+            return false;
+        const int forced = counter.count == 1 ? counter.points[0] : NIL;
+        if (!position.empty(attack) || (forced < BOARD_CELLS && attack != forced))
+            return false;
+
+        scanCandidates(position, attacker, rule, forced, attack, scratch, candidates);
+        const Candidate *selected = nullptr;
+        for (int i = 0; i < candidates.count; i++) {
+            if (candidates.items[i].idx == attack) {
+                selected = &candidates.items[i];
+                break;
+            }
+        }
+        if (!selected)
+            return false;
+
+        const Candidate candidate = *selected;
+        position.play(attack, attacker);
+        if (candidate.immediate || candidate.defenseCount >= 2)
+            return ply + 1 == route.size();
+        if (candidate.defenseCount != 1)
+            return false;
+
+        const int forcedDefense = candidate.defenses[0];
+        // 唯一防點若是守方禁手，搜尋會在攻方這手直接判勝，不會把防點放進路線。
+        if (!fullLegal(position.board, forcedDefense, defender, rule))
+            return ply + 1 == route.size();
+        if (ply + 1 >= route.size() || route[ply + 1] != forcedDefense)
+            return false;
+
+        position.play(forcedDefense, defender);
+        lastDefense = forcedDefense;
+    }
+    return false;
+}
+
 extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
 {
     const int base = vcfBbSearchV2SelfTestBase();
@@ -83,7 +146,7 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
         return 16;
 
     // 比較原本共享根置換表與新的獨立根搜尋。固定較淺深度避免自測過久；
-    // 只有兩邊都完整結束時才比較有解／無解，並驗證回傳路線本身。
+    // 只有兩邊都完整結束時才比較有解／無解，並依搜尋本身的終局語意驗證路線。
     for (int test = 0; test < 128; test++) {
         std::array<uint8_t, BOARD_CELLS> source {};
         const int stones = 10 + int(nextRandom() % 30);
@@ -115,13 +178,19 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
         if (sharedPosition.board.cells != sharedBefore.board.cells
             || sharedPosition.board.black != sharedBefore.board.black
             || sharedPosition.board.white != sharedBefore.board.white
+            || sharedPosition.blackCount != sharedBefore.blackCount
+            || sharedPosition.whiteCount != sharedBefore.whiteCount
             || sharedPosition.category != sharedBefore.category
             || sharedPosition.active != sharedBefore.active
+            || sharedPosition.board.hash != sharedBefore.board.hash
             || independentPosition.board.cells != independentBefore.board.cells
             || independentPosition.board.black != independentBefore.board.black
             || independentPosition.board.white != independentBefore.board.white
+            || independentPosition.blackCount != independentBefore.blackCount
+            || independentPosition.whiteCount != independentBefore.whiteCount
             || independentPosition.category != independentBefore.category
-            || independentPosition.active != independentBefore.active)
+            || independentPosition.active != independentBefore.active
+            || independentPosition.board.hash != independentBefore.board.hash)
             return 20;
 
         if (!sharedCtx.aborted && !independentCtx.aborted) {
@@ -134,8 +203,8 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
                 Position verifyIndependent;
                 verifyShared.load(source.data());
                 verifyIndependent.load(source.data());
-                if (!routeValidOld(verifyShared, attacker, rule, sharedRoutes.front())
-                    || !routeValidOld(verifyIndependent, attacker, rule, independentRoutes.front()))
+                if (!selfTestRouteValid(verifyShared, attacker, rule, sharedRoutes.front())
+                    || !selfTestRouteValid(verifyIndependent, attacker, rule, independentRoutes.front()))
                     return 23;
             }
         }
