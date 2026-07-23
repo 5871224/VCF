@@ -2,18 +2,8 @@
 
 (function initVCFBitboardBridge(global) {
   const moduleURL = new URL("rapfi/engine/vcf-bitboard-engine.js", document.baseURI).href;
-  const workerURL = new URL("rapfi/vcf-bitboard-worker-v4.js", document.baseURI).href;
+  const workerURL = new URL("rapfi/vcf-bitboard-worker.js", document.baseURI).href;
   const desiredWorkers = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 8));
-
-  function searchModeValue(mode, maxVCF = 1) {
-    if (mode === "shortest" || Number(mode) === 2) return 2;
-    if (mode === "multi" || Number(mode) === 1 || Number(maxVCF) > 1) return 1;
-    return 0;
-  }
-
-  function pruningModeValue(pruning) {
-    return pruning === "fast" || Number(pruning) === 1 ? 1 : 0;
-  }
 
   class RpcWorker {
     constructor() {
@@ -66,7 +56,8 @@
     constructor() {
       this.rules = 2;
       this.main = new RpcWorker();
-      // 一般單路搜尋先使用 main；只有確認存在多個非直接勝根候選時才延遲建立池。
+      // 單次 VCF 只使用 main；批次掃點第一次呼叫時才建立 Worker 池，
+      // 避免頁面啟動時無條件載入最多 8 份 Wasm 引擎。
       this.pool = [];
       this.poolReady = null;
       this.syncModule = null;
@@ -178,141 +169,10 @@
       return true;
     }
 
-    async findVCFSingle(param) {
-      return this.main.call("findVCF", { ...param, rules: this.rules });
-    }
-
-    canProbeRoots(param) {
-      const maxVCF = Math.max(1, Number(param.maxVCF) || 1);
-      const maxNode = Math.max(1, Number(param.maxNode) || 5_000_000);
-      return param.parallelRoot !== false
-        && desiredWorkers > 1
-        && searchModeValue(param.mode, maxVCF) === 0
-        && maxVCF === 1
-        && maxNode >= 10_000;
-    }
-
-    async findVCFParallel(param) {
-      if (!this.canProbeRoots(param)) return this.findVCFSingle(param);
-
-      const startedAt = performance.now();
-      try {
-        const root = await this.main.call("rootCandidatesV4", {
-          arr: param.arr,
-          color: param.color,
-          rules: this.rules,
-        });
-        const rootMoves = Array.from(root.moves || []);
-        const simplify = Boolean(param.simplify);
-
-        // 直接五已由根列舉完整驗證，不再為兩個以上勝點建立 Worker 池。
-        if (root.immediate && rootMoves.length) {
-          const elapsedMs = performance.now() - startedAt;
-          const nodeCount = Math.max(1, Number(root.nodeCount) || 1);
-          return {
-            ...root,
-            nodeCount,
-            elapsedMs,
-            routeCount: 1,
-            candidateCount: rootMoves.length,
-            maxPly: 1,
-            aborted: false,
-            nodesPerSecond: elapsedMs > 0 ? nodeCount * 1000 / elapsedMs : 0,
-            vcfCount: 1,
-            winMoves: [[rootMoves[0]]],
-            searchMode: "single",
-            pruning: pruningModeValue(param.pruning) ? "fast" : "strict",
-            simplified: simplify,
-            parallelRoot: false,
-            rootFastPath: true,
-          };
-        }
-
-        if (rootMoves.length < 2) return this.findVCFSingle(param);
-
-        const pool = await this.ensurePool();
-        const probeCount = Math.min(rootMoves.length, pool.length);
-        const maxNode = Math.max(1, Math.min(0xffffffff, Number(param.maxNode) || 5_000_000));
-        const perRootBudget = Math.floor(maxNode / probeCount);
-        if (perRootBudget < 2_000) return this.findVCFSingle(param);
-
-        const maxDepth = Math.max(1, Math.min(224, Number(param.maxDepth) || 200));
-        const probeResults = await Promise.all(
-          rootMoves.slice(0, probeCount).map((rootMove, i) => pool[i].call("findForcedRootV4", {
-            arr: param.arr,
-            color: param.color,
-            rules: this.rules,
-            rootMove,
-            simplify,
-            maxDepth,
-            maxNode: perRootBudget,
-          })),
-        );
-
-        let logicalNodes = 0;
-        let maxPly = 0;
-        for (let i = 0; i < probeResults.length; i++) {
-          const result = probeResults[i] || {};
-          logicalNodes += Math.max(0, Number(result.nodeCount) || 0);
-          maxPly = Math.max(maxPly, Number(result.maxPly) || 0);
-
-          // 配額不足代表更前面的候選尚未證明無解，不能採用後面的答案。
-          if (result.aborted || logicalNodes > maxNode)
-            return this.findVCFSingle(param);
-
-          if (result.valid && Array.isArray(result.winMoves) && result.winMoves.length) {
-            const elapsedMs = performance.now() - startedAt;
-            return {
-              ...result,
-              nodeCount: logicalNodes,
-              elapsedMs,
-              routeCount: 1,
-              candidateCount: rootMoves.length,
-              maxPly,
-              aborted: false,
-              nodesPerSecond: elapsedMs > 0 ? logicalNodes * 1000 / elapsedMs : 0,
-              vcfCount: 1,
-              searchMode: "single",
-              pruning: pruningModeValue(param.pruning) ? "fast" : "strict",
-              simplified: simplify,
-              parallelRoot: true,
-              parallelWorkers: probeCount,
-              perRootBudget,
-            };
-          }
-        }
-
-        // 所有根候選都在分配額度內完整證明無解時，可直接回傳確定結果。
-        if (probeCount === rootMoves.length) {
-          const elapsedMs = performance.now() - startedAt;
-          return {
-            nodeCount: logicalNodes,
-            elapsedMs,
-            routeCount: 0,
-            candidateCount: rootMoves.length,
-            maxPly,
-            aborted: false,
-            nodesPerSecond: elapsedMs > 0 ? logicalNodes * 1000 / elapsedMs : 0,
-            vcfCount: 0,
-            winMoves: [],
-            searchMode: "single",
-            pruning: pruningModeValue(param.pruning) ? "fast" : "strict",
-            simplified: simplify,
-            parallelRoot: true,
-            parallelWorkers: probeCount,
-            perRootBudget,
-          };
-        }
-      } catch (error) {
-        console.warn("根候選平行探測回退單執行緒：", error);
-      }
-      return this.findVCFSingle(param);
-    }
-
     async send(cmd, param = {}) {
       switch (cmd) {
         case "setGameRules": return this.broadcastRules(param.rules);
-        case "findVCF": return this.findVCFParallel(param);
+        case "findVCF": return this.main.call("findVCF", { ...param, rules: this.rules });
         case "isVCF": {
           const result = await this.main.call("isVCF", {
             arr: param.arr,
