@@ -94,6 +94,33 @@ std::array<uint8_t, BOARD_CELLS> makeTranspositionBoard(int patternCount, uint64
     return board;
 }
 
+std::pair<int, int> transformPoint(int x, int y, int symmetry)
+{
+    // D4 的八種對稱：四種旋轉，再加上各自的水平鏡射。
+    if (symmetry & 4)
+        x = BOARD_SIZE - 1 - x;
+    switch (symmetry & 3) {
+        case 1: return {BOARD_SIZE - 1 - y, x};
+        case 2: return {BOARD_SIZE - 1 - x, BOARD_SIZE - 1 - y};
+        case 3: return {y, BOARD_SIZE - 1 - x};
+        default: return {x, y};
+    }
+}
+
+std::array<uint8_t, BOARD_CELLS> transformBoard(
+    const std::array<uint8_t, BOARD_CELLS> &source,
+    int symmetry)
+{
+    std::array<uint8_t, BOARD_CELLS> transformed {};
+    for (int y = 0; y < BOARD_SIZE; y++) {
+        for (int x = 0; x < BOARD_SIZE; x++) {
+            const auto [tx, ty] = transformPoint(x, y, symmetry);
+            transformed[size_t(ty * BOARD_SIZE + tx)] = source[size_t(y * BOARD_SIZE + x)];
+        }
+    }
+    return transformed;
+}
+
 struct Result {
     double ms = 0;
     uint32_t nodes = 0;
@@ -142,12 +169,11 @@ double median(std::vector<double> values)
 
 int run(const std::string &label, uint32_t maxNodes, int repetitions)
 {
-    const std::array<std::pair<int, uint64_t>, 8> cases = {{
-        {8, 11}, {9, 23}, {10, 37}, {11, 41},
-        {12, 53}, {13, 67}, {14, 79}, {14, 97},
-    }};
+    // 第一輪唯一真正壓到同型表的難盤，轉成八種幾何對稱，
+    // 保留相同棋理但改變索引、Zobrist 組合與候選順序。
+    const auto base = makeTranspositionBoard(9, 23);
+    const Result cold = search(transformBoard(base, 0), maxNodes);
 
-    const Result cold = search(makeTranspositionBoard(cases[0].first, cases[0].second), maxNodes);
     double totalMs = 0;
     uint64_t totalNodes = 0;
     int totalRoutes = 0;
@@ -155,8 +181,8 @@ int run(const std::string &label, uint32_t maxNodes, int repetitions)
     bool valid = cold.valid;
     uint64_t checksum = 0;
 
-    for (const auto &[patterns, seed] : cases) {
-        const auto board = makeTranspositionBoard(patterns, seed);
+    for (int symmetry = 0; symmetry < 8; symmetry++) {
+        const auto board = transformBoard(base, symmetry);
         std::vector<double> times;
         Result representative;
         for (int rep = 0; rep < repetitions; rep++) {
@@ -171,12 +197,13 @@ int run(const std::string &label, uint32_t maxNodes, int repetitions)
         totalNodes += representative.nodes;
         totalRoutes += representative.routes;
         abortedCases += representative.aborted ? 1 : 0;
-        checksum ^= representative.checksum + seed * 0x9e3779b97f4a7c15ULL;
+        checksum ^= representative.checksum
+            + uint64_t(symmetry + 1) * 0x9e3779b97f4a7c15ULL
+            + representative.nodes;
 
         std::cout << std::fixed << std::setprecision(3)
                   << "CASE label=" << label
-                  << " patterns=" << patterns
-                  << " seed=" << seed
+                  << " symmetry=" << symmetry
                   << " median_ms=" << med
                   << " nodes=" << representative.nodes
                   << " nps=" << (med > 0 ? double(representative.nodes) * 1000.0 / med : 0.0)
