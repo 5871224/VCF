@@ -2,6 +2,11 @@
     return runner.routes;
 }
 
+// runAtDepthShared 的函式本體到此才真正結束；現在才能解除改名並
+// 定義供 runMode 使用的獨立根版本。
+#undef runAtDepth
+#include "vcf-bitboard-search-root-overlay.inc"
+
 std::vector<std::vector<uint8_t>> runMode(Position &position,
                                           const uint8_t *initialBoard,
                                           int attacker,
