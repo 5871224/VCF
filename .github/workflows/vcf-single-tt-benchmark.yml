@@ -1,9 +1,10 @@
 # Benchmark-only workflow; never merge this branch.
 # Tactical W.XXX.W transposition benchmark.
-# Synchronize trigger for PR benchmark execution.
 name: Single VCF TT Benchmark
 
 on:
+  push:
+    branches: ['agent/benchmark-single-vcf-tt-v2']
   pull_request:
     branches: [main]
     paths:
