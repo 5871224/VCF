@@ -1,0 +1,45 @@
+name: VCF Native C++ CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'rapfi/vcf-pattern-engine.cpp'
+      - 'rapfi/vcf-bitboard-engine.cpp'
+      - 'rapfi/vcf-bitboard-search-v2.cpp'
+      - 'rapfi/vcf-bitboard-search-*.inc'
+      - 'rapfi/vcf-bitboard-legacy-extra.cpp'
+      - 'rapfi/vcf-bitboard-main.js'
+      - 'rapfi/vcf-bitboard-worker.js'
+      - '.github/workflows/vcf-native-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build optimized VCF engine
+        shell: bash
+        run: |
+          set -euxo pipefail
+          g++ rapfi/vcf-pattern-engine.cpp \
+              rapfi/vcf-bitboard-engine.cpp \
+              rapfi/vcf-bitboard-search-v2.cpp \
+              rapfi/vcf-bitboard-legacy-extra.cpp \
+              -O3 -flto -DNDEBUG -std=c++17 \
+              -DVCF_BITBOARD_TEST_MAIN \
+              -o /tmp/vcf-bitboard-engine-test
+
+      - name: Run pattern and search differential tests
+        run: /tmp/vcf-bitboard-engine-test
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check rapfi/vcf-bitboard-main.js
+          node --check rapfi/vcf-bitboard-worker.js
