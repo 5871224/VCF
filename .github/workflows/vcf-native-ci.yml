@@ -11,6 +11,7 @@ on:
       - 'rapfi/vcf-bitboard-legacy-extra.cpp'
       - 'rapfi/vcf-bitboard-main.js'
       - 'rapfi/vcf-bitboard-worker.js'
+      - 'rapfi/rapfi-bitboard-dashboard.js'
       - '.github/workflows/vcf-native-ci.yml'
   workflow_dispatch:
 
@@ -46,6 +47,7 @@ jobs:
         run: |
           node --check rapfi/vcf-bitboard-main.js
           node --check rapfi/vcf-bitboard-worker.js
+          node --check rapfi/rapfi-bitboard-dashboard.js
 
   wasm-test:
     runs-on: ubuntu-latest
@@ -66,7 +68,6 @@ jobs:
         run: |
           set -euxo pipefail
           rm -rf .build/emsdk
-          mkdir -p .build
           git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
           .build/emsdk/emsdk install "$EMSDK_VERSION"
           .build/emsdk/emsdk activate "$EMSDK_VERSION"
