@@ -145,3 +145,7 @@ std::vector<std::vector<uint8_t>> runAtDepth(Position &position,
     }
     return {};
 }
+
+// runMode 預設恢復使用共享根置換表；上面的獨立根函式仍保留給
+// V4 指定根 API 與 CI 差異測試。
+#define runAtDepth runAtDepthShared
