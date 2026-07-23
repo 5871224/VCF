@@ -12,6 +12,7 @@ namespace {
 constexpr int BOARD_SIZE = 15;
 constexpr int BOARD_CELLS = 225;
 constexpr int BLACK = 1;
+constexpr int WHITE = 2;
 constexpr int RENJU = 2;
 constexpr int MODE_SINGLE = 0;
 constexpr int MAX_ROUTE = 224;
@@ -63,8 +64,8 @@ struct Rng {
     }
 };
 
-// 每個獨立棋型都是 .XXX.。攻方任選一端形成四，守方只能擋另一端；
-// 多個棋型可用不同順序消耗，因此會產生大量「落子順序不同、完整盤面相同」的轉置。
+// 每個獨立棋型都是 W.XXX.W。攻方任選空點形成只有一個防點的四，
+// 守方擋完後該線耗盡；多個棋型以不同順序消耗，會形成大量完全同盤轉置。
 std::array<uint8_t, BOARD_CELLS> makeTranspositionBoard(int patternCount, uint64_t seed)
 {
     struct Pattern { int y; int startX; };
@@ -72,7 +73,7 @@ std::array<uint8_t, BOARD_CELLS> makeTranspositionBoard(int patternCount, uint64
     int n = 0;
     for (int y = 1; y <= 13; y += 2) {
         patterns[size_t(n++)] = {y, 0};
-        patterns[size_t(n++)] = {y, 9};
+        patterns[size_t(n++)] = {y, 8};
     }
 
     Rng rng(seed * 0x9e3779b97f4a7c15ULL);
@@ -85,7 +86,9 @@ std::array<uint8_t, BOARD_CELLS> makeTranspositionBoard(int patternCount, uint64
     patternCount = std::clamp(patternCount, 1, int(patterns.size()));
     for (int i = 0; i < patternCount; i++) {
         const Pattern p = patterns[size_t(i)];
-        for (int x = p.startX + 1; x <= p.startX + 3; x++)
+        board[size_t(p.y * BOARD_SIZE + p.startX)] = WHITE;
+        board[size_t(p.y * BOARD_SIZE + p.startX + 6)] = WHITE;
+        for (int x = p.startX + 2; x <= p.startX + 4; x++)
             board[size_t(p.y * BOARD_SIZE + x)] = BLACK;
     }
     return board;
