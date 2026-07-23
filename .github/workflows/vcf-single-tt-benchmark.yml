@@ -1,5 +1,4 @@
 # Benchmark-only workflow; never merge this branch.
-# Tactical W.XXX.W transposition benchmark.
 name: Single VCF TT Benchmark
 
 on:
@@ -9,103 +8,184 @@ on:
       - 'rapfi/vcf-bitboard-search-v2.cpp'
       - 'rapfi/vcf-single-tt-benchmark-set.inc'
       - 'rapfi/vcf-single-tt-tactical-benchmark.cpp'
-      - '.github/workflows/vcf-single-tt-benchmark.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'rapfi/vcf-bitboard-search-v2.cpp'
-      - 'rapfi/vcf-single-tt-benchmark-set.inc'
-      - 'rapfi/vcf-single-tt-tactical-benchmark.cpp'
+      - 'rapfi/vcf-single-tt-wasm-benchmark.js'
       - '.github/workflows/vcf-single-tt-benchmark.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
+env:
+  EMSDK_VERSION: 3.1.74
+
 jobs:
-  native-benchmark:
+  final-benchmark:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Build and benchmark TT variants
+      - name: Restore Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: .build/emsdk
+          key: vcf-emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Install Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p /tmp/vcf-tt-bench
-          CXXFLAGS='-O3 -flto -DNDEBUG -std=c++17'
+          rm -rf .build/emsdk
+          mkdir -p .build
+          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
+          .build/emsdk/emsdk install "$EMSDK_VERSION"
+          .build/emsdk/emsdk activate "$EMSDK_VERSION"
 
-          g++ $CXXFLAGS -c rapfi/vcf-pattern-engine.cpp -o /tmp/vcf-tt-bench/pattern.o
-          g++ $CXXFLAGS -c rapfi/vcf-bitboard-engine.cpp -o /tmp/vcf-tt-bench/engine.o
-          g++ $CXXFLAGS -c rapfi/vcf-bitboard-legacy-extra.cpp -o /tmp/vcf-tt-bench/legacy-extra.o
-          g++ $CXXFLAGS -c rapfi/vcf-single-tt-tactical-benchmark.cpp -o /tmp/vcf-tt-bench/benchmark.o
-
-          build_variant() {
-            local label="$1"
-            local defs="$2"
-            g++ $CXXFLAGS $defs -c rapfi/vcf-bitboard-search-v2.cpp -o "/tmp/vcf-tt-bench/search-${label}.o"
-            g++ $CXXFLAGS \
-              /tmp/vcf-tt-bench/pattern.o \
-              /tmp/vcf-tt-bench/engine.o \
-              /tmp/vcf-tt-bench/legacy-extra.o \
-              "/tmp/vcf-tt-bench/search-${label}.o" \
-              /tmp/vcf-tt-bench/benchmark.o \
-              -o "/tmp/vcf-tt-bench/${label}"
-          }
-
-          : > /tmp/vcf-tt-bench/results.txt
-          run_variant() {
-            local label="$1"
-            "/tmp/vcf-tt-bench/${label}" "$label" 1500000 3 \
-              | tee -a /tmp/vcf-tt-bench/results.txt
-          }
-
-          build_variant legacy ''
-          run_variant legacy
-
-          build_variant direct_mixed_32k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=15'
-          run_variant direct_mixed_32k
-
-          build_variant direct_mixed_64k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=16'
-          run_variant direct_mixed_64k
-
-          build_variant direct_mixed_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=17'
-          run_variant direct_mixed_128k
-
-          build_variant direct_mixed_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=18'
-          run_variant direct_mixed_256k
-
-          build_variant direct_raw_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=2 -DVCF_SINGLE_TT_BITS=17'
-          run_variant direct_raw_128k
-
-          build_variant two_way_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=16'
-          run_variant two_way_recent_128k
-
-          build_variant two_way_shallow_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=4 -DVCF_SINGLE_TT_BITS=16'
-          run_variant two_way_shallow_recent_128k
-
-          build_variant two_way_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=17'
-          run_variant two_way_recent_256k
-
-          echo '=== SUMMARY RANKING ==='
-          grep '^SUMMARY ' /tmp/vcf-tt-bench/results.txt
-
-      - name: Save benchmark results to experiment branch
-        if: github.event_name == 'push'
+      - name: Build and run Native variants
         shell: bash
         run: |
-          cp /tmp/vcf-tt-bench/results.txt benchmark-results.txt
+          set -euxo pipefail
+          mkdir -p /tmp/vcf-tt-bench/native
+          CXXFLAGS='-O3 -flto -DNDEBUG -std=c++17'
+
+          g++ $CXXFLAGS -c rapfi/vcf-pattern-engine.cpp -o /tmp/vcf-tt-bench/native/pattern.o
+          g++ $CXXFLAGS -c rapfi/vcf-bitboard-engine.cpp -o /tmp/vcf-tt-bench/native/engine.o
+          g++ $CXXFLAGS -c rapfi/vcf-bitboard-legacy-extra.cpp -o /tmp/vcf-tt-bench/native/legacy-extra.o
+          g++ $CXXFLAGS -c rapfi/vcf-single-tt-tactical-benchmark.cpp -o /tmp/vcf-tt-bench/native/benchmark.o
+
+          build_native() {
+            local label="$1"
+            local defs="$2"
+            g++ $CXXFLAGS $defs -c rapfi/vcf-bitboard-search-v2.cpp -o "/tmp/vcf-tt-bench/native/search-${label}.o"
+            g++ $CXXFLAGS \
+              /tmp/vcf-tt-bench/native/pattern.o \
+              /tmp/vcf-tt-bench/native/engine.o \
+              /tmp/vcf-tt-bench/native/legacy-extra.o \
+              "/tmp/vcf-tt-bench/native/search-${label}.o" \
+              /tmp/vcf-tt-bench/native/benchmark.o \
+              -o "/tmp/vcf-tt-bench/native/${label}"
+          }
+
+          run_native() {
+            local label="$1"
+            "/tmp/vcf-tt-bench/native/${label}" "$label" 1500000 7 \
+              | tee -a /tmp/vcf-tt-bench/native-results.txt
+          }
+
+          : > /tmp/vcf-tt-bench/native-results.txt
+          build_native legacy ''
+          run_native legacy
+
+          build_native direct_mixed_32k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=15'
+          run_native direct_mixed_32k
+          build_native direct_mixed_64k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=16'
+          run_native direct_mixed_64k
+          build_native direct_mixed_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=17'
+          run_native direct_mixed_128k
+          build_native direct_mixed_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=18'
+          run_native direct_mixed_256k
+          build_native direct_mixed_512k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=19'
+          run_native direct_mixed_512k
+          build_native direct_raw_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=2 -DVCF_SINGLE_TT_BITS=17'
+          run_native direct_raw_128k
+
+          build_native two_way_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=16'
+          run_native two_way_recent_128k
+          build_native two_way_shallow_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=4 -DVCF_SINGLE_TT_BITS=16'
+          run_native two_way_shallow_recent_128k
+          build_native two_way_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=17'
+          run_native two_way_recent_256k
+          build_native two_way_shallow_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=4 -DVCF_SINGLE_TT_BITS=17'
+          run_native two_way_shallow_recent_256k
+          build_native two_way_recent_512k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=18'
+          run_native two_way_recent_512k
+
+          build_native four_way_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=5 -DVCF_SINGLE_TT_BITS=15'
+          run_native four_way_recent_128k
+          build_native four_way_shallow_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=6 -DVCF_SINGLE_TT_BITS=15'
+          run_native four_way_shallow_recent_128k
+          build_native four_way_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=5 -DVCF_SINGLE_TT_BITS=16'
+          run_native four_way_recent_256k
+          build_native four_way_shallow_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=6 -DVCF_SINGLE_TT_BITS=16'
+          run_native four_way_shallow_recent_256k
+
+          grep '^SUMMARY ' /tmp/vcf-tt-bench/native-results.txt
+
+      - name: Build and run LTO SIMD Wasm finalists
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .build/emsdk/emsdk_env.sh
+          mkdir -p /tmp/vcf-tt-bench/wasm/common
+          CXXFLAGS='-O3 -flto -DNDEBUG -std=c++17 -msimd128'
+          LINKFLAGS="--no-entry -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFBitboardModule -s ENVIRONMENT=node -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1 -s EXPORTED_FUNCTIONS=['_vcfBbFindMode','_malloc','_free'] -s EXPORTED_RUNTIME_METHODS=['cwrap']"
+
+          em++ $CXXFLAGS -c rapfi/vcf-pattern-engine.cpp -o /tmp/vcf-tt-bench/wasm/common/pattern.o
+          em++ $CXXFLAGS -c rapfi/vcf-bitboard-engine.cpp -o /tmp/vcf-tt-bench/wasm/common/engine.o
+          em++ $CXXFLAGS -c rapfi/vcf-bitboard-legacy-extra.cpp -o /tmp/vcf-tt-bench/wasm/common/legacy-extra.o
+
+          build_wasm() {
+            local label="$1"
+            local defs="$2"
+            mkdir -p "/tmp/vcf-tt-bench/wasm/${label}"
+            em++ $CXXFLAGS $defs -c rapfi/vcf-bitboard-search-v2.cpp -o "/tmp/vcf-tt-bench/wasm/${label}/search.o"
+            em++ $CXXFLAGS \
+              /tmp/vcf-tt-bench/wasm/common/pattern.o \
+              /tmp/vcf-tt-bench/wasm/common/engine.o \
+              /tmp/vcf-tt-bench/wasm/common/legacy-extra.o \
+              "/tmp/vcf-tt-bench/wasm/${label}/search.o" \
+              $LINKFLAGS \
+              -o "/tmp/vcf-tt-bench/wasm/${label}/engine.js"
+          }
+
+          run_wasm() {
+            local label="$1"
+            node rapfi/vcf-single-tt-wasm-benchmark.js \
+              "/tmp/vcf-tt-bench/wasm/${label}/engine.js" "$label" 1500000 7 \
+              | tee -a /tmp/vcf-tt-bench/wasm-results.txt
+          }
+
+          : > /tmp/vcf-tt-bench/wasm-results.txt
+          build_wasm legacy ''
+          run_wasm legacy
+          build_wasm direct_mixed_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=18'
+          run_wasm direct_mixed_256k
+          build_wasm direct_mixed_512k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=19'
+          run_wasm direct_mixed_512k
+          build_wasm two_way_shallow_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=4 -DVCF_SINGLE_TT_BITS=16'
+          run_wasm two_way_shallow_recent_128k
+          build_wasm two_way_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=17'
+          run_wasm two_way_recent_256k
+          build_wasm two_way_shallow_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=4 -DVCF_SINGLE_TT_BITS=17'
+          run_wasm two_way_shallow_recent_256k
+          build_wasm two_way_recent_512k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=18'
+          run_wasm two_way_recent_512k
+          build_wasm four_way_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=5 -DVCF_SINGLE_TT_BITS=16'
+          run_wasm four_way_recent_256k
+          build_wasm four_way_shallow_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=6 -DVCF_SINGLE_TT_BITS=16'
+          run_wasm four_way_shallow_recent_256k
+
+          grep '^WASM_SUMMARY ' /tmp/vcf-tt-bench/wasm-results.txt
+
+      - name: Save final results to experiment branch
+        shell: bash
+        run: |
+          cp /tmp/vcf-tt-bench/native-results.txt benchmark-native-final.txt
+          cp /tmp/vcf-tt-bench/wasm-results.txt benchmark-wasm-final.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add benchmark-results.txt
-          git commit -m '保存單組同型表基準結果 [skip ci]'
+          git add benchmark-native-final.txt benchmark-wasm-final.txt
+          git commit -m '保存最終同型表基準結果 [skip ci]'
           git push origin HEAD:${GITHUB_REF_NAME}
 
-      - name: Upload benchmark results
+      - name: Upload final results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: single-vcf-tt-tactical-benchmark
-          path: /tmp/vcf-tt-bench/results.txt
+          name: single-vcf-tt-final-benchmark
+          path: |
+            /tmp/vcf-tt-bench/native-results.txt
+            /tmp/vcf-tt-bench/wasm-results.txt
           if-no-files-found: warn
