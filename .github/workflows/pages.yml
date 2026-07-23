@@ -41,14 +41,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/vcf-pattern-engine
-          key: vcf-pattern-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp') }}
+          key: vcf-pattern-engine-lto-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp') }}
 
       - name: Restore Bitboard VCF engine cache
         id: bitboard-cache
         uses: actions/cache@v4
         with:
           path: .cache/vcf-bitboard-engine
-          key: vcf-bitboard-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
+          key: vcf-bitboard-engine-lto-v2-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
 
       - name: Install Emscripten SDK
         if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true'
@@ -110,7 +110,9 @@ jobs:
           mkdir -p .cache/vcf-pattern-engine
 
           g++ rapfi/vcf-pattern-engine.cpp \
-            -O2 \
+            -O3 \
+            -flto \
+            -DNDEBUG \
             -std=c++17 \
             -DVCF_PATTERN_TEST_MAIN \
             -o /tmp/vcf-pattern-engine-test
@@ -118,6 +120,8 @@ jobs:
 
           em++ rapfi/vcf-pattern-engine.cpp \
             -O3 \
+            -flto \
+            -DNDEBUG \
             -std=c++17 \
             -msimd128 \
             --no-entry \
@@ -145,7 +149,9 @@ jobs:
 
           # 搜尋核心與棋型核心以獨立 VCF 原始碼連結；不包含 Rapfi 原始碼。
           g++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
-            -O2 \
+            -O3 \
+            -flto \
+            -DNDEBUG \
             -std=c++17 \
             -DVCF_BITBOARD_TEST_MAIN \
             -o /tmp/vcf-bitboard-engine-test
@@ -153,6 +159,8 @@ jobs:
 
           em++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
             -O3 \
+            -flto \
+            -DNDEBUG \
             -std=c++17 \
             -msimd128 \
             --no-entry \
