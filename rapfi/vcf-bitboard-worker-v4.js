@@ -172,3 +172,5 @@ self.onmessage = async event => {
     post(id, false, null, error?.stack || error?.message || String(error));
   }
 };
+
+// CI trigger only.
