@@ -1,4 +1,4 @@
-name: VCF Native C++ CI
+name: VCF Native and Wasm CI
 
 on:
   pull_request:
@@ -11,11 +11,15 @@ on:
       - 'rapfi/vcf-bitboard-legacy-extra.cpp'
       - 'rapfi/vcf-bitboard-main.js'
       - 'rapfi/vcf-bitboard-worker.js'
+      - 'rapfi/vcf-bitboard-worker-v4.js'
       - '.github/workflows/vcf-native-ci.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  EMSDK_VERSION: 3.1.74
 
 jobs:
   native-test:
@@ -43,3 +47,103 @@ jobs:
         run: |
           node --check rapfi/vcf-bitboard-main.js
           node --check rapfi/vcf-bitboard-worker.js
+          node --check rapfi/vcf-bitboard-worker-v4.js
+
+  wasm-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Restore Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: .build/emsdk
+          key: vcf-emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Install Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf .build/emsdk
+          mkdir -p .build
+          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
+          .build/emsdk/emsdk install "$EMSDK_VERSION"
+          .build/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: Build LTO SIMD Wasm
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .build/emsdk/emsdk_env.sh
+          rm -rf /tmp/vcf-wasm-test
+          mkdir -p /tmp/vcf-wasm-test
+          em++ rapfi/vcf-pattern-engine.cpp \
+               rapfi/vcf-bitboard-engine.cpp \
+               rapfi/vcf-bitboard-search-v2.cpp \
+               rapfi/vcf-bitboard-legacy-extra.cpp \
+               -O3 -flto -DNDEBUG -std=c++17 -msimd128 \
+               --no-entry \
+               -s WASM=1 \
+               -s MODULARIZE=1 \
+               -s EXPORT_NAME=VCFBitboardModule \
+               -s ENVIRONMENT='web,worker,node' \
+               -s FILESYSTEM=0 \
+               -s ALLOW_MEMORY_GROWTH=1 \
+               -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
+               -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+               -o /tmp/vcf-wasm-test/vcf-bitboard-engine.js
+
+      - name: Run Wasm V4 ABI tests
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node - <<'NODE'
+          const path = require("path");
+          const createModule = require("/tmp/vcf-wasm-test/vcf-bitboard-engine.js");
+
+          createModule({
+            locateFile: file => path.join("/tmp/vcf-wasm-test", file),
+          }).then(module => {
+            const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
+            const searchTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
+            if (selfTest() !== 0) throw new Error("base self-test failed");
+            const searchCode = searchTest();
+            if (searchCode !== 0) throw new Error(`search self-test failed: ${searchCode}`);
+            if (typeof module._vcfBbRootCandidatesV4 !== "function"
+                || typeof module._vcfBbFindForcedRootV4 !== "function") {
+              throw new Error("EMSCRIPTEN_KEEPALIVE root V4 exports missing");
+            }
+
+            const rootCandidates = module.cwrap("vcfBbRootCandidatesV4", "number", Array(6).fill("number"));
+            const forcedRoot = module.cwrap("vcfBbFindForcedRootV4", "number", Array(11).fill("number"));
+            const board = module._malloc(225);
+            const points = module._malloc(225);
+            const stats = module._malloc(16);
+            const route = module._malloc(224);
+            const length = module._malloc(2);
+            module.HEAPU8.fill(0, board, board + 225);
+            for (let x = 3; x <= 6; x++) module.HEAPU8[board + 7 * 15 + x] = 1;
+
+            const count = rootCandidates(board, 1, 2, points, 225, stats);
+            if (count < 1) throw new Error("root candidate enumeration returned empty");
+            const rootMove = module.HEAPU8[points];
+            const valid = forcedRoot(board, 1, 2, rootMove, 0, 9, 50000,
+                                     route, length, 224, stats);
+            const routeLength = module.HEAPU16[length >>> 1];
+            if (!valid || routeLength !== 1 || module.HEAPU8[route] !== rootMove)
+              throw new Error("forced root V4 route mismatch");
+
+            module._free(length);
+            module._free(route);
+            module._free(stats);
+            module._free(points);
+            module._free(board);
+            console.log("VCF root V4 Wasm ABI tests passed");
+          }).catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
