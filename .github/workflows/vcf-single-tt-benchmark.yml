@@ -1,3 +1,4 @@
+# Benchmark-only workflow; never merge this branch.
 name: Single VCF TT Benchmark
 
 on:
