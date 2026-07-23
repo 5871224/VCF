@@ -36,9 +36,11 @@ function getRootCandidatesV4(param) {
     BOARD_CELLS,
     ptr.stats,
   );
+  const stats = readStats();
   return {
-    ...readStats(),
+    ...stats,
     moves: Array.from(moduleInstance.HEAPU8.subarray(ptr.points, ptr.points + count)),
+    immediate: stats.routeCount > 0,
     optimizedRootV4: true,
   };
 }
