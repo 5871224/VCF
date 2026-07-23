@@ -81,6 +81,19 @@ function findForcedRootV4(param) {
 
 self.onmessage = async event => {
   const { id, type, data } = event.data || {};
+
+  if (type === "init") {
+    try {
+      const result = await init(data.moduleURL);
+      if (!ensureRootV4Api())
+        throw new Error("Bitboard Wasm 未匯出根候選 V4 API");
+      post(id, true, { ...result, rootV4: true });
+    } catch (error) {
+      post(id, false, null, error?.stack || error?.message || String(error));
+    }
+    return;
+  }
+
   if (type !== "rootCandidatesV4" && type !== "findForcedRootV4") {
     return baseVCFWorkerHandler.call(self, event);
   }
