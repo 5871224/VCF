@@ -98,6 +98,7 @@
   const addModeSelect = document.getElementById("vcf-add-search-mode");
 
   const clampInteger = (value, min, max, fallback) => {
+    if (value == null || String(value).trim() === "") return fallback;
     const parsed = Math.trunc(Number(value));
     return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
   };
