@@ -20,7 +20,7 @@
 
 // 新版多組搜尋不再沿用依 ply 分桶的 unordered_set。
 // 透過區域巨集只替換 multi-v3 使用的同型表，單組熱路徑完全不變。
-#include "vcf-bitboard-exact-tt-v3.inc"
+#include "vcf-bitboard-search-exact-tt-v3.inc"
 #define LegacyTransTable ExactPositionTransTableV3
 #define vcfBbSearchV2SelfTest vcfBbSearchV2SelfTestMultiV3
 #include "vcf-bitboard-search-multi-v3.inc"
