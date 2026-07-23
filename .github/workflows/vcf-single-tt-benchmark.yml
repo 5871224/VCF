@@ -1,0 +1,96 @@
+name: Single VCF TT Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'rapfi/vcf-bitboard-search-v2.cpp'
+      - 'rapfi/vcf-single-tt-benchmark-set.inc'
+      - 'rapfi/vcf-single-tt-benchmark.cpp'
+      - '.github/workflows/vcf-single-tt-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build and benchmark TT variants
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/vcf-tt-bench
+          CXXFLAGS='-O3 -flto -DNDEBUG -std=c++17'
+
+          g++ $CXXFLAGS -c rapfi/vcf-pattern-engine.cpp -o /tmp/vcf-tt-bench/pattern.o
+          g++ $CXXFLAGS -c rapfi/vcf-bitboard-engine.cpp -o /tmp/vcf-tt-bench/engine.o
+          g++ $CXXFLAGS -c rapfi/vcf-bitboard-legacy-extra.cpp -o /tmp/vcf-tt-bench/legacy-extra.o
+          g++ $CXXFLAGS -c rapfi/vcf-single-tt-benchmark.cpp -o /tmp/vcf-tt-bench/benchmark.o
+
+          build_variant() {
+            local label="$1"
+            local defs="$2"
+            g++ $CXXFLAGS $defs -c rapfi/vcf-bitboard-search-v2.cpp -o "/tmp/vcf-tt-bench/search-${label}.o"
+            g++ $CXXFLAGS \
+              /tmp/vcf-tt-bench/pattern.o \
+              /tmp/vcf-tt-bench/engine.o \
+              /tmp/vcf-tt-bench/legacy-extra.o \
+              "/tmp/vcf-tt-bench/search-${label}.o" \
+              /tmp/vcf-tt-bench/benchmark.o \
+              -o "/tmp/vcf-tt-bench/${label}"
+          }
+
+          build_variant legacy ''
+          /tmp/vcf-tt-bench/legacy --select /tmp/vcf-tt-bench/seeds.txt | tee /tmp/vcf-tt-bench/selection.txt
+
+          : > /tmp/vcf-tt-bench/results.txt
+          run_variant() {
+            local label="$1"
+            "/tmp/vcf-tt-bench/${label}" --run "$label" /tmp/vcf-tt-bench/seeds.txt 750000 3 \
+              | tee -a /tmp/vcf-tt-bench/results.txt
+          }
+
+          run_variant legacy
+
+          build_variant direct_mixed_32k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=15'
+          run_variant direct_mixed_32k
+
+          build_variant direct_mixed_64k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=16'
+          run_variant direct_mixed_64k
+
+          build_variant direct_mixed_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=17'
+          run_variant direct_mixed_128k
+
+          build_variant direct_mixed_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=1 -DVCF_SINGLE_TT_BITS=18'
+          run_variant direct_mixed_256k
+
+          build_variant direct_raw_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=2 -DVCF_SINGLE_TT_BITS=17'
+          run_variant direct_raw_128k
+
+          build_variant two_way_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=16'
+          run_variant two_way_recent_128k
+
+          build_variant two_way_shallow_recent_128k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=4 -DVCF_SINGLE_TT_BITS=16'
+          run_variant two_way_shallow_recent_128k
+
+          build_variant two_way_recent_256k '-DVCF_SINGLE_TT_BENCHMARK -DVCF_SINGLE_TT_VARIANT=3 -DVCF_SINGLE_TT_BITS=17'
+          run_variant two_way_recent_256k
+
+          echo '=== SUMMARY RANKING ==='
+          grep '^SUMMARY ' /tmp/vcf-tt-bench/results.txt | sort -t= -k4,4n
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: single-vcf-tt-benchmark
+          path: |
+            /tmp/vcf-tt-bench/seeds.txt
+            /tmp/vcf-tt-bench/selection.txt
+            /tmp/vcf-tt-bench/results.txt
+          if-no-files-found: warn
