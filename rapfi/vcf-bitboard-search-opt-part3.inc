@@ -19,6 +19,9 @@
     });
 }
 
+#undef scanCandidates
+#include "vcf-bitboard-search-opt-overlay.inc"
+
 struct SearchContext {
     uint32_t maxNodes = 5000000;
     int maxDepth = 200;
