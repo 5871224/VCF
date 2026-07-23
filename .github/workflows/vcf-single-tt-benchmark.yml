@@ -1,4 +1,5 @@
 # Benchmark-only workflow; never merge this branch.
+# Tactical W.XXX.W transposition benchmark.
 name: Single VCF TT Benchmark
 
 on:
