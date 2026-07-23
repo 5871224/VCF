@@ -11,7 +11,6 @@ on:
       - 'rapfi/vcf-bitboard-legacy-extra.cpp'
       - 'rapfi/vcf-bitboard-main.js'
       - 'rapfi/vcf-bitboard-worker.js'
-      - 'rapfi/vcf-bitboard-worker-v4.js'
       - '.github/workflows/vcf-native-ci.yml'
   workflow_dispatch:
 
@@ -40,14 +39,13 @@ jobs:
               -DVCF_BITBOARD_TEST_MAIN \
               -o /tmp/vcf-bitboard-engine-test
 
-      - name: Run pattern and search differential tests
+      - name: Run production search self-tests
         run: /tmp/vcf-bitboard-engine-test
 
       - name: Check JavaScript syntax
         run: |
           node --check rapfi/vcf-bitboard-main.js
           node --check rapfi/vcf-bitboard-worker.js
-          node --check rapfi/vcf-bitboard-worker-v4.js
 
   wasm-test:
     runs-on: ubuntu-latest
@@ -96,7 +94,7 @@ jobs:
                -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
                -o /tmp/vcf-wasm-test/vcf-bitboard-engine.js
 
-      - name: Run Wasm V4 ABI tests
+      - name: Run production Wasm ABI tests
         shell: bash
         run: |
           node - <<'NODE'
@@ -111,48 +109,39 @@ jobs:
             fs.writeFileSync(diagnostic, "module initialized\n");
             const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
             const searchTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
+            const findModeV3 = module.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"));
+
             const baseCode = selfTest();
             fs.appendFileSync(diagnostic, `base self-test=${baseCode}\n`);
             if (baseCode !== 0) throw new Error(`base self-test failed: ${baseCode}`);
+
             const searchCode = searchTest();
             fs.appendFileSync(diagnostic, `search self-test=${searchCode}\n`);
             if (searchCode !== 0) throw new Error(`search self-test failed: ${searchCode}`);
-            fs.appendFileSync(diagnostic,
-              `root export=${typeof module._vcfBbRootCandidatesV4}; forced export=${typeof module._vcfBbFindForcedRootV4}\n`);
-            if (typeof module._vcfBbRootCandidatesV4 !== "function"
-                || typeof module._vcfBbFindForcedRootV4 !== "function") {
-              throw new Error("EMSCRIPTEN_KEEPALIVE root V4 exports missing");
-            }
 
-            const rootCandidates = module.cwrap("vcfBbRootCandidatesV4", "number", Array(6).fill("number"));
-            const forcedRoot = module.cwrap("vcfBbFindForcedRootV4", "number", Array(11).fill("number"));
             const board = module._malloc(225);
-            const points = module._malloc(225);
+            const moves = module._malloc(224);
+            const lengths = module._malloc(2);
             const stats = module._malloc(16);
-            const route = module._malloc(224);
-            const length = module._malloc(2);
             module.HEAPU8.fill(0, board, board + 225);
+            module.HEAPU8.fill(0, moves, moves + 224);
+            module.HEAPU16[lengths >>> 1] = 0;
             for (let x = 3; x <= 6; x++) module.HEAPU8[board + 7 * 15 + x] = 1;
 
-            const count = rootCandidates(board, 1, 2, points, 225, stats);
-            fs.appendFileSync(diagnostic, `root count=${count}\n`);
-            if (count < 1) throw new Error("root candidate enumeration returned empty");
-            const rootMove = module.HEAPU8[points];
-            const valid = forcedRoot(board, 1, 2, rootMove, 0, 9, 50000,
-                                     route, length, 224, stats);
-            const routeLength = module.HEAPU16[length >>> 1];
+            const count = findModeV3(board, 1, 2, 0, 0, 0, 1, 15, 100000,
+                                     moves, lengths, 224, stats);
+            const routeLength = module.HEAPU16[lengths >>> 1];
             fs.appendFileSync(diagnostic,
-              `root move=${rootMove}; valid=${valid}; route length=${routeLength}; route first=${module.HEAPU8[route]}\n`);
-            if (!valid || routeLength !== 1 || module.HEAPU8[route] !== rootMove)
-              throw new Error("forced root V4 route mismatch");
+              `production find count=${count}; route length=${routeLength}; first=${module.HEAPU8[moves]}\n`);
+            if (count < 1 || routeLength !== 1)
+              throw new Error("production find ABI route mismatch");
 
-            module._free(length);
-            module._free(route);
             module._free(stats);
-            module._free(points);
+            module._free(lengths);
+            module._free(moves);
             module._free(board);
-            fs.appendFileSync(diagnostic, "VCF root V4 Wasm ABI tests passed\n");
-            console.log("VCF root V4 Wasm ABI tests passed");
+            fs.appendFileSync(diagnostic, "VCF production Wasm ABI tests passed\n");
+            console.log("VCF production Wasm ABI tests passed");
           }).catch(error => {
             fs.appendFileSync(diagnostic, `${error.stack || error.message || String(error)}\n`);
             console.error(error);
