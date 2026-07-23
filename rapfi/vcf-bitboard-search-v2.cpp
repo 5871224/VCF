@@ -9,8 +9,6 @@
 #include "vcf-bitboard-search-fast-part2.inc"
 #define runAtDepth runAtDepthShared
 #include "vcf-bitboard-search-opt-part3.inc"
-#undef runAtDepth
-#include "vcf-bitboard-search-root-overlay.inc"
 #define vcfBbSearchV2SelfTest vcfBbSearchV2SelfTestBase
 #include "vcf-bitboard-search-fast-part4.inc"
 #undef vcfBbSearchV2SelfTest
