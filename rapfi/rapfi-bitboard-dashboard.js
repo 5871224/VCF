@@ -41,7 +41,7 @@
     <div class="bb-status-grid">
       <div><strong>單組 VCF</strong><span>Rapfi 式固定 bucket TT，找到一組立即回傳</span></div>
       <div><strong>多組 VCF</strong><span>嚴格完全同盤／高速黑白集合子集兩種剪枝</span></div>
-      <div><strong>精簡手順</strong><span>前段放盤上，只以 isVCF 驗證被刪層後的尾段</span></div>
+      <div><strong>多組精簡</strong><span>先以原始手順做子集去重，再精簡保留下來的路線</span></div>
       <div><strong>平行</strong><span>${window.engineAPI?.workerCount || 1} 個獨立 Wasm Worker</span></div>
     </div>
     <p id="bb-engine-status" class="bb-engine-status">Bitboard 引擎初始化中……</p>
@@ -191,6 +191,96 @@
     };
   }
 
+  // 原頁面多組按鈕只取 20 組，也沒有執行中資訊。使用 capture listener 先接管事件，
+  // 固定以 64 組／500 萬節點搜尋，並在 Worker 計算期間持續顯示已執行時間。
+  const multiButton = document.getElementById("btn-multi-vcf");
+  if (multiButton) {
+    multiButton.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      const arr = window._getArr();
+      if (!arr.slice(0, 225).some(v => v > 0)) {
+        setStatus("請先擺好棋型");
+        return;
+      }
+
+      const color = getAColor();
+      const cName = color === 1 ? "黑" : "白";
+      const maxRoutes = 64;
+      const maxDepth = 200;
+      const maxNode = 5000000;
+      const modeName = pruningName();
+      const t0 = performance.now();
+      let progressTimer = 0;
+
+      setBusy(true);
+      window._clearVCF();
+      window._clearAnalysis();
+      resetVcfGroups();
+
+      const updateProgress = () => {
+        const seconds = ((performance.now() - t0) / 1000).toFixed(1);
+        setStatus(`搜索 ${cName} 多組 VCF（${modeName}，先去重後精簡）……已執行 ${seconds} 秒；上限 ${maxRoutes} 組／${(maxNode / 1000000).toFixed(0)} 百萬節點`);
+      };
+
+      try {
+        updateProgress();
+        progressTimer = window.setInterval(updateProgress, 250);
+        const info = await engine.findVCF({
+          arr,
+          color,
+          mode: "multi",
+          simplify: true,
+          pruning: selectedPruning(),
+          maxVCF: maxRoutes,
+          maxDepth,
+          maxNode,
+        });
+        window.clearInterval(progressTimer);
+        progressTimer = 0;
+
+        const rawGroups = (info?.winMoves || []).filter(moves => moves && moves.length);
+        if (!rawGroups.length) {
+          const limitNotes = [];
+          if (info?.aborted) limitNotes.push("已達 500 萬節點上限，搜尋未完整");
+          if ((info?.vcfCount || 0) >= maxRoutes) limitNotes.push("已達 64 組上限");
+          const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
+          setStatus(`${cName} VCF 未找到（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
+          return;
+        }
+
+        setStatus(`後處理：${rawGroups.length} 組路線修剪活四尾步並去重……`);
+        const groups = await engine.trimVCFGroups({ arr, groups: rawGroups, color });
+        if (!groups) return;
+        if (!groups.length) {
+          setStatus(`${cName} VCF 後處理後無結果（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}）`);
+          return;
+        }
+
+        vcfGroups = groups;
+        vcfGroupColor = color;
+        setVcfGroup(0);
+
+        const uniqueStarts = new Set(groups.map(moves => moves[0])).size;
+        const trimNote = rawGroups.length !== groups.length
+          ? `，原 ${rawGroups.length} 組→修剪後 ${groups.length} 組`
+          : `，共 ${groups.length} 組`;
+        const limitNotes = [];
+        if ((info?.vcfCount || 0) >= maxRoutes) limitNotes.push("已達 64 組上限，可能仍有其他路線");
+        if (info?.aborted) limitNotes.push("已達 500 萬節點上限，搜尋未完整");
+        const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
+        setStatus(`${cName} VCF（${modeName}）：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
+      } catch (error) {
+        console.error(error);
+        setStatus(`多組 VCF 搜索失敗：${error?.message || error}`);
+      } finally {
+        if (progressTimer) window.clearInterval(progressTimer);
+        setBusy(false);
+      }
+    }, true);
+  }
+
   if (typeof doAddVCF === "function") {
     doAddVCF = async function(arr, placeColor) {
       const color = getAColor();
@@ -256,7 +346,7 @@
     window.VCFBitboard?.main?.ready,
   ]).then(() => {
     status.className = "bb-engine-status ready";
-    status.textContent = "Bitboard C++ Wasm 已就緒；可切換嚴格或高速多組 VCF 剪枝。";
+    status.textContent = "Bitboard C++ Wasm 已就緒；嚴格與高速多組剪枝已分開實作。";
   }).catch(error => {
     status.className = "bb-engine-status error";
     status.textContent = `Bitboard 引擎初始化失敗：${error?.message || error}`;
