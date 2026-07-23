@@ -1,0 +1,70 @@
+name: Single VCF TT Final Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'rapfi/vcf-bitboard-search-v2.cpp'
+      - 'rapfi/vcf-single-tt-benchmark-set.inc'
+      - 'rapfi/vcf-single-tt-tactical-benchmark.cpp'
+      - 'rapfi/vcf-single-tt-wasm-benchmark.js'
+      - 'rapfi/run-single-tt-final-benchmark.sh'
+      - '.github/workflows/vcf-single-tt-final.yml'
+
+permissions:
+  contents: write
+
+env:
+  EMSDK_VERSION: 3.1.74
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout experiment head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Restore Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: .build/emsdk
+          key: vcf-emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Install Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf .build/emsdk
+          mkdir -p .build
+          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
+          .build/emsdk/emsdk install "$EMSDK_VERSION"
+          .build/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: Run Native and LTO SIMD Wasm benchmarks
+        shell: bash
+        run: bash rapfi/run-single-tt-final-benchmark.sh
+
+      - name: Save results to experiment branch
+        shell: bash
+        run: |
+          cp /tmp/vcf-tt-bench-final/native-results.txt benchmark-native-final.txt
+          cp /tmp/vcf-tt-bench-final/wasm-results.txt benchmark-wasm-final.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add benchmark-native-final.txt benchmark-wasm-final.txt
+          git commit -m '保存最終同型表基準結果 [skip ci]'
+          git push origin HEAD:${{ github.head_ref }}
+
+      - name: Upload final results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: single-vcf-tt-final-benchmark
+          path: |
+            /tmp/vcf-tt-bench-final/native-results.txt
+            /tmp/vcf-tt-bench-final/wasm-results.txt
+          if-no-files-found: warn
