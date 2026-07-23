@@ -5,6 +5,11 @@ name: Single VCF TT Benchmark
 on:
   push:
     branches: ['agent/benchmark-single-vcf-tt-v2']
+    paths:
+      - 'rapfi/vcf-bitboard-search-v2.cpp'
+      - 'rapfi/vcf-single-tt-benchmark-set.inc'
+      - 'rapfi/vcf-single-tt-tactical-benchmark.cpp'
+      - '.github/workflows/vcf-single-tt-benchmark.yml'
   pull_request:
     branches: [main]
     paths:
@@ -15,7 +20,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   native-benchmark:
@@ -85,6 +90,17 @@ jobs:
 
           echo '=== SUMMARY RANKING ==='
           grep '^SUMMARY ' /tmp/vcf-tt-bench/results.txt
+
+      - name: Save benchmark results to experiment branch
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          cp /tmp/vcf-tt-bench/results.txt benchmark-results.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add benchmark-results.txt
+          git commit -m '保存單組同型表基準結果 [skip ci]'
+          git push origin HEAD:${GITHUB_REF_NAME}
 
       - name: Upload benchmark results
         if: always()
