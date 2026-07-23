@@ -66,7 +66,7 @@
     constructor() {
       this.rules = 2;
       this.main = new RpcWorker();
-      // 一般單路搜尋先使用 main；只有確認存在多個根候選時才延遲建立池。
+      // 一般單路搜尋先使用 main；只有確認存在多個非直接勝根候選時才延遲建立池。
       this.pool = [];
       this.poolReady = null;
       this.syncModule = null;
@@ -203,6 +203,31 @@
           rules: this.rules,
         });
         const rootMoves = Array.from(root.moves || []);
+        const simplify = Boolean(param.simplify);
+
+        // 直接五已由根列舉完整驗證，不再為兩個以上勝點建立 Worker 池。
+        if (root.immediate && rootMoves.length) {
+          const elapsedMs = performance.now() - startedAt;
+          const nodeCount = Math.max(1, Number(root.nodeCount) || 1);
+          return {
+            ...root,
+            nodeCount,
+            elapsedMs,
+            routeCount: 1,
+            candidateCount: rootMoves.length,
+            maxPly: 1,
+            aborted: false,
+            nodesPerSecond: elapsedMs > 0 ? nodeCount * 1000 / elapsedMs : 0,
+            vcfCount: 1,
+            winMoves: [[rootMoves[0]]],
+            searchMode: "single",
+            pruning: pruningModeValue(param.pruning) ? "fast" : "strict",
+            simplified: simplify,
+            parallelRoot: false,
+            rootFastPath: true,
+          };
+        }
+
         if (rootMoves.length < 2) return this.findVCFSingle(param);
 
         const pool = await this.ensurePool();
@@ -212,7 +237,6 @@
         if (perRootBudget < 2_000) return this.findVCFSingle(param);
 
         const maxDepth = Math.max(1, Math.min(224, Number(param.maxDepth) || 200));
-        const simplify = Boolean(param.simplify);
         const probeResults = await Promise.all(
           rootMoves.slice(0, probeCount).map((rootMove, i) => pool[i].call("findForcedRootV4", {
             arr: param.arr,
