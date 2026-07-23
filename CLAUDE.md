@@ -1,3 +1,12 @@
+# ⚠️ 版本分流：先確認正在修改哪一版
+
+- 修改新版 `/rapfi/` C++ Bitboard 工作台前，必須先閱讀 [`新版Bitboard VCF規格.MD`](新版Bitboard%20VCF規格.MD)。
+- 本文件下方內容主要記錄舊版 `makevcf.html → eval/worker.js → Evaluator` 架構。
+- 不得把本文件中的舊版 Worker、`maxVCF=20`、搜尋參數或流程直接套用到新版 `/rapfi/`。
+- 題目產生器目前仍刻意使用舊版獨立 Worker；不要因新版頁面存在 `window.engineAPI` 就自動切換。
+
+---
+
 # VCF 專案筆記
 
 連珠/五子棋 VCF 分析工具。計算完全在用戶端跑（WebAssembly），不需伺服器。
