@@ -42,7 +42,7 @@
 | `rapfi/vcf-bitboard-main.js` | 主執行緒與 Worker 管理 |
 | `rapfi/rapfi-bitboard-dashboard.js` | 棋盤、搜尋選項、結果與進度 |
 | `rapfi/rapfi-workbench-header.js` | Rapfi 連結與強制重新整理 |
-| `rapfi/rapfi-question-bank.js` | 瀏覽器本機題庫 |
+| `rapfi/rapfi-question-bank.js` | Supabase 共用題庫 |
 
 ### 2.2 題目產生器搜尋
 
@@ -355,16 +355,16 @@ Worker 回傳：
 
 強制重新整理會清除 Cache Storage、重新要求同網域資源並用時間戳重載，不清除 `localStorage`。
 
-## 11. 本機題庫
+## 11. Supabase 共用題庫
 
-儲存於目前瀏覽器的 `localStorage`：
+題庫儲存在 VCF 專案的 `public.vcf_boards`：
 
-```text
-vcf_question_bank_v1
-vcf_question_bank_index_v1
-```
+| 欄位 | 格式 |
+|---|---|
+| `board` | 225 字元；`0` 空點、`1` 黑棋、`2` 白棋 |
+| `attacker` | `1` 黑方進攻、`2` 白方進攻 |
 
-每題保存 225 格盤面、下一手顏色及加入時間。
+`board + attacker` 為複合主鍵。同一盤面由不同攻方進攻時可各保存一題；盤面與攻方都相同時不重複新增。
 
 操作：
 
@@ -376,11 +376,14 @@ vcf_question_bank_index_v1
 
 規則：
 
+- 題庫使用 Supabase REST API 與公開 publishable key，不需要登入。
+- 頁面初始載入時從 Supabase 讀取全部盤面，依盤面字串與攻方排序。
 - 空白盤面不能加入。
-- 完整盤面相同時不重複新增。
-- 切換題目時載入盤面與下一手，並清除舊路線、分析及答案圖層。
-- 搜尋期間停用題庫按鈕。
-- 題庫不跨瀏覽器或裝置同步。
+- 切換題目時載入盤面與攻方，並清除舊路線、分析及答案圖層。
+- Supabase 讀寫期間與搜尋期間都停用題庫按鈕。
+- 網路或 Supabase 請求失敗時顯示錯誤，不能只更新瀏覽器內的暫存陣列。
+- 舊版 `vcf_question_bank_v1` 若存在，第一次載入時批次寫入 Supabase；成功後刪除舊本機題庫。
+- 題庫可跨瀏覽器與裝置共用。
 
 ## 12. 驗收
 
@@ -404,3 +407,12 @@ vcf_question_bank_index_v1
 7. `getBlockVCF` 回傳格式正規化。
 8. 取消題目產生器不影響主分析 Worker。
 9. 相關 Markdown 與正式程式一致。
+
+題庫變更至少驗證：
+
+1. JavaScript 語法檢查。
+2. Supabase 初始讀取、加入、刪除與重複主鍵處理。
+3. `board` 固定為 225 字元，`attacker` 只使用 1 或 2。
+4. publishable key 只送在 `apikey` header，不當作使用者 JWT。
+5. 舊本機題庫成功搬移後才刪除 `vcf_question_bank_v1`。
+6. 手機版按鈕排列與載入中停用狀態正常。
