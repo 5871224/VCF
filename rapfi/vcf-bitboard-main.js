@@ -140,6 +140,30 @@
       };
     }
 
+    classifyAddPointItem(item, arr, attacker, placeColor) {
+      const labelText = String(item?.label ?? "");
+      let type = "vcf";
+
+      if (placeColor === attacker && (labelText === "4" || labelText === "5")) {
+        const idx = Number(item?.idx);
+        if (Number.isInteger(idx) && idx >= 0 && idx < 225 && (arr[idx] || 0) === 0) {
+          const placed = arr.slice();
+          placed[idx] = placeColor;
+          this.writeSyncBoard(placed);
+          const level = this.syncApi.levelPoint(this.syncBoardPtr, idx, attacker, this.rules) & 0x0f;
+          if (labelText === "5" && level >= 10) type = "five";
+          else if (labelText === "4" && (level === 8 || level === 9)) type = "four";
+        }
+      }
+
+      // 既有介面以嚴格字串 "4"／"5" 判斷落子棋型。VCF 恰好為 4／5 手時改用
+      // 數值 label，畫面仍顯示相同數字，但會走 VCF 的藍色與手數統計。
+      const label = type === "vcf" && (labelText === "4" || labelText === "5")
+        ? Number(labelText)
+        : labelText;
+      return { ...item, label, type };
+    }
+
     async ensurePool() {
       if (this.pool.length === desiredWorkers && !this.poolReady) return this.pool;
       if (!this.poolReady) {
@@ -194,8 +218,10 @@
     }
 
     async poolGetLevelPoints(param) {
-      const pool = await this.ensurePool();
+      const [pool] = await Promise.all([this.ensurePool(), this.syncReady]);
       const arr = Array.from(param.arr || []).slice(0, 225);
+      const attacker = Number(param.color) || 1;
+      const placeColor = Number(param.placeColor || param.color) || attacker;
       const sourceIndices = Array.isArray(param.indices)
         ? param.indices.filter(idx => arr[idx] === 0)
         : Array.from({ length: 225 }, (_, idx) => idx).filter(idx => arr[idx] === 0);
@@ -210,8 +236,11 @@
           rules: this.rules,
         });
       }));
+      const items = results
+        .flatMap(result => result.items || [])
+        .map(item => this.classifyAddPointItem(item, arr, attacker, placeColor));
       return {
-        items: results.flatMap(result => result.items || []),
+        items,
         nodeCount: results.reduce((sum, result) => sum + (result.nodeCount || 0), 0),
         elapsedMs: Math.max(0, ...results.map(result => result.elapsedMs || 0)),
         aborted: results.some(result => result.aborted),
