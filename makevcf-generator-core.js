@@ -43,6 +43,16 @@ function genInputs(name) {
   return prefixed.length ? prefixed : document.querySelectorAll(`input[name="${name}"]`);
 }
 
+function genSelectedPruning() {
+  const select = document.getElementById("vcf-multi-pruning");
+  if (select) return select.value === "strict" ? "strict" : "fast";
+  try {
+    return localStorage.getItem("vcf_multi_pruning") === "strict" ? "strict" : "fast";
+  } catch (_) {
+    return "fast";
+  }
+}
+
 class GeneratorVCFEngine {
   constructor() {
     this.rules = 2;
@@ -104,10 +114,7 @@ class GeneratorVCFEngine {
 
   async post(type, data = {}) {
     await this.ready;
-    const normalized = type === "findVCF"
-      ? { ...data, pruning: "strict" }
-      : data;
-    return this.callRaw(type, normalized);
+    return this.callRaw(type, data);
   }
 
   async setRules(rules) {
@@ -118,14 +125,16 @@ class GeneratorVCFEngine {
 
   async findVCF(arr, color, maxVCF = 64, options = {}) {
     const mode = options.mode === "shortest" ? "shortest" : options.mode === "single" ? "single" : "multi";
+    const pruning = options.pruning === "strict" || options.pruning === "fast"
+      ? options.pruning
+      : genSelectedPruning();
     return (await this.post("findVCF", {
       arr: arr.slice(),
       color,
       maxVCF,
       mode,
       simplify: mode !== "single",
-      // 題目驗證必須保留完整搜尋語意；高速勝型子集剪枝不適用。
-      pruning: "strict",
+      pruning,
       maxDepth: Math.max(1, Number(options.maxDepth) || 200),
       maxNode: Math.max(1, Number(options.maxNode) || 5000000),
     })) || { winMoves: [], nodeCount: 0 };
@@ -221,6 +230,9 @@ function genSetBusy(value) {
     const input = genEl(id);
     if (input) input.disabled = value;
   });
+
+  const pruningSelect = document.getElementById("vcf-multi-pruning");
+  if (pruningSelect) pruningSelect.disabled = value;
 
   const answerButton = genEl("btn-answer");
   const nButton = genEl("btn-npoints");
