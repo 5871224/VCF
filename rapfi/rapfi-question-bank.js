@@ -1,7 +1,6 @@
 "use strict";
 
 (function installQuestionBank() {
-  const LEGACY_STORAGE_KEY = "vcf_question_bank_v1";
   const BOARD_CELLS = 225;
   const SUPABASE_URL = "https://jblrnncqnrqtzwayxtnw.supabase.co";
   const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wDnYw-EuDUZ4h2jfLC_6jw__k3P19gz";
@@ -36,7 +35,7 @@
     entry?.attacker === attacker && sameBoard(entry.board, board)
   );
 
-  const readNextColor = board => {
+  const readAttacker = board => {
     try {
       const saved = JSON.parse(localStorage.getItem("vcf_board") || "null");
       if (saved && (saved.nc === 1 || saved.nc === 2)) return saved.nc;
@@ -78,40 +77,6 @@
     if (response.status === 204) return null;
     const text = await response.text();
     return text ? JSON.parse(text) : null;
-  };
-
-  const readLegacyBank = () => {
-    try {
-      const raw = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "[]");
-      if (!Array.isArray(raw)) return [];
-      const seen = new Set();
-      return raw.map(entry => {
-        const source = Array.isArray(entry) ? entry : entry?.board;
-        const board = normalizeBoard(source);
-        if (!board) return null;
-        const attacker = entry?.nextColor === 2 ? 2 : 1;
-        const boardText = boardToText(board);
-        const key = `${boardText}:${attacker}`;
-        if (seen.has(key)) return null;
-        seen.add(key);
-        return { board: boardText, attacker };
-      }).filter(Boolean);
-    } catch (_) {
-      return [];
-    }
-  };
-
-  const migrateLegacyBank = async () => {
-    const legacy = readLegacyBank();
-    if (!legacy.length) return 0;
-
-    await supabaseRequest("?on_conflict=board,attacker", {
-      method: "POST",
-      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
-      body: JSON.stringify(legacy),
-    });
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
-    return legacy.length;
   };
 
   const loadBank = async () => {
@@ -252,7 +217,7 @@
 
     const isBusy = () => searchBusy || storageBusy;
     const currentBoard = () => normalizeBoard(window._getArr()) || new Array(BOARD_CELLS).fill(0);
-    const currentAttacker = board => readNextColor(board);
+    const currentAttacker = board => readAttacker(board);
 
     const findCurrentQuestion = () => {
       const board = currentBoard();
@@ -420,12 +385,8 @@
       loadFailed = false;
       updateControls();
       try {
-        const migrated = await migrateLegacyBank();
         bank = await loadBank();
         currentIndex = findCurrentQuestion();
-        if (migrated && typeof setStatus === "function") {
-          setStatus(`已將 ${migrated} 題本機題庫移到 Supabase，目前共 ${bank.length} 題`);
-        }
       } catch (error) {
         console.error("Supabase 題庫載入失敗", error);
         loadFailed = true;
