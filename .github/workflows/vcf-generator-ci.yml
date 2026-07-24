@@ -148,3 +148,110 @@ jobs:
           }
           console.log('Generator shortest/strict and unique/multi policy checks passed');
           NODE
+
+      - name: Verify shortest auto-block reaches target layer
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+
+          class GeneratorVCFEngine {
+            async post(type) {
+              return type === 'getBlockVCF' ? { points: [10] } : true;
+            }
+          }
+
+          const board = new Array(226).fill(0);
+          board[0] = 1;
+          board[225] = -1;
+          const expected = board.slice();
+          expected[2] = 1;
+          let searchCount = 0;
+
+          const genEngine = new GeneratorVCFEngine();
+          genEngine.findVCF = async sourceBoard => {
+            searchCount++;
+            return sourceBoard[10] === 2
+              ? { winMoves: [[2]], nodeCount: 2, aborted: false }
+              : { winMoves: [[1]], nodeCount: 1, aborted: false };
+          };
+          genEngine.trimGroups = async (_board, groups) => groups;
+
+          const elements = {
+            'balance-stones': { checked: true },
+            'block-other-vcf': { checked: false },
+          };
+          const context = {
+            console,
+            GeneratorVCFEngine,
+            genEngine,
+            genCancelled: false,
+            genFindAnalyzedGroups: async () => null,
+            genValidateCandidate: async () => null,
+            genValidateExtensionCandidate: async () => null,
+            genOptions: () => ({}),
+            genSetBusy: () => {},
+            genExtendToTarget: async value => value,
+            genShowResult: () => {},
+            genResolveValidationSteps: (_candidate, steps) => steps,
+            genTargetSearchPly: steps => steps * 2 + 1,
+            genCloneBoard: source => source.slice(),
+            genBuildExpectedBaseBoard: candidate => candidate.expectedBoard.slice(),
+            genBuildExpectedExtendedBoard: () => null,
+            genBoardsEqual: (a, b) => a.every((value, index) => value === b[index]),
+            genAnalyzeVCFGroup: (_sourceBoard, moves) => moves[0] === 1
+              ? { valid: true, steps: 1, standardBoard: board.slice() }
+              : { valid: true, steps: 2, standardBoard: expected.slice(), completedBoard: expected.slice() },
+            genFinalizeValidatedResult: (candidate, target, info, groups) => ({ candidate, target, info, groups, ok: true }),
+            genEl: id => elements[id] || null,
+            genIsNFor: () => false,
+            getLevelPoint: () => 0,
+            isFoul: () => false,
+            GEN_BLACK: 1,
+            GEN_WHITE: 2,
+            GEN_EMPTY: 0,
+            GEN_FOUR_NOFREE: 8,
+            GEN_FOUR_FREE: 9,
+            document: {
+              querySelectorAll() { return []; },
+              createElement() { return { dataset: {}, style: {}, appendChild() {} }; },
+              head: { appendChild() {} },
+            },
+            window: {},
+            Math,
+            Array,
+            Set,
+            Map,
+            Boolean,
+          };
+          context.globalThis = context;
+          vm.createContext(context);
+          vm.runInContext(fs.readFileSync('makevcf-generator-unique.js', 'utf8'), context, {
+            filename: 'makevcf-generator-unique.js',
+          });
+
+          (async () => {
+            const candidate = {
+              board: board.slice(),
+              expectedBoard: expected.slice(),
+              nMask: new Array(225).fill(0),
+              attacker: 1,
+              defender: 2,
+              rules: 2,
+              addedAttackers: [],
+              addedDefenders: [],
+              autoBlockDefenders: [],
+              xPoints: [],
+              lineFivePoints: [],
+            };
+            const result = await context.genValidateCandidate(candidate, 2);
+            if (!result?.ok) throw new Error('shorter VCF was not blocked into the target layer');
+            if (result.candidate.board[10] !== 2) throw new Error('defender was not added');
+            if (searchCount !== 2) throw new Error(`expected two shortest searches, got ${searchCount}`);
+            console.log('Generator shortest auto-block validation test passed');
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
