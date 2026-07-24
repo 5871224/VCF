@@ -1,9 +1,11 @@
 "use strict";
 
 (function installQuestionBank() {
-  const STORAGE_KEY = "vcf_question_bank_v1";
-  const INDEX_KEY = "vcf_question_bank_index_v1";
+  const LEGACY_STORAGE_KEY = "vcf_question_bank_v1";
   const BOARD_CELLS = 225;
+  const SUPABASE_URL = "https://jblrnncqnrqtzwayxtnw.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wDnYw-EuDUZ4h2jfLC_6jw__k3P19gz";
+  const TABLE_URL = `${SUPABASE_URL}/rest/v1/vcf_boards`;
 
   const normalizeBoard = value => {
     if (!Array.isArray(value) && !(value && typeof value.length === "number")) return null;
@@ -15,6 +17,13 @@
     return board;
   };
 
+  const boardToText = board => normalizeBoard(board)?.join("") || null;
+
+  const textToBoard = value => {
+    if (typeof value !== "string" || !/^[012]{225}$/.test(value)) return null;
+    return Array.from(value, Number);
+  };
+
   const sameBoard = (left, right) => {
     if (!left || !right || left.length < BOARD_CELLS || right.length < BOARD_CELLS) return false;
     for (let i = 0; i < BOARD_CELLS; i++) {
@@ -22,6 +31,10 @@
     }
     return true;
   };
+
+  const sameQuestion = (entry, board, attacker) => (
+    entry?.attacker === attacker && sameBoard(entry.board, board)
+  );
 
   const readNextColor = board => {
     try {
@@ -38,23 +51,97 @@
     return black > white ? 2 : 1;
   };
 
-  const loadBank = () => {
+  const supabaseRequest = async (query = "", options = {}) => {
+    const response = await fetch(`${TABLE_URL}${query}`, {
+      ...options,
+      headers: {
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        Accept: "application/json",
+        ...(options.body ? { "Content-Type": "application/json" } : {}),
+        ...(options.headers || {}),
+      },
+    });
+
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const payload = await response.json();
+        detail = payload?.message || payload?.details || payload?.hint || "";
+      } catch (_) {
+        detail = await response.text().catch(() => "");
+      }
+      const error = new Error(detail || `HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    if (response.status === 204) return null;
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
+  };
+
+  const readLegacyBank = () => {
     try {
-      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      const raw = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "[]");
       if (!Array.isArray(raw)) return [];
-      return raw.map((entry, index) => {
+      const seen = new Set();
+      return raw.map(entry => {
         const source = Array.isArray(entry) ? entry : entry?.board;
         const board = normalizeBoard(source);
         if (!board) return null;
-        return {
-          board,
-          nextColor: entry?.nextColor === 2 ? 2 : 1,
-          addedAt: Number(entry?.addedAt) || index + 1,
-        };
+        const attacker = entry?.nextColor === 2 ? 2 : 1;
+        const boardText = boardToText(board);
+        const key = `${boardText}:${attacker}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return { board: boardText, attacker };
       }).filter(Boolean);
     } catch (_) {
       return [];
     }
+  };
+
+  const migrateLegacyBank = async () => {
+    const legacy = readLegacyBank();
+    if (!legacy.length) return 0;
+
+    await supabaseRequest("?on_conflict=board,attacker", {
+      method: "POST",
+      headers: { Prefer: "resolution=ignore-duplicates,return=minimal" },
+      body: JSON.stringify(legacy),
+    });
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    return legacy.length;
+  };
+
+  const loadBank = async () => {
+    const rows = await supabaseRequest("?select=board,attacker&order=board.asc,attacker.asc");
+    if (!Array.isArray(rows)) return [];
+    return rows.map(row => {
+      const board = textToBoard(row?.board);
+      const attacker = Number(row?.attacker);
+      if (!board || (attacker !== 1 && attacker !== 2)) return null;
+      return { board, attacker };
+    }).filter(Boolean);
+  };
+
+  const addQuestion = async entry => {
+    await supabaseRequest("", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({
+        board: boardToText(entry.board),
+        attacker: entry.attacker,
+      }),
+    });
+  };
+
+  const deleteQuestion = async entry => {
+    const boardText = boardToText(entry.board);
+    await supabaseRequest(`?board=eq.${encodeURIComponent(boardText)}&attacker=eq.${entry.attacker}`, {
+      method: "DELETE",
+      headers: { Prefer: "return=minimal" },
+    });
   };
 
   const install = () => {
@@ -71,7 +158,7 @@
       <div class="qb-actions">
         <button id="qb-add" type="button">加入題庫</button>
         <button id="qb-prev" type="button">上一題</button>
-        <span id="qb-position" aria-live="polite">題庫 0 題</span>
+        <span id="qb-position" aria-live="polite">正在載入題庫…</span>
         <button id="qb-next" type="button">下一題</button>
         <button id="qb-delete" class="qb-delete" type="button">刪除</button>
       </div>
@@ -123,7 +210,7 @@
         cursor: default;
       }
       #vcf-question-bank #qb-position {
-        min-width: 94px;
+        min-width: 112px;
         padding: 7px 9px;
         border-radius: 6px;
         background: #f3ead0;
@@ -157,48 +244,38 @@
     const deleteButton = section.querySelector("#qb-delete");
     const positionText = section.querySelector("#qb-position");
 
-    let bank = loadBank();
+    let bank = [];
     let currentIndex = -1;
-    let busy = false;
+    let searchBusy = false;
+    let storageBusy = true;
+    let loadFailed = false;
 
-    const persist = () => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(bank));
-        if (currentIndex >= 0) localStorage.setItem(INDEX_KEY, String(currentIndex));
-        else localStorage.removeItem(INDEX_KEY);
-        return true;
-      } catch (error) {
-        console.error("題庫儲存失敗", error);
-        if (typeof setStatus === "function") setStatus("題庫儲存失敗：瀏覽器儲存空間可能已滿");
-        return false;
-      }
-    };
-
+    const isBusy = () => searchBusy || storageBusy;
     const currentBoard = () => normalizeBoard(window._getArr()) || new Array(BOARD_CELLS).fill(0);
+    const currentAttacker = board => readNextColor(board);
 
-    const findCurrentBoard = () => {
+    const findCurrentQuestion = () => {
       const board = currentBoard();
-      return bank.findIndex(entry => sameBoard(entry.board, board));
+      return bank.findIndex(entry => sameQuestion(entry, board, currentAttacker(board)));
     };
 
     const updateControls = () => {
       const total = bank.length;
-      if (!total) positionText.textContent = "題庫 0 題";
+      if (loadFailed) positionText.textContent = "題庫載入失敗";
+      else if (storageBusy && !total) positionText.textContent = "正在載入題庫…";
+      else if (!total) positionText.textContent = "題庫 0 題";
       else if (currentIndex >= 0) positionText.textContent = `第 ${currentIndex + 1} / ${total} 題`;
       else positionText.textContent = `未選題／共 ${total} 題`;
 
-      addButton.disabled = busy;
-      prevButton.disabled = busy || currentIndex <= 0;
-      nextButton.disabled = busy || total === 0 || currentIndex >= total - 1;
-      deleteButton.disabled = busy || currentIndex < 0 || currentIndex >= total;
+      const disabled = isBusy() || loadFailed;
+      addButton.disabled = disabled;
+      prevButton.disabled = disabled || currentIndex <= 0;
+      nextButton.disabled = disabled || total === 0 || currentIndex >= total - 1;
+      deleteButton.disabled = disabled || currentIndex < 0 || currentIndex >= total;
     };
 
     const syncIndexToBoard = () => {
-      currentIndex = findCurrentBoard();
-      try {
-        if (currentIndex >= 0) localStorage.setItem(INDEX_KEY, String(currentIndex));
-        else localStorage.removeItem(INDEX_KEY);
-      } catch (_) {}
+      currentIndex = findCurrentQuestion();
       updateControls();
     };
 
@@ -211,45 +288,61 @@
     };
 
     const loadQuestion = index => {
-      if (index < 0 || index >= bank.length) return;
+      if (index < 0 || index >= bank.length || isBusy()) return;
       currentIndex = index;
       clearResultLayers();
-      window._setBoardArr(bank[index].board, bank[index].nextColor);
-      persist();
+      window._setBoardArr(bank[index].board, bank[index].attacker);
       updateControls();
       if (typeof setStatus === "function") setStatus(`已載入題庫第 ${index + 1} 題，共 ${bank.length} 題`);
     };
 
-    addButton.addEventListener("click", () => {
+    addButton.addEventListener("click", async () => {
+      if (isBusy() || loadFailed) return;
       const board = currentBoard();
       if (!board.some(stone => stone !== 0)) {
         if (typeof setStatus === "function") setStatus("空白盤面不加入題庫");
         return;
       }
 
-      const existing = bank.findIndex(entry => sameBoard(entry.board, board));
+      const attacker = currentAttacker(board);
+      const existing = bank.findIndex(entry => sameQuestion(entry, board, attacker));
       if (existing >= 0) {
         currentIndex = existing;
-        persist();
         updateControls();
-        if (typeof setStatus === "function") setStatus(`此盤面已在題庫第 ${existing + 1} 題`);
+        if (typeof setStatus === "function") setStatus(`此盤面與攻方已在題庫第 ${existing + 1} 題`);
         return;
       }
 
-      bank.push({
-        board,
-        nextColor: readNextColor(board),
-        addedAt: Date.now(),
-      });
-      currentIndex = bank.length - 1;
-      if (!persist()) {
-        bank.pop();
-        currentIndex = findCurrentBoard();
-        updateControls();
-        return;
-      }
+      storageBusy = true;
       updateControls();
-      if (typeof setStatus === "function") setStatus(`已加入題庫，目前是第 ${currentIndex + 1} 題，共 ${bank.length} 題`);
+      try {
+        await addQuestion({ board, attacker });
+        bank.push({ board, attacker });
+        bank.sort((a, b) => {
+          const boardOrder = boardToText(a.board).localeCompare(boardToText(b.board));
+          return boardOrder || a.attacker - b.attacker;
+        });
+        currentIndex = bank.findIndex(entry => sameQuestion(entry, board, attacker));
+        if (typeof setStatus === "function") {
+          setStatus(`已加入 Supabase 題庫，目前是第 ${currentIndex + 1} 題，共 ${bank.length} 題`);
+        }
+      } catch (error) {
+        console.error("題庫新增失敗", error);
+        if (error.status === 409) {
+          try {
+            bank = await loadBank();
+            currentIndex = bank.findIndex(entry => sameQuestion(entry, board, attacker));
+            if (typeof setStatus === "function") setStatus("此盤面與攻方已存在 Supabase 題庫");
+          } catch (reloadError) {
+            console.error("題庫重新載入失敗", reloadError);
+          }
+        } else if (typeof setStatus === "function") {
+          setStatus(`題庫新增失敗：${error.message}`);
+        }
+      } finally {
+        storageBusy = false;
+        updateControls();
+      }
     });
 
     prevButton.addEventListener("click", () => {
@@ -261,23 +354,36 @@
       loadQuestion(currentIndex < 0 ? 0 : currentIndex + 1);
     });
 
-    deleteButton.addEventListener("click", () => {
-      if (currentIndex < 0 || currentIndex >= bank.length) return;
+    deleteButton.addEventListener("click", async () => {
+      if (isBusy() || currentIndex < 0 || currentIndex >= bank.length) return;
       if (!window.confirm(`確定刪除題庫第 ${currentIndex + 1} 題？`)) return;
 
-      bank.splice(currentIndex, 1);
-      if (!bank.length) {
-        currentIndex = -1;
-        persist();
+      const deletingIndex = currentIndex;
+      const deleting = bank[deletingIndex];
+      storageBusy = true;
+      updateControls();
+      try {
+        await deleteQuestion(deleting);
+        bank.splice(deletingIndex, 1);
+        if (!bank.length) {
+          currentIndex = -1;
+          if (typeof setStatus === "function") setStatus("Supabase 題庫已清空；目前棋盤不變");
+        } else {
+          currentIndex = Math.min(deletingIndex, bank.length - 1);
+          storageBusy = false;
+          loadQuestion(currentIndex);
+          storageBusy = true;
+          if (typeof setStatus === "function") {
+            setStatus(`已刪除題目，目前是第 ${currentIndex + 1} 題，共 ${bank.length} 題`);
+          }
+        }
+      } catch (error) {
+        console.error("題庫刪除失敗", error);
+        if (typeof setStatus === "function") setStatus(`題庫刪除失敗：${error.message}`);
+      } finally {
+        storageBusy = false;
         updateControls();
-        if (typeof setStatus === "function") setStatus("題庫已清空；目前棋盤不變");
-        return;
       }
-
-      currentIndex = Math.min(currentIndex, bank.length - 1);
-      persist();
-      loadQuestion(currentIndex);
-      if (typeof setStatus === "function") setStatus(`已刪除題目，目前是第 ${currentIndex + 1} 題，共 ${bank.length} 題`);
     });
 
     const boardSvg = document.getElementById("board-svg");
@@ -304,17 +410,33 @@
       const originalSetBusy = setBusy;
       setBusy = function(value) {
         originalSetBusy(value);
-        busy = Boolean(value);
+        searchBusy = Boolean(value);
         updateControls();
       };
     }
 
-    currentIndex = findCurrentBoard();
-    try {
-      if (currentIndex >= 0) localStorage.setItem(INDEX_KEY, String(currentIndex));
-      else localStorage.removeItem(INDEX_KEY);
-    } catch (_) {}
-    updateControls();
+    const initialize = async () => {
+      storageBusy = true;
+      loadFailed = false;
+      updateControls();
+      try {
+        const migrated = await migrateLegacyBank();
+        bank = await loadBank();
+        currentIndex = findCurrentQuestion();
+        if (migrated && typeof setStatus === "function") {
+          setStatus(`已將 ${migrated} 題本機題庫移到 Supabase，目前共 ${bank.length} 題`);
+        }
+      } catch (error) {
+        console.error("Supabase 題庫載入失敗", error);
+        loadFailed = true;
+        if (typeof setStatus === "function") setStatus(`Supabase 題庫載入失敗：${error.message}`);
+      } finally {
+        storageBusy = false;
+        updateControls();
+      }
+    };
+
+    initialize();
   };
 
   if (document.readyState === "complete") install();
