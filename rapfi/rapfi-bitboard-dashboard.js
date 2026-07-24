@@ -350,12 +350,18 @@
       const vcfName = color===1 ? "黑" : "白";
       const searchMode = addModeSelect.value === "shortest" ? "shortest" : "single";
       const modeName = searchMode === "shortest" ? `多組 VCF／最少步／${pruningName()}` : "單組 VCF／速度";
+      const maxNodeMillions = selectedNodeMillions();
+      const maxNode = maxNodeMillions > 0 ? maxNodeMillions * 1000000 : 0xffffffff;
+      const nodeLimitText = maxNodeMillions > 0 ? `每點 ${maxNodeMillions} 百萬節點` : "每點不限節點";
+      const incompleteReason = maxNodeMillions > 0
+        ? `部分落點已達每點 ${maxNodeMillions} 百萬節點限制`
+        : "部分落點已達引擎最大節點上限";
       const lightColor = "#7799ee";
       const darkColor = "#001188";
       setBusy(true);
       window._clearAnalysis();
       try {
-        setStatus(`補${placeName}逐點試下，找${vcfName} VCF（${modeName}，${pool.workerCount} 核並行）...`);
+        setStatus(`補${placeName}逐點試下，找${vcfName} VCF（${modeName}，${pool.workerCount} 核並行，${nodeLimitText}）...`);
         const t0 = performance.now();
         const data = await pool.getLevelPoints({
           arr,
@@ -365,10 +371,11 @@
           pruning: selectedPruning(),
           simplify: searchMode === "shortest",
           maxDepth: 200,
-          maxNode: 5000000,
+          maxNode,
         });
         if (!data) return;
-        const { items: result, nodeCount } = data;
+        const { items: result, nodeCount, aborted } = data;
+        const incompleteNote = aborted ? `；搜尋未完整：${incompleteReason}` : "";
         if (result.length) {
           const vcfLabels = result.filter(r => r.label !== "4" && r.label !== "5").map(r => Number(r.label));
           const minL = vcfLabels.length ? Math.min(...vcfLabels) : 0;
@@ -390,11 +397,14 @@
           const n4 = result.filter(r => r.label === "4").length;
           const nV = result.length - n5 - n4;
           const s5 = n5 ? `連五 ${n5} 個，` : "";
-          const stepNote = searchMode === "shortest" && vcfLabels.length ? `，最少 ${minL} 手` : "";
-          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${s5}四 ${n4} 個，VCF ${nV} 個${stepNote}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`);
+          const stepNote = searchMode === "shortest" && vcfLabels.length
+            ? aborted ? `，已找到結果中最少 ${minL} 手` : `，最少 ${minL} 手`
+            : "";
+          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${s5}四 ${n4} 個，VCF ${nV} 個${stepNote}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
         } else {
           window._clearAnalysis();
-          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：無結果（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`);
+          const resultText = aborted ? "目前未找到結果" : "無結果";
+          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${resultText}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
         }
       } finally {
         setBusy(false);
