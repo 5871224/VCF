@@ -86,6 +86,6 @@ makevcf-generator-core.js
 
 - 手機版操作正常。
 - Supabase 題庫只保存 225 格 `board` 與 `attacker`，前端新增、讀取、刪除流程一致。
-- 舊版 `vcf_question_bank_v1` 只有在成功搬移至 Supabase 後才刪除。
+- 題庫資料來源只能是 Supabase，不得保留其他儲存後端、搬移流程或相容層。
 - 搜尋執行中不能切換會改變盤面的控制項。
 - 相關 Markdown 已同步更新且沒有殘留舊規格。
