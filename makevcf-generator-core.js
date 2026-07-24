@@ -114,7 +114,10 @@ class GeneratorVCFEngine {
 
   async post(type, data = {}) {
     await this.ready;
-    return this.callRaw(type, data);
+    const normalized = type === "findVCF"
+      ? { ...data, pruning: genSelectedPruning() }
+      : data;
+    return this.callRaw(type, normalized);
   }
 
   async setRules(rules) {
@@ -125,16 +128,13 @@ class GeneratorVCFEngine {
 
   async findVCF(arr, color, maxVCF = 64, options = {}) {
     const mode = options.mode === "shortest" ? "shortest" : options.mode === "single" ? "single" : "multi";
-    const pruning = options.pruning === "strict" || options.pruning === "fast"
-      ? options.pruning
-      : genSelectedPruning();
     return (await this.post("findVCF", {
       arr: arr.slice(),
       color,
       maxVCF,
       mode,
       simplify: mode !== "single",
-      pruning,
+      pruning: genSelectedPruning(),
       maxDepth: Math.max(1, Number(options.maxDepth) || 200),
       maxNode: Math.max(1, Number(options.maxNode) || 5000000),
     })) || { winMoves: [], nodeCount: 0 };
