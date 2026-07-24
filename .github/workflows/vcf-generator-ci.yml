@@ -6,6 +6,10 @@ on:
     paths:
       - 'makevcf-generator-*.js'
       - 'rapfi/vcf-bitboard-generator-compat.js'
+      - 'rapfi/vcf-bitboard-worker.js'
+      - 'AGENTS.md'
+      - '新版Bitboard VCF規格.MD'
+      - '題目產生器規格.MD'
       - '.github/workflows/vcf-generator-ci.yml'
   workflow_dispatch:
 
@@ -23,11 +27,11 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          for file in makevcf-generator-*.js rapfi/vcf-bitboard-generator-compat.js; do
+          for file in makevcf-generator-*.js rapfi/vcf-bitboard-generator-compat.js rapfi/vcf-bitboard-worker.js; do
             node --check "$file"
           done
 
-      - name: Verify dedicated legacy generator worker
+      - name: Verify dedicated Bitboard generator worker
         shell: bash
         run: |
           node - <<'NODE'
@@ -43,18 +47,17 @@ jobs:
             }
             postMessage(message) {
               calls.push(message);
-              queueMicrotask(() => {
-                if (this.onmessage) {
-                  this.onmessage({
-                    data: {
-                      cmd: 'resolve',
-                      param: message.cmd === 'findVCF'
-                        ? { winMoves: [[1, 2, 3]], nodeCount: 3 }
-                        : true,
-                    },
-                  });
-                }
-              });
+              let result = true;
+              if (message.type === 'findVCF') {
+                result = { winMoves: [[1, 2, 3]], nodeCount: 3, aborted: false };
+              } else if (message.type === 'getBlockVCF') {
+                result = { points: [4, 5], nodeCount: 2 };
+              } else if (message.type === 'trimVCFGroups') {
+                result = message.data.groups;
+              }
+              queueMicrotask(() => this.onmessage?.({
+                data: { id: message.id, ok: true, result },
+              }));
             }
             terminate() {}
           }
@@ -65,18 +68,22 @@ jobs:
             console,
             URL,
             Worker: WorkerMock,
+            Map,
+            Array,
+            Number,
+            Error,
             queueMicrotask,
             setTimeout,
             document: {
-              baseURI: 'https://example.test/VCF/rapfi/',
+              baseURI: 'https://example.test/VCF/',
               getElementById() { return null; },
               querySelector() { return null; },
               querySelectorAll() { return []; },
             },
             window: {
               engineAPI: {
-                send() { throw new Error('generator must not call C++ engineAPI'); },
-                cancel() { throw new Error('generator must not cancel C++ engineAPI'); },
+                send() { throw new Error('generator must use its dedicated worker'); },
+                cancel() { throw new Error('generator must not cancel main engine'); },
               },
             },
           };
@@ -87,25 +94,57 @@ jobs:
           (async () => {
             const engine = context.__generatorTest.genEngine;
             await engine.ready;
-            if (engine.backend !== 'legacy-generator-worker') {
+            if (engine.backend !== 'bitboard-generator-worker') {
               throw new Error(`unexpected generator backend: ${engine.backend}`);
             }
-            if (!engine.worker || !engine.worker.url.endsWith('/eval/worker.js')) {
+            if (!engine.worker || !engine.worker.url.endsWith('/rapfi/vcf-bitboard-worker.js')) {
               throw new Error(`unexpected worker URL: ${engine.worker && engine.worker.url}`);
             }
-            const result = await engine.findVCF(new Array(226).fill(0), 1, 64, {
-              mode: 'multi', maxDepth: 11, maxNode: 5000000,
-            });
-            if (!result || !result.winMoves || result.winMoves.length !== 1) {
-              throw new Error('legacy generator worker response was not returned');
+            const initCall = calls.find(call => call.type === 'init');
+            if (!initCall?.data?.moduleURL?.endsWith('/rapfi/engine/vcf-bitboard-engine.js')) {
+              throw new Error(`unexpected module URL: ${initCall?.data?.moduleURL}`);
             }
-            const findCall = calls.find(call => call.cmd === 'findVCF');
-            if (!findCall || findCall.param.maxVCF !== 64 || findCall.param.maxDepth !== 11) {
+
+            const result = await engine.findVCF(new Array(226).fill(0), 1, 64, {
+              mode: 'shortest',
+              pruning: 'fast',
+              maxDepth: 11,
+              maxNode: 5000000,
+            });
+            if (!result?.winMoves?.length) throw new Error('Bitboard result was not returned');
+            const findCall = calls.filter(call => call.type === 'findVCF').at(-1);
+            if (!findCall || findCall.data.mode !== 'shortest' || findCall.data.pruning !== 'strict') {
+              throw new Error(`unexpected generator search mode: ${JSON.stringify(findCall?.data)}`);
+            }
+            if (findCall.data.maxVCF !== 64 || findCall.data.maxDepth !== 11) {
               throw new Error('generator validation limits were not forwarded');
             }
-            console.log('Generator backend isolation test passed');
+
+            const points = await engine.getBlockVCF(new Array(226).fill(0), 1, [1, 2, 3], true);
+            if (points.join(',') !== '4,5') throw new Error('getBlockVCF response was not normalized');
+            console.log('Generator Bitboard worker contract test passed');
           })().catch(error => {
             console.error(error);
             process.exit(1);
           });
+          NODE
+
+      - name: Verify generator search policy
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const source = fs.readFileSync('makevcf-generator-unique.js', 'utf8');
+          const required = [
+            'mode: "shortest"',
+            'pruning: "strict"',
+            'targets[0]?.moves || null',
+            'const GEN_UNIQUE_MAX_GROUPS = 64',
+            'mode: "multi"',
+            'Boolean(info.aborted)',
+          ];
+          for (const token of required) {
+            if (!source.includes(token)) throw new Error(`missing generator policy: ${token}`);
+          }
+          console.log('Generator shortest/strict and unique/multi policy checks passed');
           NODE
