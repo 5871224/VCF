@@ -85,6 +85,7 @@ makevcf-generator-core.js
 介面或資料儲存變更至少必須確認：
 
 - 手機版操作正常。
-- `localStorage` 資料格式與讀取相容。
+- Supabase 題庫只保存 225 格 `board` 與 `attacker`，前端新增、讀取、刪除流程一致。
+- 舊版 `vcf_question_bank_v1` 只有在成功搬移至 Supabase 後才刪除。
 - 搜尋執行中不能切換會改變盤面的控制項。
 - 相關 Markdown 已同步更新且沒有殘留舊規格。
