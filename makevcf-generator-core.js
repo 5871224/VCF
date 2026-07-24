@@ -43,72 +43,104 @@ function genInputs(name) {
   return prefixed.length ? prefixed : document.querySelectorAll(`input[name="${name}"]`);
 }
 
+function genSelectedPruning() {
+  const select = document.getElementById("vcf-multi-pruning");
+  if (select) return select.value === "strict" ? "strict" : "fast";
+  try {
+    return localStorage.getItem("vcf_multi_pruning") === "strict" ? "strict" : "fast";
+  } catch (_) {
+    return "fast";
+  }
+}
+
 class GeneratorVCFEngine {
   constructor() {
     this.rules = 2;
     this.worker = null;
-    this.resolve = null;
-    this.backend = "legacy-generator-worker";
+    this.nextId = 1;
+    this.pending = new Map();
+    this.backend = "bitboard-generator-worker";
     this.ready = this.start();
   }
 
-  async start() {
-    // 題目產生器的驗證語意依賴舊版 eval/worker.js：maxVCF=64 時會以
-    // 原本的多組 VCF 流程回傳目標路線與較短路線，供自動補守子使用。
-    // Bitboard C++ 的 multi 模式停止條件不同，從第 5 層起可能為單一候選
-    // 長時間列舉到 64 組／節點上限。主畫面搜尋仍使用 C++；只有題目產生器
-    // 固定使用自己的舊版 Worker，避免兩種語意互相污染。
-    if (this.worker) this.worker.terminate();
-    this.worker = new Worker(new URL("eval/worker.js", document.baseURI).href);
-    this.worker.onmessage = event => {
-      if (event.data.cmd === "resolve" && this.resolve) {
-        const done = this.resolve;
-        this.resolve = null;
-        done(event.data.param);
-      }
-    };
-    this.worker.onerror = event => {
-      console.error("Generator worker error", event);
-      if (this.resolve) {
-        const done = this.resolve;
-        this.resolve = null;
-        done(null);
-      }
-    };
-    await this.post("setGameRules", { rules: this.rules });
+  workerURL() {
+    return new URL("rapfi/vcf-bitboard-worker.js", document.baseURI).href;
   }
 
-  post(cmd, param) {
-    return new Promise(resolve => {
-      this.resolve = resolve;
-      this.worker.postMessage({ cmd, param });
+  moduleURL() {
+    return new URL("rapfi/engine/vcf-bitboard-engine.js", document.baseURI).href;
+  }
+
+  rejectPending(error) {
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+  }
+
+  callRaw(type, data = {}) {
+    return new Promise((resolve, reject) => {
+      if (!this.worker) {
+        reject(new Error("題目產生器 Bitboard Worker 尚未建立"));
+        return;
+      }
+      const id = this.nextId++;
+      this.pending.set(id, { resolve, reject });
+      this.worker.postMessage({ id, type, data });
     });
   }
 
-  async setRules(rules) {
-    this.rules = rules;
+  async start() {
+    if (this.worker) this.worker.terminate();
+    this.rejectPending(new Error("題目產生器引擎已重新啟動"));
+
+    const worker = new Worker(this.workerURL());
+    this.worker = worker;
+    worker.onmessage = event => {
+      const { id, ok, result, error } = event.data || {};
+      const pending = this.pending.get(id);
+      if (!pending) return;
+      this.pending.delete(id);
+      if (ok) pending.resolve(result);
+      else pending.reject(new Error(error || "題目產生器 Bitboard Worker 失敗"));
+    };
+    worker.onerror = event => {
+      const error = new Error(event?.message || "題目產生器 Bitboard Worker 發生錯誤");
+      console.error("Generator Bitboard worker error", event);
+      this.rejectPending(error);
+    };
+
+    await this.callRaw("init", { moduleURL: this.moduleURL() });
+    await this.callRaw("setGameRules", { rules: this.rules });
+  }
+
+  async post(type, data = {}) {
     await this.ready;
-    await this.post("setGameRules", { rules });
+    const normalized = type === "findVCF"
+      ? { ...data, pruning: genSelectedPruning() }
+      : data;
+    return this.callRaw(type, normalized);
+  }
+
+  async setRules(rules) {
+    this.rules = Number(rules) || 2;
+    await this.ready;
+    await this.callRaw("setGameRules", { rules: this.rules });
   }
 
   async findVCF(arr, color, maxVCF = 64, options = {}) {
-    await this.ready;
+    const mode = options.mode === "shortest" ? "shortest" : options.mode === "single" ? "single" : "multi";
     return (await this.post("findVCF", {
       arr: arr.slice(),
       color,
       maxVCF,
-      // 舊版 Worker 會忽略新版 mode/pruning 欄位，但仍尊重深度與節點限制。
-      // 保留欄位讓同一介面可在測試中與 Bitboard 後端比較。
-      mode: options.mode,
-      simplify: options.simplify,
-      pruning: options.pruning,
+      mode,
+      simplify: mode !== "single",
+      pruning: genSelectedPruning(),
       maxDepth: Math.max(1, Number(options.maxDepth) || 200),
       maxNode: Math.max(1, Number(options.maxNode) || 5000000),
     })) || { winMoves: [], nodeCount: 0 };
   }
 
   async trimGroups(arr, groups, color) {
-    await this.ready;
     return (await this.post("trimVCFGroups", {
       arr: arr.slice(),
       groups: groups.map(moves => Array.from(moves)),
@@ -116,12 +148,20 @@ class GeneratorVCFEngine {
     })) || [];
   }
 
+  async getBlockVCF(arr, color, moves, includeFour = true) {
+    const result = await this.post("getBlockVCF", {
+      arr: arr.slice(),
+      color,
+      vcfMoves: Array.from(moves || []),
+      includeFour,
+    });
+    return Array.from(result?.points || []);
+  }
+
   async cancel() {
-    if (this.resolve) {
-      const done = this.resolve;
-      this.resolve = null;
-      done(null);
-    }
+    if (this.worker) this.worker.terminate();
+    this.worker = null;
+    this.rejectPending(new Error("題目產生器計算已中止"));
     this.ready = this.start();
     await this.ready;
   }
@@ -190,6 +230,9 @@ function genSetBusy(value) {
     const input = genEl(id);
     if (input) input.disabled = value;
   });
+
+  const pruningSelect = document.getElementById("vcf-multi-pruning");
+  if (pruningSelect) pruningSelect.disabled = value;
 
   const answerButton = genEl("btn-answer");
   const nButton = genEl("btn-npoints");

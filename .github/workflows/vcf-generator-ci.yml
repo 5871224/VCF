@@ -6,6 +6,10 @@ on:
     paths:
       - 'makevcf-generator-*.js'
       - 'rapfi/vcf-bitboard-generator-compat.js'
+      - 'rapfi/vcf-bitboard-worker.js'
+      - 'AGENTS.md'
+      - '新版Bitboard VCF規格.MD'
+      - '題目產生器規格.MD'
       - '.github/workflows/vcf-generator-ci.yml'
   workflow_dispatch:
 
@@ -23,11 +27,11 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          for file in makevcf-generator-*.js rapfi/vcf-bitboard-generator-compat.js; do
+          for file in makevcf-generator-*.js rapfi/vcf-bitboard-generator-compat.js rapfi/vcf-bitboard-worker.js; do
             node --check "$file"
           done
 
-      - name: Verify dedicated legacy generator worker
+      - name: Verify dedicated Bitboard generator worker and pruning selection
         shell: bash
         run: |
           node - <<'NODE'
@@ -35,6 +39,7 @@ jobs:
           const vm = require('vm');
 
           const calls = [];
+          const pruningSelect = { value: 'fast', disabled: false };
           class WorkerMock {
             constructor(url) {
               this.url = String(url);
@@ -43,40 +48,46 @@ jobs:
             }
             postMessage(message) {
               calls.push(message);
-              queueMicrotask(() => {
-                if (this.onmessage) {
-                  this.onmessage({
-                    data: {
-                      cmd: 'resolve',
-                      param: message.cmd === 'findVCF'
-                        ? { winMoves: [[1, 2, 3]], nodeCount: 3 }
-                        : true,
-                    },
-                  });
-                }
-              });
+              let result = true;
+              if (message.type === 'findVCF') {
+                result = { winMoves: [[1, 2, 3]], nodeCount: 3, aborted: false };
+              } else if (message.type === 'getBlockVCF') {
+                result = { points: [4, 5], nodeCount: 2 };
+              } else if (message.type === 'trimVCFGroups') {
+                result = message.data.groups;
+              }
+              queueMicrotask(() => this.onmessage?.({
+                data: { id: message.id, ok: true, result },
+              }));
             }
             terminate() {}
           }
 
           const source = fs.readFileSync('makevcf-generator-core.js', 'utf8') +
-            '\n;globalThis.__generatorTest = { genEngine };';
+            '\n;globalThis.__generatorTest = { genEngine, genSetBusy };';
           const context = {
             console,
             URL,
             Worker: WorkerMock,
+            Map,
+            Array,
+            Number,
+            Error,
             queueMicrotask,
             setTimeout,
+            localStorage: {
+              getItem() { return null; },
+            },
             document: {
-              baseURI: 'https://example.test/VCF/rapfi/',
-              getElementById() { return null; },
+              baseURI: 'https://example.test/VCF/',
+              getElementById(id) { return id === 'vcf-multi-pruning' ? pruningSelect : null; },
               querySelector() { return null; },
               querySelectorAll() { return []; },
             },
             window: {
               engineAPI: {
-                send() { throw new Error('generator must not call C++ engineAPI'); },
-                cancel() { throw new Error('generator must not cancel C++ engineAPI'); },
+                send() { throw new Error('generator must use its dedicated worker'); },
+                cancel() { throw new Error('generator must not cancel main engine'); },
               },
             },
           };
@@ -85,25 +96,188 @@ jobs:
           vm.runInContext(source, context, { filename: 'makevcf-generator-core.js' });
 
           (async () => {
-            const engine = context.__generatorTest.genEngine;
+            const { genEngine: engine, genSetBusy } = context.__generatorTest;
             await engine.ready;
-            if (engine.backend !== 'legacy-generator-worker') {
+            if (engine.backend !== 'bitboard-generator-worker') {
               throw new Error(`unexpected generator backend: ${engine.backend}`);
             }
-            if (!engine.worker || !engine.worker.url.endsWith('/eval/worker.js')) {
+            if (!engine.worker || !engine.worker.url.endsWith('/rapfi/vcf-bitboard-worker.js')) {
               throw new Error(`unexpected worker URL: ${engine.worker && engine.worker.url}`);
             }
-            const result = await engine.findVCF(new Array(226).fill(0), 1, 64, {
-              mode: 'multi', maxDepth: 11, maxNode: 5000000,
-            });
-            if (!result || !result.winMoves || result.winMoves.length !== 1) {
-              throw new Error('legacy generator worker response was not returned');
+            const initCall = calls.find(call => call.type === 'init');
+            if (!initCall?.data?.moduleURL?.endsWith('/rapfi/engine/vcf-bitboard-engine.js')) {
+              throw new Error(`unexpected module URL: ${initCall?.data?.moduleURL}`);
             }
-            const findCall = calls.find(call => call.cmd === 'findVCF');
-            if (!findCall || findCall.param.maxVCF !== 64 || findCall.param.maxDepth !== 11) {
+
+            await engine.findVCF(new Array(226).fill(0), 1, 64, {
+              mode: 'shortest',
+              pruning: 'strict',
+              maxDepth: 11,
+              maxNode: 5000000,
+            });
+            let findCall = calls.filter(call => call.type === 'findVCF').at(-1);
+            if (!findCall || findCall.data.mode !== 'shortest' || findCall.data.pruning !== 'fast') {
+              throw new Error(`fast dropdown was not honored: ${JSON.stringify(findCall?.data)}`);
+            }
+
+            pruningSelect.value = 'strict';
+            await engine.findVCF(new Array(226).fill(0), 1, 64, {
+              mode: 'multi',
+              pruning: 'fast',
+              maxDepth: 11,
+              maxNode: 5000000,
+            });
+            findCall = calls.filter(call => call.type === 'findVCF').at(-1);
+            if (!findCall || findCall.data.mode !== 'multi' || findCall.data.pruning !== 'strict') {
+              throw new Error(`strict dropdown was not honored: ${JSON.stringify(findCall?.data)}`);
+            }
+            if (findCall.data.maxVCF !== 64 || findCall.data.maxDepth !== 11) {
               throw new Error('generator validation limits were not forwarded');
             }
-            console.log('Generator backend isolation test passed');
+
+            genSetBusy(true);
+            if (!pruningSelect.disabled) throw new Error('pruning dropdown remained enabled during generation');
+            genSetBusy(false);
+            if (pruningSelect.disabled) throw new Error('pruning dropdown was not re-enabled');
+
+            const points = await engine.getBlockVCF(new Array(226).fill(0), 1, [1, 2, 3], true);
+            if (points.join(',') !== '4,5') throw new Error('getBlockVCF response was not normalized');
+            console.log('Generator Bitboard worker and pruning selection tests passed');
+          })().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Verify generator search policy
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const core = fs.readFileSync('makevcf-generator-core.js', 'utf8');
+          const unique = fs.readFileSync('makevcf-generator-unique.js', 'utf8');
+          const coreRequired = [
+            'function genSelectedPruning()',
+            'document.getElementById("vcf-multi-pruning")',
+            '{ ...data, pruning: genSelectedPruning() }',
+          ];
+          const uniqueRequired = [
+            'mode: "shortest"',
+            'targets[0]?.moves || null',
+            'const GEN_UNIQUE_MAX_GROUPS = 64',
+            'mode: "multi"',
+            'Boolean(info.aborted)',
+          ];
+          for (const token of coreRequired) {
+            if (!core.includes(token)) throw new Error(`missing generator pruning policy: ${token}`);
+          }
+          for (const token of uniqueRequired) {
+            if (!unique.includes(token)) throw new Error(`missing generator search policy: ${token}`);
+          }
+          console.log('Generator shortest/multi and dropdown pruning policy checks passed');
+          NODE
+
+      - name: Verify shortest auto-block reaches target layer
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const vm = require('vm');
+
+          class GeneratorVCFEngine {
+            async post(type) {
+              return type === 'getBlockVCF' ? { points: [10] } : true;
+            }
+          }
+
+          const board = new Array(226).fill(0);
+          board[0] = 1;
+          board[225] = -1;
+          const expected = board.slice();
+          expected[2] = 1;
+          let searchCount = 0;
+
+          const genEngine = new GeneratorVCFEngine();
+          genEngine.findVCF = async sourceBoard => {
+            searchCount++;
+            return sourceBoard[10] === 2
+              ? { winMoves: [[2]], nodeCount: 2, aborted: false }
+              : { winMoves: [[1]], nodeCount: 1, aborted: false };
+          };
+          genEngine.trimGroups = async (_board, groups) => groups;
+
+          const elements = {
+            'balance-stones': { checked: true },
+            'block-other-vcf': { checked: false },
+          };
+          const context = {
+            console,
+            GeneratorVCFEngine,
+            genEngine,
+            genCancelled: false,
+            genFindAnalyzedGroups: async () => null,
+            genValidateCandidate: async () => null,
+            genValidateExtensionCandidate: async () => null,
+            genOptions: () => ({}),
+            genSetBusy: () => {},
+            genExtendToTarget: async value => value,
+            genShowResult: () => {},
+            genResolveValidationSteps: (_candidate, steps) => steps,
+            genTargetSearchPly: steps => steps * 2 + 1,
+            genCloneBoard: source => source.slice(),
+            genBuildExpectedBaseBoard: candidate => candidate.expectedBoard.slice(),
+            genBuildExpectedExtendedBoard: () => null,
+            genBoardsEqual: (a, b) => a.every((value, index) => value === b[index]),
+            genAnalyzeVCFGroup: (_sourceBoard, moves) => moves[0] === 1
+              ? { valid: true, steps: 1, standardBoard: board.slice() }
+              : { valid: true, steps: 2, standardBoard: expected.slice(), completedBoard: expected.slice() },
+            genFinalizeValidatedResult: (candidate, target, info, groups) => ({ candidate, target, info, groups, ok: true }),
+            genEl: id => elements[id] || null,
+            genIsNFor: () => false,
+            getLevelPoint: () => 0,
+            isFoul: () => false,
+            GEN_BLACK: 1,
+            GEN_WHITE: 2,
+            GEN_EMPTY: 0,
+            GEN_FOUR_NOFREE: 8,
+            GEN_FOUR_FREE: 9,
+            document: {
+              querySelectorAll() { return []; },
+              createElement() { return { dataset: {}, style: {}, appendChild() {} }; },
+              head: { appendChild() {} },
+            },
+            window: {},
+            Math,
+            Array,
+            Set,
+            Map,
+            Boolean,
+          };
+          context.globalThis = context;
+          vm.createContext(context);
+          vm.runInContext(fs.readFileSync('makevcf-generator-unique.js', 'utf8'), context, {
+            filename: 'makevcf-generator-unique.js',
+          });
+
+          (async () => {
+            const candidate = {
+              board: board.slice(),
+              expectedBoard: expected.slice(),
+              nMask: new Array(225).fill(0),
+              attacker: 1,
+              defender: 2,
+              rules: 2,
+              addedAttackers: [],
+              addedDefenders: [],
+              autoBlockDefenders: [],
+              xPoints: [],
+              lineFivePoints: [],
+            };
+            const result = await context.genValidateCandidate(candidate, 2);
+            if (!result?.ok) throw new Error('shorter VCF was not blocked into the target layer');
+            if (result.candidate.board[10] !== 2) throw new Error('defender was not added');
+            if (searchCount !== 2) throw new Error(`expected two shortest searches, got ${searchCount}`);
+            console.log('Generator shortest auto-block validation test passed');
           })().catch(error => {
             console.error(error);
             process.exit(1);
