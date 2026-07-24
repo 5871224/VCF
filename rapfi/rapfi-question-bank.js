@@ -35,12 +35,7 @@
     entry?.attacker === attacker && sameBoard(entry.board, board)
   );
 
-  const readAttacker = board => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("vcf_board") || "null");
-      if (saved && (saved.nc === 1 || saved.nc === 2)) return saved.nc;
-    } catch (_) {}
-
+  const inferAttacker = board => {
     let black = 0;
     let white = 0;
     for (const stone of board) {
@@ -217,11 +212,12 @@
 
     const isBusy = () => searchBusy || storageBusy;
     const currentBoard = () => normalizeBoard(window._getArr()) || new Array(BOARD_CELLS).fill(0);
-    const currentAttacker = board => readAttacker(board);
+    let trackedAttacker = inferAttacker(currentBoard());
+    const currentAttacker = () => trackedAttacker;
 
     const findCurrentQuestion = () => {
       const board = currentBoard();
-      return bank.findIndex(entry => sameQuestion(entry, board, currentAttacker(board)));
+      return bank.findIndex(entry => sameQuestion(entry, board, currentAttacker()));
     };
 
     const updateControls = () => {
@@ -269,7 +265,7 @@
         return;
       }
 
-      const attacker = currentAttacker(board);
+      const attacker = currentAttacker();
       const existing = bank.findIndex(entry => sameQuestion(entry, board, attacker));
       if (existing >= 0) {
         currentIndex = existing;
@@ -352,10 +348,16 @@
     });
 
     const boardSvg = document.getElementById("board-svg");
-    if (boardSvg) boardSvg.addEventListener("click", () => queueMicrotask(syncIndexToBoard));
+    if (boardSvg) {
+      boardSvg.addEventListener("click", () => queueMicrotask(() => {
+        trackedAttacker = inferAttacker(currentBoard());
+        syncIndexToBoard();
+      }));
+    }
 
     const originalSetBoardArr = window._setBoardArr;
     window._setBoardArr = function(...args) {
+      trackedAttacker = args[1] === 2 ? 2 : 1;
       const result = originalSetBoardArr.apply(this, args);
       queueMicrotask(syncIndexToBoard);
       return result;
@@ -365,6 +367,7 @@
       const originalClearBoard = window._clearBoard;
       window._clearBoard = function(...args) {
         const result = originalClearBoard.apply(this, args);
+        trackedAttacker = 1;
         currentIndex = -1;
         updateControls();
         return result;
