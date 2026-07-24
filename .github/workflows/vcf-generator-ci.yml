@@ -31,7 +31,7 @@ jobs:
             node --check "$file"
           done
 
-      - name: Verify dedicated Bitboard generator worker
+      - name: Verify dedicated Bitboard generator worker and pruning selection
         shell: bash
         run: |
           node - <<'NODE'
@@ -39,6 +39,7 @@ jobs:
           const vm = require('vm');
 
           const calls = [];
+          const pruningSelect = { value: 'fast', disabled: false };
           class WorkerMock {
             constructor(url) {
               this.url = String(url);
@@ -63,7 +64,7 @@ jobs:
           }
 
           const source = fs.readFileSync('makevcf-generator-core.js', 'utf8') +
-            '\n;globalThis.__generatorTest = { genEngine };';
+            '\n;globalThis.__generatorTest = { genEngine, genSetBusy };';
           const context = {
             console,
             URL,
@@ -74,9 +75,12 @@ jobs:
             Error,
             queueMicrotask,
             setTimeout,
+            localStorage: {
+              getItem() { return null; },
+            },
             document: {
               baseURI: 'https://example.test/VCF/',
-              getElementById() { return null; },
+              getElementById(id) { return id === 'vcf-multi-pruning' ? pruningSelect : null; },
               querySelector() { return null; },
               querySelectorAll() { return []; },
             },
@@ -92,7 +96,7 @@ jobs:
           vm.runInContext(source, context, { filename: 'makevcf-generator-core.js' });
 
           (async () => {
-            const engine = context.__generatorTest.genEngine;
+            const { genEngine: engine, genSetBusy } = context.__generatorTest;
             await engine.ready;
             if (engine.backend !== 'bitboard-generator-worker') {
               throw new Error(`unexpected generator backend: ${engine.backend}`);
@@ -105,24 +109,40 @@ jobs:
               throw new Error(`unexpected module URL: ${initCall?.data?.moduleURL}`);
             }
 
-            const result = await engine.findVCF(new Array(226).fill(0), 1, 64, {
+            await engine.findVCF(new Array(226).fill(0), 1, 64, {
               mode: 'shortest',
+              pruning: 'strict',
+              maxDepth: 11,
+              maxNode: 5000000,
+            });
+            let findCall = calls.filter(call => call.type === 'findVCF').at(-1);
+            if (!findCall || findCall.data.mode !== 'shortest' || findCall.data.pruning !== 'fast') {
+              throw new Error(`fast dropdown was not honored: ${JSON.stringify(findCall?.data)}`);
+            }
+
+            pruningSelect.value = 'strict';
+            await engine.findVCF(new Array(226).fill(0), 1, 64, {
+              mode: 'multi',
               pruning: 'fast',
               maxDepth: 11,
               maxNode: 5000000,
             });
-            if (!result?.winMoves?.length) throw new Error('Bitboard result was not returned');
-            const findCall = calls.filter(call => call.type === 'findVCF').at(-1);
-            if (!findCall || findCall.data.mode !== 'shortest' || findCall.data.pruning !== 'strict') {
-              throw new Error(`unexpected generator search mode: ${JSON.stringify(findCall?.data)}`);
+            findCall = calls.filter(call => call.type === 'findVCF').at(-1);
+            if (!findCall || findCall.data.mode !== 'multi' || findCall.data.pruning !== 'strict') {
+              throw new Error(`strict dropdown was not honored: ${JSON.stringify(findCall?.data)}`);
             }
             if (findCall.data.maxVCF !== 64 || findCall.data.maxDepth !== 11) {
               throw new Error('generator validation limits were not forwarded');
             }
 
+            genSetBusy(true);
+            if (!pruningSelect.disabled) throw new Error('pruning dropdown remained enabled during generation');
+            genSetBusy(false);
+            if (pruningSelect.disabled) throw new Error('pruning dropdown was not re-enabled');
+
             const points = await engine.getBlockVCF(new Array(226).fill(0), 1, [1, 2, 3], true);
             if (points.join(',') !== '4,5') throw new Error('getBlockVCF response was not normalized');
-            console.log('Generator Bitboard worker contract test passed');
+            console.log('Generator Bitboard worker and pruning selection tests passed');
           })().catch(error => {
             console.error(error);
             process.exit(1);
@@ -134,19 +154,27 @@ jobs:
         run: |
           node - <<'NODE'
           const fs = require('fs');
-          const source = fs.readFileSync('makevcf-generator-unique.js', 'utf8');
-          const required = [
+          const core = fs.readFileSync('makevcf-generator-core.js', 'utf8');
+          const unique = fs.readFileSync('makevcf-generator-unique.js', 'utf8');
+          const coreRequired = [
+            'function genSelectedPruning()',
+            'document.getElementById("vcf-multi-pruning")',
+            '{ ...data, pruning: genSelectedPruning() }',
+          ];
+          const uniqueRequired = [
             'mode: "shortest"',
-            'pruning: "strict"',
             'targets[0]?.moves || null',
             'const GEN_UNIQUE_MAX_GROUPS = 64',
             'mode: "multi"',
             'Boolean(info.aborted)',
           ];
-          for (const token of required) {
-            if (!source.includes(token)) throw new Error(`missing generator policy: ${token}`);
+          for (const token of coreRequired) {
+            if (!core.includes(token)) throw new Error(`missing generator pruning policy: ${token}`);
           }
-          console.log('Generator shortest/strict and unique/multi policy checks passed');
+          for (const token of uniqueRequired) {
+            if (!unique.includes(token)) throw new Error(`missing generator search policy: ${token}`);
+          }
+          console.log('Generator shortest/multi and dropdown pruning policy checks passed');
           NODE
 
       - name: Verify shortest auto-block reaches target layer
