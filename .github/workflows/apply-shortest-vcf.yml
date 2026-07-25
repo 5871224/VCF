@@ -66,6 +66,8 @@ jobs:
         run: |
           set -euxo pipefail
           source .build/emsdk/emsdk_env.sh
+          rm -rf /tmp/vcf-shortest-build
+          mkdir -p /tmp/vcf-shortest-build
           em++ rapfi/vcf-pattern-engine.cpp \
                rapfi/vcf-bitboard-engine.cpp \
                rapfi/vcf-bitboard-search-v2.cpp \
@@ -80,7 +82,9 @@ jobs:
                -s ALLOW_MEMORY_GROWTH=1 \
                -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
                -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
-               -o rapfi/engine/vcf-bitboard-engine.js
+               -o /tmp/vcf-shortest-build/vcf-bitboard-engine.js
+          cp /tmp/vcf-shortest-build/vcf-bitboard-engine.js rapfi/engine/vcf-bitboard-engine.js
+          cp /tmp/vcf-shortest-build/vcf-bitboard-engine.wasm rapfi/engine/vcf-bitboard-engine.wasm
 
       - name: Run Wasm ABI and 111-ply proof
         shell: bash
@@ -125,7 +129,9 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          rm .github/workflows/apply-shortest-vcf.yml tools/apply_shortest_vcf.py
+          rm .github/workflows/apply-shortest-vcf.yml
+          rm -f .github/workflows/diagnose-shortest-wasm.yml
+          rm tools/apply_shortest_vcf.py
           git config user.name "OpenAI"
           git config user.email "openai@users.noreply.github.com"
           git add -A
