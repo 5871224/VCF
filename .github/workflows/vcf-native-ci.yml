@@ -11,6 +11,7 @@ on:
       - 'rapfi/vcf-bitboard-legacy-extra.cpp'
       - 'rapfi/vcf-bitboard-main.js'
       - 'rapfi/vcf-bitboard-worker.js'
+      - 'rapfi/vcf-shortest-vcf-ui.js'
       - 'rapfi/rapfi-bitboard-dashboard.js'
       - '.github/workflows/vcf-native-ci.yml'
   workflow_dispatch:
@@ -47,6 +48,7 @@ jobs:
         run: |
           node --check rapfi/vcf-bitboard-main.js
           node --check rapfi/vcf-bitboard-worker.js
+          node --check rapfi/vcf-shortest-vcf-ui.js
           node --check rapfi/rapfi-bitboard-dashboard.js
 
   wasm-test:
@@ -91,7 +93,7 @@ jobs:
                -s ENVIRONMENT='web,worker,node' \
                -s FILESYSTEM=0 \
                -s ALLOW_MEMORY_GROWTH=1 \
-               -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
+               -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
                -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
                -o /tmp/vcf-wasm-test/vcf-bitboard-engine.js
 
@@ -111,6 +113,7 @@ jobs:
             const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
             const searchTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
             const findModeV3 = module.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"));
+            const findShortestOne = module.cwrap("vcfBbFindShortestOne", "number", Array(9).fill("number"));
 
             const baseCode = selfTest();
             fs.appendFileSync(diagnostic, `base self-test=${baseCode}\n`);
@@ -136,6 +139,15 @@ jobs:
               `production find count=${count}; route length=${routeLength}; first=${module.HEAPU8[moves]}\n`);
             if (count < 1 || routeLength !== 1)
               throw new Error("production find ABI route mismatch");
+
+            module.HEAPU16[lengths >>> 1] = 0;
+            const shortestStatus = findShortestOne(board, 1, 2, 15, 100000,
+                                                   moves, lengths, 224, stats);
+            const shortestLength = module.HEAPU16[lengths >>> 1];
+            fs.appendFileSync(diagnostic,
+              `shortest-one status=${shortestStatus}; route length=${shortestLength}; first=${module.HEAPU8[moves]}\n`);
+            if (shortestStatus !== 2 || shortestLength !== 1)
+              throw new Error("shortest-one ABI proof mismatch");
 
             module._free(stats);
             module._free(lengths);
