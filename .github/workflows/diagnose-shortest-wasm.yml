@@ -32,34 +32,43 @@ jobs:
           .build/emsdk/emsdk activate "$EMSDK_VERSION"
       - name: Apply source changes
         run: python3 tools/apply_shortest_vcf.py
-      - name: Capture Wasm build
+      - name: Capture Wasm build and copy
         shell: bash
         run: |
           source .build/emsdk/emsdk_env.sh
           set +e
-          em++ rapfi/vcf-pattern-engine.cpp \
-               rapfi/vcf-bitboard-engine.cpp \
-               rapfi/vcf-bitboard-search-v2.cpp \
-               rapfi/vcf-bitboard-legacy-extra.cpp \
-               -O3 -flto -DNDEBUG -std=c++17 -msimd128 \
-               --no-entry \
-               -s WASM=1 \
-               -s MODULARIZE=1 \
-               -s EXPORT_NAME=VCFBitboardModule \
-               -s ENVIRONMENT='web,worker,node' \
-               -s FILESYSTEM=0 \
-               -s ALLOW_MEMORY_GROWTH=1 \
-               -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
-               -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
-               -o /tmp/vcf-bitboard-engine.js \
-               > /tmp/wasm-build.log 2>&1
+          {
+            set -x
+            rm -rf /tmp/vcf-shortest-build
+            mkdir -p /tmp/vcf-shortest-build
+            em++ rapfi/vcf-pattern-engine.cpp \
+                 rapfi/vcf-bitboard-engine.cpp \
+                 rapfi/vcf-bitboard-search-v2.cpp \
+                 rapfi/vcf-bitboard-legacy-extra.cpp \
+                 -O3 -flto -DNDEBUG -std=c++17 -msimd128 \
+                 --no-entry \
+                 -s WASM=1 \
+                 -s MODULARIZE=1 \
+                 -s EXPORT_NAME=VCFBitboardModule \
+                 -s ENVIRONMENT='web,worker,node' \
+                 -s FILESYSTEM=0 \
+                 -s ALLOW_MEMORY_GROWTH=1 \
+                 -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
+                 -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+                 -o /tmp/vcf-shortest-build/vcf-bitboard-engine.js
+            ls -la /tmp/vcf-shortest-build
+            ls -la rapfi/engine
+            cp /tmp/vcf-shortest-build/vcf-bitboard-engine.js rapfi/engine/vcf-bitboard-engine.js
+            cp /tmp/vcf-shortest-build/vcf-bitboard-engine.wasm rapfi/engine/vcf-bitboard-engine.wasm
+            ls -la rapfi/engine/vcf-bitboard-engine.*
+          } > /tmp/wasm-build.log 2>&1
           code=$?
           cat /tmp/wasm-build.log
           echo "$code" > /tmp/wasm-build-exit.txt
           exit 0
       - uses: actions/upload-artifact@v4
         with:
-          name: shortest-wasm-diagnostic
+          name: shortest-wasm-copy-diagnostic
           path: |
             /tmp/wasm-build.log
             /tmp/wasm-build-exit.txt
