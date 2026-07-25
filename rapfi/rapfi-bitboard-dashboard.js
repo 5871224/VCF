@@ -30,8 +30,8 @@
     <label class="vcf-option-select">
       補子搜尋：
       <select id="vcf-add-search-mode">
-        <option value="single">單組 VCF（速度）</option>
-        <option value="shortest">多組 VCF（最少步）</option>
+        <option value="single">最速</option>
+        <option value="shortest-one">最短</option>
       </select>
     </label>
   `;
@@ -106,7 +106,10 @@
   try {
     simplifyCheck.checked = localStorage.getItem("vcf_simplify_route") === "1";
     pruningSelect.value = localStorage.getItem("vcf_multi_pruning") === "strict" ? "strict" : "fast";
-    addModeSelect.value = localStorage.getItem("vcf_add_search_mode") === "shortest" ? "shortest" : "single";
+    const storedAddMode = localStorage.getItem("vcf_add_search_mode");
+    addModeSelect.value = storedAddMode === "shortest" || storedAddMode === "shortest-one"
+      ? "shortest-one"
+      : "single";
     multiTimeInput.value = String(clampInteger(localStorage.getItem("vcf_multi_time_seconds"), 0, 2097151, 30));
     multiNodeInput.value = String(clampInteger(localStorage.getItem("vcf_multi_node_millions"), 0, 1023, 20));
   } catch (_) {
@@ -343,74 +346,185 @@
     }, true);
   }
 
-  if (typeof doAddVCF === "function") {
-    doAddVCF = async function(arr, placeColor) {
-      const color = getAColor();
-      const placeName = placeColor===1 ? "黑" : "白";
-      const vcfName = color===1 ? "黑" : "白";
-      const searchMode = addModeSelect.value === "shortest" ? "shortest" : "single";
-      const modeName = searchMode === "shortest" ? `多組 VCF／最少步／${pruningName()}` : "單組 VCF／速度";
-      const maxNodeMillions = selectedNodeMillions();
-      const maxNode = maxNodeMillions > 0 ? maxNodeMillions * 1000000 : 0xffffffff;
-      const nodeLimitText = maxNodeMillions > 0 ? `每點 ${maxNodeMillions} 百萬節點` : "每點不限節點";
-      const incompleteReason = maxNodeMillions > 0
+  async function getShortestAddPoints(options) {
+  const service = window.VCFBitboard;
+  if (!service?.ensurePool || !service?.syncReady || !service?.syncApi) {
+    throw new Error("Bitboard 最短 VCF 引擎尚未就緒");
+  }
+
+  const [workers] = await Promise.all([service.ensurePool(), service.syncReady]);
+  const base = Array(225).fill(0);
+  Array.from(options.arr || []).slice(0, 225).forEach((value, idx) => {
+    base[idx] = Number(value) || 0;
+  });
+  const attacker = Number(options.color) || 1;
+  const placeColor = Number(options.placeColor || options.color) || attacker;
+  const maxDepth = Math.max(1, Math.min(224, Number(options.maxDepth) || 200));
+  const maxNode = Math.max(1, Math.min(0xffffffff, Number(options.maxNode) || 5000000));
+  const sourceIndices = Array.isArray(options.indices)
+    ? options.indices.filter(idx => Number.isInteger(idx) && idx >= 0 && idx < 225 && base[idx] === 0)
+    : Array.from({ length: 225 }, (_, idx) => idx).filter(idx => base[idx] === 0);
+  const immediateItems = [];
+  const pending = [];
+
+  for (const idx of sourceIndices) {
+    if (placeColor === 1 && service.rules === 2) {
+      service.writeSyncBoard(base);
+      if (service.syncApi.foul(service.syncBoardPtr, idx, service.rules)) continue;
+    }
+
+    const placed = base.slice();
+    placed[idx] = placeColor;
+    if (placeColor === attacker) {
+      service.writeSyncBoard(placed);
+      const level = service.syncApi.levelPoint(
+        service.syncBoardPtr,
+        idx,
+        attacker,
+        service.rules,
+      ) & 0x0f;
+      if (level >= 10) {
+        immediateItems.push({ idx, label: "5", type: "five", shortestProven: true });
+        continue;
+      }
+      if (level === 8 || level === 9) {
+        immediateItems.push({ idx, label: "4", type: "four", shortestProven: true });
+        continue;
+      }
+    }
+    pending.push({ idx, board: placed });
+  }
+
+  const chunks = Array.from({ length: workers.length }, () => []);
+  pending.forEach((item, index) => chunks[index % chunks.length].push(item));
+  const startedAt = performance.now();
+  const results = await Promise.all(workers.map(async (worker, workerIndex) => {
+    const items = [];
+    let nodeCount = 0;
+    let aborted = false;
+    let unprovenCount = 0;
+
+    for (const candidate of chunks[workerIndex]) {
+      const info = await worker.call("findShortestVCF", {
+        arr: candidate.board,
+        color: attacker,
+        rules: service.rules,
+        maxDepth,
+        maxNode,
+      });
+      nodeCount += Number(info?.nodeCount || 0);
+      aborted = aborted || Boolean(info?.aborted);
+      const route = info?.winMoves?.[0] || [];
+      if (!route.length) continue;
+      const shortestProven = Boolean(info?.shortestProven);
+      if (!shortestProven) unprovenCount++;
+      items.push({
+        idx: candidate.idx,
+        label: route.length,
+        type: "vcf",
+        shortestProven,
+      });
+    }
+
+    return { items, nodeCount, aborted, unprovenCount };
+  }));
+
+  const items = immediateItems
+    .concat(results.flatMap(result => result.items))
+    .sort((a, b) => a.idx - b.idx);
+  return {
+    items,
+    nodeCount: results.reduce((sum, result) => sum + result.nodeCount, 0),
+    elapsedMs: performance.now() - startedAt,
+    aborted: results.some(result => result.aborted),
+    unprovenCount: results.reduce((sum, result) => sum + result.unprovenCount, 0),
+  };
+}
+
+if (typeof doAddVCF === "function") {
+  doAddVCF = async function(arr, placeColor) {
+    const color = getAColor();
+    const placeName = placeColor===1 ? "黑" : "白";
+    const vcfName = color===1 ? "黑" : "白";
+    const shortestMode = addModeSelect.value === "shortest-one";
+    const modeName = shortestMode ? "最短" : "最速";
+    const maxTimeSeconds = selectedTimeSeconds();
+    const maxNodeMillions = selectedNodeMillions();
+    const maxNode = shortestMode
+      ? packMultiLimits(maxTimeSeconds, maxNodeMillions)
+      : maxNodeMillions > 0 ? maxNodeMillions * 1000000 : 0xffffffff;
+    const limitText = shortestMode
+      ? `每點 ${limitSummary(maxTimeSeconds, maxNodeMillions)}`
+      : maxNodeMillions > 0 ? `每點 ${maxNodeMillions} 百萬節點` : "每點不限節點";
+    const incompleteReason = shortestMode
+      ? "部分落點因限制中止，尚未完成最短證明"
+      : maxNodeMillions > 0
         ? `部分落點已達每點 ${maxNodeMillions} 百萬節點限制`
         : "部分落點已達引擎最大節點上限";
-      const lightColor = "#7799ee";
-      const darkColor = "#001188";
-      setBusy(true);
-      window._clearAnalysis();
-      try {
-        setStatus(`補${placeName}逐點試下，找${vcfName} VCF（${modeName}，${pool.workerCount} 核並行，${nodeLimitText}）...`);
-        const t0 = performance.now();
-        const data = await pool.getLevelPoints({
-          arr,
-          color,
-          placeColor,
-          searchMode,
-          pruning: selectedPruning(),
-          simplify: searchMode === "shortest",
-          maxDepth: 200,
-          maxNode,
-        });
-        if (!data) return;
-        const { items: result, nodeCount, aborted } = data;
-        const incompleteNote = aborted ? `；搜尋未完整：${incompleteReason}` : "";
-        if (result.length) {
-          const vcfLabels = result.filter(r => r.label !== "4" && r.label !== "5").map(r => Number(r.label));
-          const minL = vcfLabels.length ? Math.min(...vcfLabels) : 0;
-          const maxL = vcfLabels.length ? Math.max(...vcfLabels) : 0;
-          window._showAnalysisLabels(result, item => {
-            if (item.label === "5") return "#ff66aa";
-            if (item.label === "4") return "#c05000";
-            const t = maxL === minL ? 1 : (Number(item.label) - minL) / (maxL - minL);
-            return lerpColor(lightColor, darkColor, t);
-          }, "#fff");
-          if (vcfLabels.length) {
-            const targetLength = searchMode === "shortest" ? minL : maxL;
-            const ringIdx = result
-              .filter(r => r.label !== "4" && r.label !== "5" && Number(r.label) === targetLength)
-              .map(r => r.idx);
-            window._showAnalysisRing(ringIdx, "#00ccff");
-          }
-          const n5 = result.filter(r => r.label === "5").length;
-          const n4 = result.filter(r => r.label === "4").length;
-          const nV = result.length - n5 - n4;
-          const s5 = n5 ? `連五 ${n5} 個，` : "";
-          const stepNote = searchMode === "shortest" && vcfLabels.length
-            ? aborted ? `，已找到結果中最少 ${minL} 手` : `，最少 ${minL} 手`
-            : "";
-          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${s5}四 ${n4} 個，VCF ${nV} 個${stepNote}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
-        } else {
-          window._clearAnalysis();
-          const resultText = aborted ? "目前未找到結果" : "無結果";
-          setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${resultText}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
+    const lightColor = "#7799ee";
+    const darkColor = "#001188";
+    setBusy(true);
+    window._clearAnalysis();
+    try {
+      const workerCount = window.engineAPI?.workerCount || pool.workerCount || 1;
+      setStatus(`補${placeName}逐點試下，找${vcfName} VCF（${modeName}，${workerCount} 核並行，${limitText}）...`);
+      const t0 = performance.now();
+      const data = shortestMode
+        ? await getShortestAddPoints({
+            arr,
+            color,
+            placeColor,
+            maxDepth: 200,
+            maxNode,
+          })
+        : await pool.getLevelPoints({
+            arr,
+            color,
+            placeColor,
+            searchMode: "single",
+            simplify: false,
+            maxDepth: 200,
+            maxNode,
+          });
+      if (!data) return;
+      const { items: result, nodeCount, aborted } = data;
+      const hasUnproven = shortestMode && result.some(item => item.type === "vcf" && !item.shortestProven);
+      const incompleteNote = aborted || hasUnproven ? `；搜尋未完整：${incompleteReason}` : "";
+      if (result.length) {
+        const vcfLabels = result.filter(r => r.label !== "4" && r.label !== "5").map(r => Number(r.label));
+        const minL = vcfLabels.length ? Math.min(...vcfLabels) : 0;
+        const maxL = vcfLabels.length ? Math.max(...vcfLabels) : 0;
+        window._showAnalysisLabels(result, item => {
+          if (item.label === "5") return "#ff66aa";
+          if (item.label === "4") return "#c05000";
+          const t = maxL === minL ? 1 : (Number(item.label) - minL) / (maxL - minL);
+          return lerpColor(lightColor, darkColor, t);
+        }, "#fff");
+        if (vcfLabels.length) {
+          const targetLength = shortestMode ? minL : maxL;
+          const ringIdx = result
+            .filter(r => r.label !== "4" && r.label !== "5" && Number(r.label) === targetLength)
+            .map(r => r.idx);
+          window._showAnalysisRing(ringIdx, "#00ccff");
         }
-      } finally {
-        setBusy(false);
+        const n5 = result.filter(r => r.label === "5").length;
+        const n4 = result.filter(r => r.label === "4").length;
+        const nV = result.length - n5 - n4;
+        const s5 = n5 ? `連五 ${n5} 個，` : "";
+        const stepNote = shortestMode && vcfLabels.length
+          ? aborted || hasUnproven ? `，已找到結果中最短 ${minL} 手` : `，最短 ${minL} 手`
+          : "";
+        setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${s5}四 ${n4} 個，VCF ${nV} 個${stepNote}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
+      } else {
+        window._clearAnalysis();
+        const resultText = aborted ? "目前未找到結果" : "無結果";
+        setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${resultText}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
       }
-    };
-  }
+    } finally {
+      setBusy(false);
+    }
+  };
+}
 
   const status = panel.querySelector("#bb-engine-status");
   Promise.all([
