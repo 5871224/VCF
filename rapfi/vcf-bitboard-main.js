@@ -4,6 +4,39 @@
   const moduleURL = new URL("rapfi/engine/vcf-bitboard-engine.js", document.baseURI).href;
   const workerURL = new URL("rapfi/vcf-bitboard-worker.js", document.baseURI).href;
   const desiredWorkers = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 8));
+  const LEGACY_DEFAULT_MAX_NODES = 5_000_000;
+  const ENGINE_MAX_NODES = 0xffffffff;
+  const DEFAULT_NODE_MILLIONS = 20;
+
+  function configuredMaxNodes() {
+    let raw = null;
+    try {
+      raw = global.document?.getElementById("vcf-multi-node-millions")?.value;
+      if (raw == null || String(raw).trim() === "") {
+        raw = global.localStorage?.getItem("vcf_multi_node_millions");
+      }
+    } catch (_) {}
+
+    const parsed = Math.trunc(Number(raw));
+    const millions = Number.isFinite(parsed)
+      ? Math.max(0, Math.min(1023, parsed))
+      : DEFAULT_NODE_MILLIONS;
+    return millions > 0
+      ? Math.min(ENGINE_MAX_NODES, millions * 1_000_000)
+      : ENGINE_MAX_NODES;
+  }
+
+  function withConfiguredMaxNode(param = {}) {
+    const normalized = { ...param };
+    const current = Number(normalized.maxNode);
+    if (normalized.maxNode == null
+        || !Number.isFinite(current)
+        || current <= 0
+        || current === LEGACY_DEFAULT_MAX_NODES) {
+      normalized.maxNode = configuredMaxNodes();
+    }
+    return normalized;
+  }
 
   class RpcWorker {
     constructor() {
@@ -194,43 +227,45 @@
     }
 
     async send(cmd, param = {}) {
+      const normalized = cmd === "setGameRules" ? param : withConfiguredMaxNode(param);
       switch (cmd) {
-        case "setGameRules": return this.broadcastRules(param.rules);
-        case "findVCF": return this.main.call("findVCF", { ...param, rules: this.rules });
+        case "setGameRules": return this.broadcastRules(normalized.rules);
+        case "findVCF": return this.main.call("findVCF", { ...normalized, rules: this.rules });
         case "isVCF": {
           const result = await this.main.call("isVCF", {
-            arr: param.arr,
-            color: param.color,
-            moves: param.moves,
-            maxNode: param.maxNode,
+            arr: normalized.arr,
+            color: normalized.color,
+            moves: normalized.moves,
+            maxNode: normalized.maxNode,
             rules: this.rules,
           });
           return result.valid;
         }
         case "getBlockVCF": {
-          const result = await this.main.call("getBlockVCF", { ...param, rules: this.rules });
+          const result = await this.main.call("getBlockVCF", { ...normalized, rules: this.rules });
           return result.points;
         }
-        case "getLevelPoints": return this.main.call("getLevelPoints", { ...param, rules: this.rules });
-        case "trimVCFGroups": return this.main.call("trimVCFGroups", { ...param, rules: this.rules });
+        case "getLevelPoints": return this.main.call("getLevelPoints", { ...normalized, rules: this.rules });
+        case "trimVCFGroups": return this.main.call("trimVCFGroups", { ...normalized, rules: this.rules });
         default: throw new Error(`不支援的 C++ Wasm 指令：${cmd}`);
       }
     }
 
     async poolGetLevelPoints(param) {
+      const normalized = withConfiguredMaxNode(param);
       const [pool] = await Promise.all([this.ensurePool(), this.syncReady]);
-      const arr = Array.from(param.arr || []).slice(0, 225);
-      const attacker = Number(param.color) || 1;
-      const placeColor = Number(param.placeColor || param.color) || attacker;
-      const sourceIndices = Array.isArray(param.indices)
-        ? param.indices.filter(idx => arr[idx] === 0)
+      const arr = Array.from(normalized.arr || []).slice(0, 225);
+      const attacker = Number(normalized.color) || 1;
+      const placeColor = Number(normalized.placeColor || normalized.color) || attacker;
+      const sourceIndices = Array.isArray(normalized.indices)
+        ? normalized.indices.filter(idx => arr[idx] === 0)
         : Array.from({ length: 225 }, (_, idx) => idx).filter(idx => arr[idx] === 0);
       const chunks = Array.from({ length: pool.length }, () => []);
       sourceIndices.forEach((idx, i) => chunks[i % chunks.length].push(idx));
       const results = await Promise.all(pool.map((worker, i) => {
         if (!chunks[i].length) return Promise.resolve({ items: [], nodeCount: 0, elapsedMs: 0, aborted: false });
         return worker.call("getLevelPoints", {
-          ...param,
+          ...normalized,
           arr,
           indices: chunks[i],
           rules: this.rules,
@@ -266,6 +301,18 @@
     }
   }
 
+  function installGeneratorNodeLimit() {
+    if (typeof genEngine === "undefined" || !genEngine || typeof genEngine.post !== "function") return false;
+    if (genEngine.__configuredNodeLimitWrapped) return true;
+    const originalPost = genEngine.post.bind(genEngine);
+    genEngine.post = (cmd, param) => {
+      const normalized = cmd === "setGameRules" ? param : withConfiguredMaxNode(param);
+      return originalPost(cmd, normalized);
+    };
+    Object.defineProperty(genEngine, "__configuredNodeLimitWrapped", { value: true });
+    return true;
+  }
+
   const service = new BitboardEngineService();
   global.VCFBitboard = service;
   global.engineAPI = {
@@ -276,4 +323,9 @@
     poolCancel: () => service.cancel(),
     poolSetRules: rules => service.broadcastRules(rules),
   };
+
+  if (!installGeneratorNodeLimit()) {
+    global.addEventListener("DOMContentLoaded", installGeneratorNodeLimit, { once: true });
+    global.setTimeout(installGeneratorNodeLimit, 0);
+  }
 })(window);
