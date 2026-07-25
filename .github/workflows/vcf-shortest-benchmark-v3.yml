@@ -1,0 +1,101 @@
+name: VCF Shortest Benchmark V3
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'rapfi/vcf-shortest-benchmark.cpp'
+      - 'rapfi/vcf-shortest-benchmark-interleaved.cpp'
+      - '.github/workflows/vcf-shortest-benchmark-v3.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  EMSDK_VERSION: 3.1.74
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build Native interleaved benchmark
+        shell: bash
+        run: |
+          set -euxo pipefail
+          g++ rapfi/vcf-pattern-engine.cpp \
+              rapfi/vcf-bitboard-engine.cpp \
+              rapfi/vcf-bitboard-legacy-extra.cpp \
+              rapfi/vcf-shortest-benchmark-interleaved.cpp \
+              -O3 -flto -DNDEBUG -std=c++17 \
+              -o /tmp/vcf-shortest-interleaved-native
+
+      - name: Run Native interleaved benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/vcf-shortest-interleaved-native | tee /tmp/vcf-shortest-interleaved-native.txt
+
+      - name: Upload Native result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcf-shortest-native-v3
+          path: /tmp/vcf-shortest-interleaved-native.txt
+          if-no-files-found: warn
+
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Restore Emscripten SDK
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: .build/emsdk
+          key: vcf-emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Install Emscripten SDK
+        if: steps.emsdk-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf .build/emsdk
+          git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .build/emsdk
+          .build/emsdk/emsdk install "$EMSDK_VERSION"
+          .build/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: Build LTO SIMD Wasm interleaved benchmark
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .build/emsdk/emsdk_env.sh
+          em++ rapfi/vcf-pattern-engine.cpp \
+               rapfi/vcf-bitboard-engine.cpp \
+               rapfi/vcf-bitboard-legacy-extra.cpp \
+               rapfi/vcf-shortest-benchmark-interleaved.cpp \
+               -O3 -flto -DNDEBUG -std=c++17 -msimd128 \
+               -s ENVIRONMENT=node \
+               -s FILESYSTEM=0 \
+               -s ALLOW_MEMORY_GROWTH=1 \
+               -s MAXIMUM_MEMORY=2147483648 \
+               -o /tmp/vcf-shortest-interleaved-wasm.js
+
+      - name: Run LTO SIMD Wasm interleaved benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          node /tmp/vcf-shortest-interleaved-wasm.js | tee /tmp/vcf-shortest-interleaved-wasm.txt
+
+      - name: Upload Wasm result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcf-shortest-wasm-v3
+          path: /tmp/vcf-shortest-interleaved-wasm.txt
+          if-no-files-found: warn
