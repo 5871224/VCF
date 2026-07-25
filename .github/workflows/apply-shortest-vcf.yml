@@ -83,8 +83,6 @@ jobs:
                -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
                -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
                -o /tmp/vcf-shortest-build/vcf-bitboard-engine.js
-          cp /tmp/vcf-shortest-build/vcf-bitboard-engine.js rapfi/engine/vcf-bitboard-engine.js
-          cp /tmp/vcf-shortest-build/vcf-bitboard-engine.wasm rapfi/engine/vcf-bitboard-engine.wasm
 
       - name: Run Wasm ABI and 111-ply proof
         shell: bash
@@ -92,9 +90,10 @@ jobs:
           set -euxo pipefail
           node - <<'NODE'
           const path = require('path');
-          const createModule = require(path.resolve('rapfi/engine/vcf-bitboard-engine.js'));
+          const buildDir = '/tmp/vcf-shortest-build';
+          const createModule = require(path.join(buildDir, 'vcf-bitboard-engine.js'));
           const question = '000000000222000020000111000000000010020010000020100000021000001000200020100000020000000200012000000000010010000010000010010200001200010000000000000002001000000000100000100000201202000012002210000200000111000000020200000220000';
-          createModule({ locateFile: file => path.resolve('rapfi/engine', file) }).then(module => {
+          createModule({ locateFile: file => path.join(buildDir, file) }).then(module => {
             const selfTest = module.cwrap('vcfBbSelfTest', 'number', []);
             const searchTest = module.cwrap('vcfBbSearchV2SelfTest', 'number', []);
             const shortest = module.cwrap('vcfBbFindShortestOne', 'number', Array(9).fill('number'));
