@@ -151,6 +151,41 @@ function findVCF(param) {
   };
 }
 
+
+function findShortestVCF(param) {
+  if (!api.findShortestOne) throw new Error("目前 Wasm 不支援最短單組 VCF");
+  const board = toBoard(param.arr);
+  writeBoard(board);
+  const maxDepth = Math.max(1, Math.min(MAX_ROUTE_PLY, Number(param.maxDepth) || 200));
+  const maxNode = Math.max(1, Math.min(0xffffffff, Number(param.maxNode) || 5_000_000));
+  moduleInstance.HEAPU8.fill(0, ptr.moves, ptr.moves + MAX_ROUTE_PLY);
+  moduleInstance.HEAPU16[ptr.lengths >>> 1] = 0;
+
+  const status = api.findShortestOne(
+    ptr.board,
+    Number(param.color) || 1,
+    Number(param.rules ?? currentRules),
+    maxDepth,
+    maxNode,
+    ptr.moves,
+    ptr.lengths,
+    MAX_ROUTE_PLY,
+    ptr.stats,
+  );
+  const length = moduleInstance.HEAPU16[ptr.lengths >>> 1];
+  const route = length
+    ? Array.from(moduleInstance.HEAPU8.subarray(ptr.moves, ptr.moves + length))
+    : [];
+  return {
+    ...readStats(),
+    vcfCount: route.length ? 1 : 0,
+    winMoves: route.length ? [route] : [],
+    searchMode: "shortest-one",
+    shortestProven: status === 2,
+    bestKnown: status >= 1,
+  };
+}
+
 function validateRoute(param) {
   const board = toBoard(param.arr);
   writeBoard(board);
@@ -659,6 +694,9 @@ async function init(url) {
       findModeV3: moduleInstance._vcfBbFindModeV3
         ? moduleInstance.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"))
         : null,
+      findShortestOne: moduleInstance._vcfBbFindShortestOne
+        ? moduleInstance.cwrap("vcfBbFindShortestOne", "number", Array(9).fill("number"))
+        : null,
       validate: moduleInstance.cwrap("vcfBbValidateRoute", "number", Array(7).fill("number")),
       routeDefense: moduleInstance.cwrap("vcfBbRouteDefense", "number", Array(9).fill("number")),
       scan: moduleInstance.cwrap("vcfBbScanPoints", "number", Array(12).fill("number")),
@@ -708,6 +746,7 @@ self.onmessage = async event => {
         result = true;
         break;
       case "findVCF": result = findVCF(data || {}); break;
+      case "findShortestVCF": result = findShortestVCF(data || {}); break;
       case "isVCF": result = validateRoute(data || {}); break;
       case "getBlockVCF": result = getBlockVCF(data || {}); break;
       case "getLevelPoints": result = getLevelPoints(data || {}); break;

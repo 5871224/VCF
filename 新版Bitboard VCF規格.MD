@@ -36,11 +36,13 @@
 | `rapfi/vcf-bitboard-search-fast-part1.inc` ～ `part4.inc` | 單組 DFS、棋型掃描與候選處理 |
 | `rapfi/vcf-bitboard-search-single-tt-v5.inc` | 單組四路精確同型表 |
 | `rapfi/vcf-bitboard-search-exact-tt-v3.inc` | 多組完整盤面無解表 |
-| `rapfi/vcf-bitboard-search-time-limit-v4.inc` | 多組時間、節點限制與停止狀態 |
+| `rapfi/vcf-bitboard-search-time-limit-v4.inc` | 多組與最短單組的時間、節點限制與停止狀態 |
+| `rapfi/vcf-bitboard-search-shortest-one-v1.inc` | 保證最短的單組有界 DFS 與精確無解集合 |
 | `rapfi/vcf-bitboard-search-multi-v3.inc` | 多組與最少步搜尋、嚴格／高速剪枝 |
 | `rapfi/vcf-bitboard-worker.js` | Worker RPC、Wasm ABI 與統計資料 |
 | `rapfi/vcf-bitboard-main.js` | 主執行緒與 Worker 管理 |
 | `rapfi/rapfi-bitboard-dashboard.js` | 棋盤、搜尋選項、結果與進度 |
+| `rapfi/vcf-shortest-vcf-ui.js` | 「最短 VCF」按鈕、進度與完整證明狀態 |
 | `rapfi/rapfi-workbench-header.js` | Rapfi 連結與強制重新整理 |
 | `rapfi/rapfi-question-bank.js` | Supabase 共用題庫 |
 
@@ -96,6 +98,20 @@ makevcf-generator-core.js
 - 回傳該最短層內保留下來的多組路線。
 - 固定精簡。
 - 使用與 `multi` 相同的同型表與剪枝規則。
+
+### 3.4 `shortest-one`
+
+用途：只回傳一組已證明最短的 VCF。
+
+- 全程單執行緒，不拆分根候選。
+- 先在最大深度內找到任一組路線，作為目前最佳上限。
+- 合法 VCF 路線長度必為奇數 ply；尋找更短反例時固定使用 `bestPly - 2`，不使用 `bestPly - 1`。
+- 找到更短反例後更新最佳路線，再以新的 `bestPly - 2` 繼續。
+- 同一次搜尋的各次縮限共用完整黑白盤面無解集合；只有完整證明失敗的盤面可寫入。
+- 無解集合最多保存 524,288 個盤面；容量滿後停止新增，不覆蓋既有項目。
+- 較短範圍完整無解時才設定 `shortestProven = true`。
+- 因時間或節點限制中止時保留目前最佳路線，但介面只能顯示「尚未證明為最短」。
+- 工作台按鈕名稱為「最短 VCF」，使用與多組搜尋相同的時間與節點限制輸入。
 
 ## 4. 多組路線處理
 

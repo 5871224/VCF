@@ -58,6 +58,7 @@ static int singleFourWayTransTableV5SelfTest()
 // 不會改寫單組四路同型表、第一組立即返回或單組 DFS 熱路徑。
 #include "vcf-bitboard-search-exact-tt-v3.inc"
 #include "vcf-bitboard-search-time-limit-v4.inc"
+#include "vcf-bitboard-search-shortest-one-v1.inc"
 #define LegacyTransTable ExactPositionTransTableV3
 #define SearchContext TimedSearchContextV4
 #define writeStats writeStatsMultiV4
@@ -120,6 +121,9 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
     const int singleTtResult = singleFourWayTransTableV5SelfTest();
     if (singleTtResult != 0)
         return 100 + singleTtResult;
+    const int shortestResult = shortestOneV1SelfTest();
+    if (shortestResult != 0)
+        return shortestResult;
     const int multiResult = vcfBbSearchV2SelfTestMultiV3();
     if (multiResult != 0)
         return multiResult;
