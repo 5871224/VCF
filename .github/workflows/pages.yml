@@ -41,14 +41,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/vcf-pattern-engine
-          key: vcf-pattern-engine-lto-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp') }}
+          key: vcf-pattern-engine-lto-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp') }}
 
       - name: Restore Bitboard VCF engine cache
         id: bitboard-cache
         uses: actions/cache@v4
         with:
           path: .cache/vcf-bitboard-engine
-          key: vcf-bitboard-engine-lto-v3-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
+          key: vcf-bitboard-engine-lto-v4-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
 
       - name: Install Emscripten SDK
         if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true'
@@ -109,7 +109,7 @@ jobs:
           rm -rf .cache/vcf-pattern-engine
           mkdir -p .cache/vcf-pattern-engine
 
-          g++ rapfi/vcf-pattern-engine.cpp \
+          g++ rapfi/vcf-pattern-engine-optimized.cpp \
             -O3 \
             -flto \
             -DNDEBUG \
@@ -118,7 +118,7 @@ jobs:
             -o /tmp/vcf-pattern-engine-test
           /tmp/vcf-pattern-engine-test
 
-          em++ rapfi/vcf-pattern-engine.cpp \
+          em++ rapfi/vcf-pattern-engine-optimized.cpp \
             -O3 \
             -flto \
             -DNDEBUG \
@@ -131,7 +131,7 @@ jobs:
             -s ENVIRONMENT=worker \
             -s FILESYSTEM=0 \
             -s ALLOW_MEMORY_GROWTH=1 \
-            -s "EXPORTED_FUNCTIONS=['_vcfAnalyzePoint','_vcfLookupBenchmark','_vcfPatternSelfTest','_malloc','_free']" \
+            -s "EXPORTED_FUNCTIONS=['_vcfAnalyzePoint','_vcfAnalyzeForbidden','_vcfLookupBenchmark','_vcfPatternSelfTest','_malloc','_free']" \
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-pattern-engine/vcf-pattern-engine.js
 
@@ -148,7 +148,7 @@ jobs:
           mkdir -p .cache/vcf-bitboard-engine
 
           # 搜尋核心與棋型核心以獨立 VCF 原始碼連結；不包含 Rapfi 原始碼。
-          g++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
+          g++ rapfi/vcf-pattern-engine-optimized.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
             -O3 \
             -flto \
             -DNDEBUG \
@@ -157,7 +157,7 @@ jobs:
             -o /tmp/vcf-bitboard-engine-test
           /tmp/vcf-bitboard-engine-test
 
-          em++ rapfi/vcf-pattern-engine.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
+          em++ rapfi/vcf-pattern-engine-optimized.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
             -O3 \
             -flto \
             -DNDEBUG \
@@ -213,7 +213,7 @@ jobs:
           cp makevcf-generator-*.js _site/
           cp makevcf-mobile.js makevcf-layout.js makevcf-optimized-search-v2.js _site/
           cp pattern-compare.js pattern-compare.html _site/
-          cp README.md 規格書.MD 題目產生器規格.MD _site/
+          cp README.md 規格書.MD 題目產生器規格.MD 禁手判斷規格.MD _site/
           cp -R eval emoji bitboard rapfi _site/
           mkdir -p _site/rapfi/engine
           cp .cache/rapfi-wasm/rapfi-single-simd128.* _site/rapfi/engine/
@@ -289,6 +289,7 @@ jobs:
           <script src="makevcf-layout.js"></script>
           <script src="rapfi/rapfi-bitboard-dashboard.js"></script>
           <script src="rapfi/vcf-shortest-vcf-ui.js"></script>
+          <script src="rapfi/vcf-forbidden-overlay.js"></script>
           '''
           rapfi_text = rapfi_text.replace("</body>", rapfi_scripts + "\n</body>")
           rapfi_path.write_text(rapfi_text, encoding="utf-8")
@@ -299,6 +300,7 @@ jobs:
           assert 'vcf-bitboard-generator-compat.js' in rapfi_text
           assert 'rapfi-bitboard-dashboard.js' in rapfi_text
           assert 'vcf-shortest-vcf-ui.js' in rapfi_text
+          assert 'vcf-forbidden-overlay.js' in rapfi_text
           assert 'eval/EvaluatorCore.js' not in rapfi_scripts
           assert Path("_site/rapfi/lab.html").is_file()
           PY
@@ -306,7 +308,7 @@ jobs:
           touch _site/.nojekyll
           du -sh _site
           ls -lh _site/rapfi/engine
-          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard\|vcf-shortest-vcf-ui" _site/rapfi/index.html
+          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard\|vcf-shortest-vcf-ui\|vcf-forbidden-overlay" _site/rapfi/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
