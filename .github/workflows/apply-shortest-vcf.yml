@@ -130,6 +130,6 @@ jobs:
           set -euxo pipefail
           git config user.name "OpenAI"
           git config user.email "openai@users.noreply.github.com"
-          git add -A
+          git add AGENTS.md "新版Bitboard VCF規格.MD" rapfi
           git commit -m "新增保證最短 VCF 搜尋"
           git push origin HEAD:agent/implement-shortest-vcf
