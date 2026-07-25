@@ -48,7 +48,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .cache/vcf-bitboard-engine
-          key: vcf-bitboard-engine-lto-v2-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
+          key: vcf-bitboard-engine-lto-v3-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
 
       - name: Install Emscripten SDK
         if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true'
@@ -170,7 +170,7 @@ jobs:
             -s ENVIRONMENT='web,worker,node' \
             -s FILESYSTEM=0 \
             -s ALLOW_MEMORY_GROWTH=1 \
-            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
+            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
 
@@ -185,12 +185,13 @@ jobs:
             const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
             const searchV2SelfTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
             const findModeV3 = module.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"));
+            const findShortestOne = module.cwrap("vcfBbFindShortestOne", "number", Array(9).fill("number"));
             const scanModeV3 = module.cwrap("vcfBbScanPointsModeV3", "number", Array(15).fill("number"));
             const result = selfTest();
             const searchResult = searchV2SelfTest();
             if (result !== 0) throw new Error(`Wasm self-test failed: ${result}`);
             if (searchResult !== 0) throw new Error(`Wasm search V2 self-test failed: ${searchResult}`);
-            if (typeof findModeV3 !== "function" || typeof scanModeV3 !== "function") {
+            if (typeof findModeV3 !== "function" || typeof findShortestOne !== "function" || typeof scanModeV3 !== "function") {
               throw new Error("Optimized V3 exports are unavailable");
             }
             console.log("Bitboard Wasm runtime self-tests: 0 / 0; optimized V3 exports ready");
@@ -287,6 +288,7 @@ jobs:
           <script src="makevcf-generator-summary.js"></script>
           <script src="makevcf-layout.js"></script>
           <script src="rapfi/rapfi-bitboard-dashboard.js"></script>
+          <script src="rapfi/vcf-shortest-vcf-ui.js"></script>
           '''
           rapfi_text = rapfi_text.replace("</body>", rapfi_scripts + "\n</body>")
           rapfi_path.write_text(rapfi_text, encoding="utf-8")
@@ -296,6 +298,7 @@ jobs:
           assert 'vcf-bitboard-main.js' in rapfi_text
           assert 'vcf-bitboard-generator-compat.js' in rapfi_text
           assert 'rapfi-bitboard-dashboard.js' in rapfi_text
+          assert 'vcf-shortest-vcf-ui.js' in rapfi_text
           assert 'eval/EvaluatorCore.js' not in rapfi_scripts
           assert Path("_site/rapfi/lab.html").is_file()
           PY
@@ -303,7 +306,7 @@ jobs:
           touch _site/.nojekyll
           du -sh _site
           ls -lh _site/rapfi/engine
-          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard" _site/rapfi/index.html
+          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard\|vcf-shortest-vcf-ui" _site/rapfi/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
