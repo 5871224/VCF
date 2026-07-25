@@ -34,7 +34,15 @@
     const packLimits = (seconds, millions) => (
       0x80000000 + seconds * 1024 + millions
     ) >>> 0;
-    const formatNodes = value => `${Number(value || 0).toLocaleString("zh-TW")} 節點`;
+    const formatInteger = value => {
+      const number = Number(value);
+      return Math.max(0, Math.round(Number.isFinite(number) ? number : 0)).toLocaleString("zh-TW");
+    };
+    const formatNodes = value => `${formatInteger(value)} 節點`;
+    const formatRate = (nodes, elapsedSeconds) => {
+      const rate = elapsedSeconds > 0 ? Number(nodes || 0) / elapsedSeconds : 0;
+      return `${formatInteger(rate)} 節點/秒`;
+    };
     const showStatus = message => {
       if (typeof setStatus === "function") setStatus(message);
       else console.log(message);
@@ -83,8 +91,9 @@
         timer = 0;
 
         const route = info?.winMoves?.[0] || [];
-        const elapsedText = `${((performance.now() - started) / 1000).toFixed(3)} 秒`;
-        const statsText = `${elapsedText}，${formatNodes(info?.nodeCount)}`;
+        const elapsedSeconds = (performance.now() - started) / 1000;
+        const nodeCount = Number(info?.nodeCount || 0);
+        const statsText = `${elapsedSeconds.toFixed(6)} 秒，${formatNodes(nodeCount)}，${formatRate(nodeCount, elapsedSeconds)}`;
 
         if (route.length) {
           try { lastVCFMoves = route; } catch (_) {}

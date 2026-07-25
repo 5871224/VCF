@@ -177,19 +177,16 @@
     const fingerprint = (arr, color) => `${currentRules()}|${color}|${Array.from(arr).slice(0, POINTS).join("")}`;
 
     function rate(nodes, seconds) {
-      if (!Number.isFinite(nodes) || seconds <= 0) return "—";
-      const value = nodes / seconds;
-      return value >= 1e6 ? `${(value / 1e6).toFixed(2)}M nodes/s`
-        : value >= 1000 ? `${(value / 1000).toFixed(1)}K nodes/s`
-        : `${Math.round(value)} nodes/s`;
-    }
+    if (!Number.isFinite(nodes) || seconds <= 0) return "0 節點/秒";
+    return `${formatSearchInteger(nodes / seconds)} 節點/秒`;
+  }
 
     function resultText(result) {
       if (!result) return "尚未測試";
       const nodeText = result.nodeText || fmtNodes(result.nodes);
       const rateText = result.rateText || rate(result.nodes, result.seconds);
       const outcome = result.found ? `找到 ${result.moves} 手` : "未找到";
-      return `${result.seconds.toFixed(6)}s｜${nodeText}｜${rateText}｜${outcome}${result.mode ? `｜${result.mode}` : ""}`;
+      return `${result.seconds.toFixed(6)} 秒，${nodeText}，${rateText}，${outcome}${result.mode ? `；${result.mode}` : ""}`;
     }
 
     function render() {
@@ -246,9 +243,9 @@
         text.startsWith("搜索失敗");
       if (!complete) return;
 
-      const timeMatch = text.match(/（([\d.]+)s[，）]/);
-      const nodeMatch = text.match(/，([\d.]+[MK]? nodes)/);
-      const rateMatch = text.match(/，([\d.]+[MK]? nodes\/s)）/);
+      const timeMatch = text.match(/（([\d.]+) 秒[，）]/);
+      const nodeMatch = text.match(/，([\d,]+ 節點)/);
+      const rateMatch = text.match(/，([\d,]+ 節點\/秒)(?:[；）])/);
       const moveMatch = text.match(/共\s*(\d+)\s*手/);
       results.original = {
         fingerprint: originalPending.fingerprint,
@@ -328,7 +325,7 @@
           document.getElementById("btn-block-vcf").disabled = false;
         }
 
-        setStatus(`優化 ${name} VCF ${found ? `找到，共 ${route.length} 手` : "未找到"}（${seconds.toFixed(6)}s，${fmtNodes(nodes)}，${rate(nodes, seconds)}；${mode}）`);
+        setStatus(`優化 ${name} VCF ${found ? `找到，共 ${route.length} 手` : "未找到"}（${seconds.toFixed(6)} 秒，${fmtNodes(nodes)}，${rate(nodes, seconds)}；${mode}）`);
         results.optimized = {
           fingerprint: currentFingerprint,
           seconds,

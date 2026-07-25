@@ -321,7 +321,7 @@
         const groups = await engine.trimVCFGroups({ arr, groups: rawGroups, color });
         if (!groups) return;
         if (!groups.length) {
-          setStatus(`${cName} VCF 後處理後無結果（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}）`);
+          setStatus(`${cName} VCF 後處理後無結果（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}）`);
           return;
         }
 
