@@ -8,6 +8,7 @@
 - 不保留修改歷程、版本沿革、已淘汰方案、過時預設值、過渡作法或尚未實作的方案。
 - 不以附註方式保留互相衝突的新舊規則。
 - 完成修改前，必須確認相關 Markdown 與正式程式一致。
+- 由 GitHub Actions 產生程式提交後，必須再以一般 `main` 分支提交或手動執行 `workflow_dispatch` 觸發 Pages 部署，避免 `GITHUB_TOKEN` 推送未產生新的部署流程。
 
 ## Bitboard 工作台
 
