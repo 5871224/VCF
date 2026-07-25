@@ -325,6 +325,11 @@
     poolSetRules: rules => service.broadcastRules(rules),
   };
 
+  const shortestUiScript = document.createElement("script");
+  shortestUiScript.src = new URL("rapfi/vcf-shortest-vcf-ui.js", document.baseURI).href;
+  shortestUiScript.defer = true;
+  document.head.appendChild(shortestUiScript);
+
   if (!installGeneratorNodeLimit()) {
     global.addEventListener("DOMContentLoaded", installGeneratorNodeLimit, { once: true });
     global.setTimeout(installGeneratorNodeLimit, 0);
