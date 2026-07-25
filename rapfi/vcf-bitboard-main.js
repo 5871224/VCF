@@ -17,7 +17,8 @@
       }
     } catch (_) {}
 
-    const parsed = Math.trunc(Number(raw));
+    const hasConfiguredValue = raw != null && String(raw).trim() !== "";
+    const parsed = hasConfiguredValue ? Math.trunc(Number(raw)) : NaN;
     const millions = Number.isFinite(parsed)
       ? Math.max(0, Math.min(1023, parsed))
       : DEFAULT_NODE_MILLIONS;
