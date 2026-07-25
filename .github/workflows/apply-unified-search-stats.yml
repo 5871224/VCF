@@ -83,13 +83,21 @@ jobs:
           )
           text = replace_once(
               text,
-              '''      const timeMatch = text.match(/（([\\d.]+)s[，）]/);
-                    const nodeMatch = text.match(/，([\\d.]+[MK]? nodes)/);
-                    const rateMatch = text.match(/，([\\d.]+[MK]? nodes\\/s)）/);''',
-              '''      const timeMatch = text.match(/（([\\d.]+) 秒[，）]/);
-                    const nodeMatch = text.match(/，([\\d,]+ 節點)/);
-                    const rateMatch = text.match(/，([\\d,]+ 節點\\/秒)(?:[；）])/);''',
-              "原版結果解析格式",
+              'const timeMatch = text.match(/（([\\d.]+)s[，）]/);',
+              'const timeMatch = text.match(/（([\\d.]+) 秒[，）]/);',
+              "原版耗時解析格式",
+          )
+          text = replace_once(
+              text,
+              'const nodeMatch = text.match(/，([\\d.]+[MK]? nodes)/);',
+              'const nodeMatch = text.match(/，([\\d,]+ 節點)/);',
+              "原版節點解析格式",
+          )
+          text = replace_once(
+              text,
+              'const rateMatch = text.match(/，([\\d.]+[MK]? nodes\\/s)）/);',
+              'const rateMatch = text.match(/，([\\d,]+ 節點\\/秒)(?:[；）])/);',
+              "原版速度解析格式",
           )
           text = replace_once(
               text,
@@ -119,10 +127,10 @@ jobs:
           text = replace_once(
               text,
               '''        const elapsedText = `${((performance.now() - started) / 1000).toFixed(3)} 秒`;
-                      const statsText = `${elapsedText}，${formatNodes(info?.nodeCount)}`;''',
+                  const statsText = `${elapsedText}，${formatNodes(info?.nodeCount)}`;''',
               '''        const elapsedSeconds = (performance.now() - started) / 1000;
-                      const nodeCount = Number(info?.nodeCount || 0);
-                      const statsText = `${elapsedSeconds.toFixed(6)} 秒，${formatNodes(nodeCount)}，${formatRate(nodeCount, elapsedSeconds)}`;''',
+                  const nodeCount = Number(info?.nodeCount || 0);
+                  const statsText = `${elapsedSeconds.toFixed(6)} 秒，${formatNodes(nodeCount)}，${formatRate(nodeCount, elapsedSeconds)}`;''',
               "最短 VCF 完成統計",
           )
           path.write_text(text, encoding="utf-8")
