@@ -1,0 +1,421 @@
+name: VCF Shortest Benchmark
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/vcf-shortest-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build benchmark
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat > /tmp/vcf-shortest-benchmark.cpp <<'CPP'
+          #include <algorithm>
+          #include <atomic>
+          #include <chrono>
+          #include <cstdint>
+          #include <iomanip>
+          #include <iostream>
+          #include <numeric>
+          #include <string>
+          #include <thread>
+          #include <unordered_set>
+          #include <utility>
+          #include <vector>
+
+          #include "rapfi/vcf-bitboard-search-v2.cpp"
+
+          namespace {
+
+          constexpr const char *QUESTION_BOARD =
+              "000000000222000020000111000000000010020010000020100000021000001000200020100000020000000200012000000000010010000010000010010200001200010000000000000002001000000000100000100000201202000012002210000200000111000000020200000220000";
+
+          struct BenchResult {
+              bool found = false;
+              bool aborted = false;
+              uint64_t nodes = 0;
+              int maxPly = 0;
+              int rootCandidates = 0;
+              size_t routeLength = 0;
+              size_t ttEntries = 0;
+              double milliseconds = 0.0;
+          };
+
+          std::array<uint8_t, BOARD_CELLS> loadQuestion()
+          {
+              const std::string text = QUESTION_BOARD;
+              if (text.size() != BOARD_CELLS)
+                  throw std::runtime_error("question board length mismatch");
+              std::array<uint8_t, BOARD_CELLS> board {};
+              for (int i = 0; i < BOARD_CELLS; i++) {
+                  if (text[i] < '0' || text[i] > '2')
+                      throw std::runtime_error("question board contains invalid cell");
+                  board[i] = uint8_t(text[i] - '0');
+              }
+              return board;
+          }
+
+          BenchResult productionSearch(const std::array<uint8_t, BOARD_CELLS> &board,
+                                       int maxDepth,
+                                       uint32_t maxNodes = std::numeric_limits<uint32_t>::max())
+          {
+              Position position;
+              position.load(board.data());
+              SearchContext ctx;
+              int roots = 0;
+              const auto start = std::chrono::steady_clock::now();
+              const auto routes = runAtDepth(position, board.data(), BLACK, RENJU, 1, false,
+                                             maxDepth, maxNodes, ctx, roots);
+              const auto end = std::chrono::steady_clock::now();
+              BenchResult result;
+              result.found = !routes.empty();
+              result.aborted = ctx.aborted;
+              result.nodes = ctx.nodes;
+              result.maxPly = ctx.maxPlySeen;
+              result.rootCandidates = roots;
+              result.routeLength = routes.empty() ? 0 : routes.front().size();
+              result.milliseconds = std::chrono::duration<double, std::milli>(end - start).count();
+              return result;
+          }
+
+          class ExactSetTT {
+          public:
+              explicit ExactSetTT(size_t reserveHint = 0)
+              {
+                  if (reserveHint)
+                      table.reserve(reserveHint);
+                  table.max_load_factor(0.82f);
+              }
+
+              bool has(const Position &position) const
+              {
+                  const CompactPosition key {position.board.black, position.board.white, position.board.hash};
+                  return table.find(key) != table.end();
+              }
+
+              void store(const Position &position)
+              {
+                  table.insert({position.board.black, position.board.white, position.board.hash});
+              }
+
+              size_t size() const { return table.size(); }
+
+          private:
+              std::unordered_set<CompactPosition, CompactPositionHasher> table;
+          };
+
+          template<typename TT>
+          struct ExistsRunner {
+              int attacker = BLACK;
+              int rule = RENJU;
+              int maxDepth = 110;
+              SearchContext *ctx = nullptr;
+              TT *tt = nullptr;
+              std::atomic<bool> *cancel = nullptr;
+              std::vector<CandidateList> candidatesByDepth;
+              CandidateBuildScratch scratch;
+              int rootCandidates = 0;
+
+              bool stopped() const
+              {
+                  return ctx->aborted || (cancel && cancel->load(std::memory_order_relaxed));
+              }
+
+              bool dfs(Position &position, int ply, int lastDefense, int center)
+              {
+                  if (stopped() || ply >= maxDepth)
+                      return false;
+                  if (tt->has(position))
+                      return false;
+
+                  const int defender = 3 - attacker;
+                  const Threat counter = ply == 0
+                      ? scanThreatAll(position, defender, rule)
+                      : scanThreatThrough(position, lastDefense, defender, rule);
+                  if (counter.hasFive || counter.count >= 2) {
+                      tt->store(position);
+                      return false;
+                  }
+                  const int forcedPoint = counter.count == 1 ? counter.points[0] : NIL;
+
+                  CandidateList &candidates = candidatesByDepth[
+                      std::min<size_t>(size_t(ply / 2), candidatesByDepth.size() - 1)
+                  ];
+                  scanCandidates(position, attacker, rule, forcedPoint, center, scratch, candidates);
+                  if (ply == 0)
+                      rootCandidates = candidates.count;
+
+                  for (int i = 0; i < candidates.count; i++) {
+                      const Candidate candidate = candidates.items[i];
+                      if (stopped() || !ctx->touch(ply + 1))
+                          break;
+
+                      position.play(candidate.idx, attacker);
+                      bool terminalWin = candidate.immediate || candidate.defenseCount >= 2;
+                      bool childWin = false;
+                      if (!terminalWin && candidate.defenseCount == 1) {
+                          const int defense = candidate.defenses[0];
+                          if (!fullLegal(position.board, defense, defender, rule)) {
+                              terminalWin = true;
+                          }
+                          else if (ply + 2 <= maxDepth) {
+                              position.play(defense, defender);
+                              childWin = dfs(position, ply + 2, defense, candidate.idx);
+                              position.undo(defense);
+                          }
+                      }
+                      position.undo(candidate.idx);
+
+                      if (terminalWin || childWin) {
+                          if (cancel)
+                              cancel->store(true, std::memory_order_relaxed);
+                          return true;
+                      }
+                  }
+
+                  if (!stopped())
+                      tt->store(position);
+                  return false;
+              }
+          };
+
+          BenchResult exactSetSearch(const std::array<uint8_t, BOARD_CELLS> &board, int maxDepth)
+          {
+              Position position;
+              position.load(board.data());
+              SearchContext ctx;
+              ctx.maxDepth = maxDepth;
+              ctx.maxNodes = std::numeric_limits<uint32_t>::max();
+              ExactSetTT tt(1000000);
+              ExistsRunner<ExactSetTT> runner;
+              runner.maxDepth = maxDepth;
+              runner.ctx = &ctx;
+              runner.tt = &tt;
+              runner.candidatesByDepth.resize(size_t(maxDepth / 2 + 2));
+
+              const auto start = std::chrono::steady_clock::now();
+              const bool found = runner.dfs(position, 0, -1, CENTER);
+              const auto end = std::chrono::steady_clock::now();
+
+              BenchResult result;
+              result.found = found;
+              result.aborted = ctx.aborted;
+              result.nodes = ctx.nodes;
+              result.maxPly = ctx.maxPlySeen;
+              result.rootCandidates = runner.rootCandidates;
+              result.ttEntries = tt.size();
+              result.milliseconds = std::chrono::duration<double, std::milli>(end - start).count();
+              return result;
+          }
+
+          CandidateList rootCandidatesFor(const std::array<uint8_t, BOARD_CELLS> &board)
+          {
+              Position position;
+              position.load(board.data());
+              const Threat counter = scanThreatAll(position, WHITE, RENJU);
+              CandidateList candidates;
+              if (counter.hasFive || counter.count >= 2)
+                  return candidates;
+              const int forced = counter.count == 1 ? counter.points[0] : NIL;
+              CandidateBuildScratch scratch;
+              scanCandidates(position, BLACK, RENJU, forced, CENTER, scratch, candidates);
+              return candidates;
+          }
+
+          struct ParallelTotals {
+              std::atomic<uint64_t> nodes {0};
+              std::atomic<int> maxPly {0};
+              std::atomic<size_t> ttEntries {0};
+          };
+
+          void updateMax(std::atomic<int> &target, int value)
+          {
+              int current = target.load(std::memory_order_relaxed);
+              while (current < value &&
+                     !target.compare_exchange_weak(current, value, std::memory_order_relaxed)) {}
+          }
+
+          BenchResult parallelRootSearch(const std::array<uint8_t, BOARD_CELLS> &board,
+                                         int maxDepth,
+                                         int requestedThreads)
+          {
+              const CandidateList roots = rootCandidatesFor(board);
+              const int threadCount = std::max(1, std::min(requestedThreads, roots.count));
+              std::atomic<int> nextRoot {0};
+              std::atomic<bool> found {false};
+              ParallelTotals totals;
+              const auto start = std::chrono::steady_clock::now();
+
+              std::vector<std::thread> workers;
+              workers.reserve(threadCount);
+              for (int worker = 0; worker < threadCount; worker++) {
+                  workers.emplace_back([&]() {
+                      ExactSetTT tt(700000);
+                      while (!found.load(std::memory_order_relaxed)) {
+                          const int rootIndex = nextRoot.fetch_add(1, std::memory_order_relaxed);
+                          if (rootIndex >= roots.count)
+                              break;
+
+                          Position position;
+                          position.load(board.data());
+                          const Candidate candidate = roots.items[rootIndex];
+                          SearchContext ctx;
+                          ctx.maxDepth = maxDepth;
+                          ctx.maxNodes = std::numeric_limits<uint32_t>::max();
+                          if (!ctx.touch(1))
+                              continue;
+
+                          position.play(candidate.idx, BLACK);
+                          bool branchWin = candidate.immediate || candidate.defenseCount >= 2;
+                          if (!branchWin && candidate.defenseCount == 1) {
+                              const int defense = candidate.defenses[0];
+                              if (!fullLegal(position.board, defense, WHITE, RENJU)) {
+                                  branchWin = true;
+                              }
+                              else if (2 <= maxDepth) {
+                                  position.play(defense, WHITE);
+                                  ExistsRunner<ExactSetTT> runner;
+                                  runner.maxDepth = maxDepth;
+                                  runner.ctx = &ctx;
+                                  runner.tt = &tt;
+                                  runner.cancel = &found;
+                                  runner.candidatesByDepth.resize(size_t(maxDepth / 2 + 2));
+                                  branchWin = runner.dfs(position, 2, defense, candidate.idx);
+                                  position.undo(defense);
+                              }
+                          }
+                          position.undo(candidate.idx);
+
+                          totals.nodes.fetch_add(ctx.nodes, std::memory_order_relaxed);
+                          updateMax(totals.maxPly, ctx.maxPlySeen);
+                          if (branchWin)
+                              found.store(true, std::memory_order_relaxed);
+                      }
+                      totals.ttEntries.fetch_add(tt.size(), std::memory_order_relaxed);
+                  });
+              }
+              for (auto &worker : workers)
+                  worker.join();
+
+              const auto end = std::chrono::steady_clock::now();
+              BenchResult result;
+              result.found = found.load();
+              result.nodes = totals.nodes.load();
+              result.maxPly = totals.maxPly.load();
+              result.rootCandidates = roots.count;
+              result.ttEntries = totals.ttEntries.load();
+              result.milliseconds = std::chrono::duration<double, std::milli>(end - start).count();
+              return result;
+          }
+
+          template<typename Fn>
+          BenchResult medianRun(int repetitions, Fn &&fn)
+          {
+              std::vector<BenchResult> results;
+              results.reserve(repetitions);
+              for (int i = 0; i < repetitions; i++)
+                  results.push_back(fn());
+              std::sort(results.begin(), results.end(), [](const BenchResult &a, const BenchResult &b) {
+                  return a.milliseconds < b.milliseconds;
+              });
+              return results[results.size() / 2];
+          }
+
+          void printResult(const char *name, const BenchResult &result)
+          {
+              std::cout << name
+                        << " found=" << result.found
+                        << " aborted=" << result.aborted
+                        << " roots=" << result.rootCandidates
+                        << " nodes=" << result.nodes
+                        << " maxPly=" << result.maxPly
+                        << " route=" << result.routeLength
+                        << " tt=" << result.ttEntries
+                        << " ms=" << std::fixed << std::setprecision(3) << result.milliseconds
+                        << '\n';
+          }
+
+          } // namespace
+
+          int main()
+          {
+              const auto board = loadQuestion();
+              std::cout << "hardware_concurrency=" << std::thread::hardware_concurrency() << '\n';
+
+              const BenchResult best = productionSearch(board, 200, 50000000);
+              printResult("find-current", best);
+              if (!best.found || best.routeLength != 111 || best.aborted) {
+                  std::cerr << "expected a complete 111-ply route\n";
+                  return 2;
+              }
+
+              constexpr int BOUND = 110;
+              const BenchResult warmup = productionSearch(board, BOUND);
+              printResult("v1-warmup", warmup);
+              if (warmup.found || warmup.aborted || warmup.rootCandidates != 18) {
+                  std::cerr << "production bounded proof did not reproduce expected no-win/18-root result\n";
+                  return 3;
+              }
+
+              const BenchResult v1 = medianRun(7, [&]() { return productionSearch(board, BOUND); });
+              const BenchResult v2Exact = medianRun(5, [&]() { return exactSetSearch(board, BOUND); });
+              const BenchResult v2Parallel2 = medianRun(5, [&]() { return parallelRootSearch(board, BOUND, 2); });
+              const BenchResult v2Parallel4 = medianRun(5, [&]() { return parallelRootSearch(board, BOUND, 4); });
+
+              printResult("v1-production-fixed-tt", v1);
+              printResult("v2-exact-set-single", v2Exact);
+              printResult("v2-root-parallel-2", v2Parallel2);
+              printResult("v2-root-parallel-4", v2Parallel4);
+
+              if (v1.found || v2Exact.found || v2Parallel2.found || v2Parallel4.found) {
+                  std::cerr << "a shorter route was unexpectedly found\n";
+                  return 4;
+              }
+
+              std::vector<std::pair<std::string, double>> ranking {
+                  {"v1-production-fixed-tt", v1.milliseconds},
+                  {"v2-exact-set-single", v2Exact.milliseconds},
+                  {"v2-root-parallel-2", v2Parallel2.milliseconds},
+                  {"v2-root-parallel-4", v2Parallel4.milliseconds},
+              };
+              std::sort(ranking.begin(), ranking.end(), [](const auto &a, const auto &b) {
+                  return a.second < b.second;
+              });
+              std::cout << "winner=" << ranking.front().first
+                        << " ms=" << std::fixed << std::setprecision(3) << ranking.front().second << '\n';
+              return 0;
+          }
+          CPP
+
+          g++ rapfi/vcf-pattern-engine.cpp \
+              rapfi/vcf-bitboard-engine.cpp \
+              rapfi/vcf-bitboard-legacy-extra.cpp \
+              /tmp/vcf-shortest-benchmark.cpp \
+              -I. -O3 -flto -DNDEBUG -std=c++17 -pthread \
+              -o /tmp/vcf-shortest-benchmark
+
+      - name: Run benchmark
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/vcf-shortest-benchmark | tee /tmp/vcf-shortest-benchmark.txt
+
+      - name: Upload result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcf-shortest-benchmark
+          path: /tmp/vcf-shortest-benchmark.txt
+          if-no-files-found: warn
