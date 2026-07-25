@@ -186,7 +186,7 @@
       const nodeText = result.nodeText || fmtNodes(result.nodes);
       const rateText = result.rateText || rate(result.nodes, result.seconds);
       const outcome = result.found ? `找到 ${result.moves} 手` : "未找到";
-      return `${result.seconds.toFixed(6)} 秒，${nodeText}，${rateText}，${outcome}${result.mode ? `；${result.mode}` : ""}`;
+      return `${result.seconds.toFixed(4)} 秒，${nodeText}，${rateText}，${outcome}${result.mode ? `；${result.mode}` : ""}`;
     }
 
     function render() {
@@ -325,7 +325,7 @@
           document.getElementById("btn-block-vcf").disabled = false;
         }
 
-        setStatus(`優化 ${name} VCF ${found ? `找到，共 ${route.length} 手` : "未找到"}（${seconds.toFixed(6)} 秒，${fmtNodes(nodes)}，${rate(nodes, seconds)}；${mode}）`);
+        setStatus(`優化 ${name} VCF ${found ? `找到，共 ${route.length} 手` : "未找到"}（${seconds.toFixed(4)} 秒，${fmtNodes(nodes)}，${rate(nodes, seconds)}；${mode}）`);
         results.optimized = {
           fingerprint: currentFingerprint,
           seconds,

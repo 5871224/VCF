@@ -93,7 +93,7 @@
         const route = info?.winMoves?.[0] || [];
         const elapsedSeconds = (performance.now() - started) / 1000;
         const nodeCount = Number(info?.nodeCount || 0);
-        const statsText = `${elapsedSeconds.toFixed(6)} 秒，${formatNodes(nodeCount)}，${formatRate(nodeCount, elapsedSeconds)}`;
+        const statsText = `${elapsedSeconds.toFixed(4)} 秒，${formatNodes(nodeCount)}，${formatRate(nodeCount, elapsedSeconds)}`;
 
         if (route.length) {
           try { lastVCFMoves = route; } catch (_) {}

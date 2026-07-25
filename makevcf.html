@@ -592,7 +592,7 @@ function formatSearchInteger(value) {
   const rounded = Math.max(0, Math.round(Number.isFinite(number) ? number : 0));
   return rounded.toLocaleString("zh-TW");
 }
-function elapsed(t0) { return `${((performance.now() - t0) / 1000).toFixed(6)} 秒`; }
+function elapsed(t0) { return `${((performance.now() - t0) / 1000).toFixed(4)} 秒`; }
 function fmtNodes(n) { return `${formatSearchInteger(n)} 節點`; }
 function fmtRate(nodes, t0) {
   const sec = (performance.now() - t0) / 1000;
