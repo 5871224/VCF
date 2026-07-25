@@ -1,0 +1,82 @@
+name: Apply search time precision
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-search-time-precision.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Change elapsed time to four decimals
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              text = path.read_text(encoding="utf-8")
+              if old not in text:
+                  raise SystemExit(f"找不到要修改的內容：{label}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          replace_once(
+              Path("makevcf.html"),
+              'function elapsed(t0) { return `${((performance.now() - t0) / 1000).toFixed(6)} 秒`; }',
+              'function elapsed(t0) { return `${((performance.now() - t0) / 1000).toFixed(4)} 秒`; }',
+              "共用耗時格式",
+          )
+
+          path = Path("makevcf-optimized-search-v2.js")
+          text = path.read_text(encoding="utf-8")
+          old_count = text.count(".toFixed(6)} 秒")
+          if old_count != 2:
+              raise SystemExit(f"優化搜尋耗時格式數量不符：{old_count}")
+          path.write_text(text.replace(".toFixed(6)} 秒", ".toFixed(4)} 秒"), encoding="utf-8")
+
+          replace_once(
+              Path("rapfi/vcf-shortest-vcf-ui.js"),
+              'const statsText = `${elapsedSeconds.toFixed(6)} 秒，${formatNodes(nodeCount)}，${formatRate(nodeCount, elapsedSeconds)}`;',
+              'const statsText = `${elapsedSeconds.toFixed(4)} 秒，${formatNodes(nodeCount)}，${formatRate(nodeCount, elapsedSeconds)}`;',
+              "最短 VCF 耗時格式",
+          )
+
+          for filename in ("規格書.MD", "新版Bitboard VCF規格.MD"):
+              path = Path(filename)
+              text = path.read_text(encoding="utf-8")
+              if "7.435100 秒" not in text or "秒數固定 6 位小數" not in text:
+                  raise SystemExit(f"找不到規格耗時格式：{filename}")
+              text = text.replace("7.435100 秒", "7.4351 秒")
+              text = text.replace("秒數固定 6 位小數", "秒數固定 4 位小數")
+              path.write_text(text, encoding="utf-8")
+
+          Path(".github/workflows/apply-search-time-precision.yml").unlink()
+          PY
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path("makevcf.html").read_text(encoding="utf-8")
+          scripts = re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', text, re.S)
+          Path("/tmp/makevcf-inline.js").write_text("\n".join(scripts), encoding="utf-8")
+          PY
+
+          node --check /tmp/makevcf-inline.js
+          node --check makevcf-optimized-search-v2.js
+          node --check rapfi/vcf-shortest-vcf-ui.js
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "搜尋耗時改為四位小數"
+          git push
