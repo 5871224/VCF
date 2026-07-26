@@ -20,18 +20,29 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Decode patch script
+      - name: Apply, validate, and record result
+        shell: bash
         run: |
-          set -euxo pipefail
-          base64 -d scripts/apply-import-preview-v2.js.gz.b64 | gunzip > /tmp/apply-import-preview-v2.js
-          node --check /tmp/apply-import-preview-v2.js
-
-      - name: Apply changes
-        run: node /tmp/apply-import-preview-v2.js
-
-      - name: Check inline JavaScript syntax
-        run: |
-          python - <<'PY'
+          set +e
+          LOG=/tmp/apply-import-preview-v2.log
+          : > "$LOG"
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "started=$(date -u +%FT%TZ)"
+            base64 -d scripts/apply-import-preview-v2.js.gz.b64 | gunzip > /tmp/apply-import-preview-v2.js
+            DECODE_STATUS=$?
+            echo "decode_status=$DECODE_STATUS"
+            if [ "$DECODE_STATUS" -eq 0 ]; then
+              node --check /tmp/apply-import-preview-v2.js
+              echo "patch_syntax_status=$?"
+              node /tmp/apply-import-preview-v2.js
+              APPLY_STATUS=$?
+            else
+              APPLY_STATUS=90
+            fi
+            echo "apply_status=$APPLY_STATUS"
+            if [ "$APPLY_STATUS" -eq 0 ]; then
+              python - <<'PY'
           from pathlib import Path
           text = Path('makevcf.html').read_text(encoding='utf-8')
           start = text.index('<script>') + len('<script>')
@@ -41,19 +52,34 @@ jobs:
               if token not in text:
                   raise RuntimeError(f'Missing generated token: {token}')
           PY
-          node --check /tmp/makevcf-inline.js
+              PY_STATUS=$?
+              echo "python_validation_status=$PY_STATUS"
+              node --check /tmp/makevcf-inline.js
+              JS_STATUS=$?
+              echo "generated_js_status=$JS_STATUS"
+              git diff --check
+              DIFF_STATUS=$?
+              echo "diff_status=$DIFF_STATUS"
+              if [ "$PY_STATUS" -ne 0 ] || [ "$JS_STATUS" -ne 0 ] || [ "$DIFF_STATUS" -ne 0 ]; then
+                APPLY_STATUS=91
+              fi
+            fi
+            echo "finished=$(date -u +%FT%TZ)"
+            echo "final_status=$APPLY_STATUS"
+          } >> "$LOG" 2>&1
 
-      - name: Check patch
-        run: git diff --check
+          mkdir -p .github/diagnostics
+          cp "$LOG" .github/diagnostics/apply-import-preview-v2.txt
+          cat "$LOG"
 
-      - name: Commit result
-        run: |
-          if git diff --quiet; then
-            echo "No changes"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add makevcf.html README.md 規格書.MD
-          git commit -m "重寫圖片匯入預覽與棋子辨識"
+          if [ "$APPLY_STATUS" -eq 0 ]; then
+            git add makevcf.html README.md 規格書.MD .github/diagnostics/apply-import-preview-v2.txt
+            git commit -m "重寫圖片匯入預覽與棋子辨識"
+          else
+            git add .github/diagnostics/apply-import-preview-v2.txt
+            git commit -m "記錄圖片匯入預覽套用診斷"
+          fi
           git push
+          exit "$APPLY_STATUS"
