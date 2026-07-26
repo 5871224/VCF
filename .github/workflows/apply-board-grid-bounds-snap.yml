@@ -1,0 +1,50 @@
+name: Apply board grid bounds snap
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/apply-board-grid-bounds-snap.js
+      - .github/workflows/apply-board-grid-bounds-snap.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply board grid bounds snap
+        run: node tools/apply-board-grid-bounds-snap.js
+
+      - name: Check inline JavaScript syntax
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('makevcf.html').read_text(encoding='utf-8')
+          start = text.index('<script>') + len('<script>')
+          end = text.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(text[start:end], encoding='utf-8')
+          PY
+          node --check /tmp/makevcf-inline.js
+
+      - name: Check patch
+        run: git diff --check
+
+      - name: Commit result
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html README.md 規格書.MD
+          git commit -m "修正棋盤外框誤判為最外側格線"
+          git push
