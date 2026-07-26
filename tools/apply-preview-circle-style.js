@@ -9,6 +9,12 @@ function replaceExactly(text, search, replacement, label) {
   return text.replace(search, replacement);
 }
 
+function removeExactly(text, search, expectedCount, label) {
+  const count = text.split(search).length - 1;
+  if (count !== expectedCount) throw new Error(`${label}: expected ${expectedCount} matches, got ${count}`);
+  return text.split(search).join('');
+}
+
 html = replaceExactly(
   html,
   '    manualEdits: new Array(225).fill(false),\n',
@@ -16,18 +22,11 @@ html = replaceExactly(
   'remove manualEdits state'
 );
 
-html = replaceExactly(
+html = removeExactly(
   html,
   '    importState.manualEdits.fill(false);\n',
-  '',
-  'remove manualEdits reset'
-);
-
-html = replaceExactly(
-  html,
-  '    importState.manualEdits.fill(false);\n',
-  '',
-  'remove manualEdits classify reset'
+  2,
+  'remove manualEdits resets'
 );
 
 html = replaceExactly(
