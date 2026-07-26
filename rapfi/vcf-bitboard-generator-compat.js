@@ -32,6 +32,18 @@
 })(window);
 
 (function loadRapfiWorkbenchTools() {
+  // Dashboard 建立舊說明面板前先隱藏，避免等待精簡頁首程式時閃現。
+  if (!document.getElementById("bb-compact-header-style")) {
+    const style = document.createElement("style");
+    style.id = "bb-compact-header-style";
+    style.textContent = `
+      #bitboard-architecture-panel:not(.bb-quick-actions) {
+        display: none !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   for (const source of [
     "rapfi/rapfi-workbench-header.js",
     "rapfi/rapfi-question-bank.js",
