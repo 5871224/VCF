@@ -1,9 +1,11 @@
-commit=dbcf910d1f61cc718e3e948bc2ce16c148c3c978
-started=2026-07-26T10:01:38Z
-base64: invalid input
-
-gzip: stdin: invalid compressed data--format violated
-decode_status=1
-apply_status=90
-finished=2026-07-26T10:01:38Z
-final_status=90
+commit=b8f711e40b42e8c5ee8a9f7cd720c6f8fa733e53
+started=2026-07-26T10:06:24Z
+decode_status=0
+patch_syntax_status=0
+Applied merged preview, outer margin, refined grid, adaptive recognition, and manual correction.
+apply_status=0
+python_validation_status=0
+generated_js_status=0
+diff_status=0
+finished=2026-07-26T10:06:27Z
+final_status=0
