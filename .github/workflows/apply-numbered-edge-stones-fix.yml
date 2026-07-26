@@ -1,0 +1,105 @@
+name: Apply numbered and edge stones fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/apply-numbered-edge-stones-fix.js
+      - tools/center-periodic-grid-fit.js
+      - .github/workflows/apply-numbered-edge-stones-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply recognition updates
+        run: |
+          node tools/apply-numbered-edge-stones-fix.js
+          node tools/center-periodic-grid-fit.js
+
+      - name: Validate generated files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('makevcf.html').read_text(encoding='utf-8')
+          start = html.index('<script>') + len('<script>')
+          end = html.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
+          required = (
+              'function fitPeriodicGridBundle(bundle, width, height)',
+              "source: 'periodic-grid'",
+              "candidate.source === 'periodic-grid'",
+              'const annularValues = [];',
+              'const robustBodyTone = annularValues.length ? median(annularValues) : body.mean;',
+              'annularPurity >= 0.56',
+              'const numberedCircle =',
+          )
+          for token in required:
+              if token not in html:
+                  raise RuntimeError(f'Missing generated token: {token}')
+          for obsolete in (
+              'fitPeriodicGridBundle(bundleA, minDimension)',
+              'fitPeriodicGridBundle(bundleB, minDimension)',
+          ):
+              if obsolete in html:
+                  raise RuntimeError(f'Obsolete periodic-grid call remains: {obsolete}')
+          PY
+          node --check /tmp/makevcf-inline.js
+          node <<'NODE'
+          const fs = require('fs');
+          const html = fs.readFileSync('makevcf.html', 'utf8');
+          const clamp01 = value => Math.max(0, Math.min(1, value));
+          const SIZE = 15;
+
+          let start = html.indexOf('  function fitPeriodicGridBundle(');
+          let end = html.indexOf('\n  function detectHoughCandidates(', start);
+          if (start < 0 || end < 0) throw new Error('Cannot extract periodic grid fitter');
+          eval(html.slice(start, end));
+          const bundle = [];
+          for (let index = 2; index <= 12; index++) {
+            bundle.push({ a: 1, b: 0, c: -(68 + index * 42), rho: 68 + index * 42, length: 620 });
+          }
+          bundle.push({ a: 1, b: 0, c: -125, rho: 125, length: 130 });
+          bundle.push({ a: 1, b: 0, c: -645, rho: 645, length: 120 });
+          bundle.sort((a, b) => a.rho - b.rho);
+          const fitted = fitPeriodicGridBundle(bundle, 736, 737);
+          if (!fitted) throw new Error('Periodic grid fixture rejected');
+          if (Math.abs(fitted.spacing - 42) > 1.5) throw new Error(`Wrong fitted spacing: ${fitted.spacing}`);
+          if (Math.abs(fitted.low.rho - 68) > 8) throw new Error(`Wrong extrapolated outer line: ${fitted.low.rho}`);
+
+          start = html.indexOf('  function computeCircleOccupancy(');
+          end = html.indexOf('\n  function extractCellFeatures(', start);
+          if (start < 0 || end < 0) throw new Error('Cannot extract circle classifier');
+          eval(html.slice(start, end));
+          const radial = (dominantCoverage, absoluteMedian, signedMedian, blackCoverage, whiteCoverage) => ({
+            dominantCoverage, absoluteMedian, signedMedian, blackCoverage, whiteCoverage,
+          });
+          const numberedBlack = computeCircleOccupancy(radial(0.70, 24, 25, 0.70, 0.02), -68, -23, 0.06, 0.82);
+          const numberedWhite = computeCircleOccupancy(radial(0.68, 22, -24, 0.03, 0.68), 65, 22, 0.06, 0.80);
+          const emptyGrid = computeCircleOccupancy(radial(0.18, 4, 1, 0.10, 0.08), 3, 1, 0.75, 0.12);
+          if (!numberedBlack.candidate || !numberedBlack.numberedCircle) throw new Error('Numbered black fixture rejected');
+          if (!numberedWhite.candidate || !numberedWhite.numberedCircle) throw new Error('Numbered white fixture rejected');
+          if (emptyGrid.candidate) throw new Error('Empty grid fixture accepted');
+          NODE
+          git diff --check
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html 規格書.MD
+          git commit -m "改善邊緣棋子定位與手數棋子辨識"
+          git push
