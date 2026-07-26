@@ -139,7 +139,7 @@
   const selectedPruning = () => pruningSelect.value === "strict" ? "strict" : "fast";
   const pruningName = () => selectedPruning() === "fast" ? "高速剪枝" : "嚴格剪枝";
   const selectedTimeSeconds = () => normalizeLimitInput(multiTimeInput, "vcf_multi_time_seconds", 2097151, 30);
-  const selectedNodeMillions = () => normalizeLimitInput(multiNodeInput, "vcf_multi_node_millions", 0, 1023, 20);
+  const selectedNodeMillions = () => normalizeLimitInput(multiNodeInput, "vcf_multi_node_millions", 1023, 20);
   const packMultiLimits = (timeSeconds, nodeMillions) => (
     0x80000000 + timeSeconds * 1024 + nodeMillions
   ) >>> 0;
