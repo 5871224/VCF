@@ -432,6 +432,7 @@
         found = await genFindAnalyzedGroups(candidate, targetSteps);
         if (!found) return null;
         const { shorter, targets } = analyzeGroups(candidate, found.groups, targetSteps, expectedBoard);
+        // 不論補的是攻方或守方，每顆都必須保留原目標路線，且不能出現更短 VCF。
         if (shorter.length || !targets.length) return null;
         target = targets[0];
       }
