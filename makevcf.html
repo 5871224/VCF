@@ -2198,49 +2198,133 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     return { mean, stdev: Math.sqrt(variance), red, green, blue, saturation: maxChannel - minChannel };
   }
 
+  function isBoardInteriorDirection(row, col, dx, dy, step) {
+    const tolerance = step * 0.06;
+    if (col === 0 && dx < -tolerance) return false;
+    if (col === SIZE - 1 && dx > tolerance) return false;
+    if (row === 0 && dy < -tolerance) return false;
+    if (row === SIZE - 1 && dy > tolerance) return false;
+    return true;
+  }
+
+  function sampleLocalBoardTone(data, width, height, cx, cy, step, row, col) {
+    const values = [];
+    for (const radiusRatio of [0.82, 1.16, 1.50]) {
+      const radius = step * radiusRatio;
+      for (let index = 0; index < 64; index++) {
+        const angle = (index / 64) * Math.PI * 2;
+        const dx = Math.cos(angle) * radius;
+        const dy = Math.sin(angle) * radius;
+        if (!isBoardInteriorDirection(row, col, dx, dy, step)) continue;
+        values.push(pixelLum(data, width, height, cx + dx, cy + dy));
+      }
+    }
+    return values.length ? median(values) : pixelLum(data, width, height, cx, cy);
+  }
+
   function radialBoundaryFeature(data, width, height, cx, cy, step) {
-    const differences = [];
+    const signedDifferences = [];
+    const absoluteDifferences = [];
     const insideRadius = step * 0.28;
     const outsideRadius = step * 0.53;
-    for (let i = 0; i < 32; i++) {
-      const angle = (i / 32) * Math.PI * 2;
+    for (let index = 0; index < 48; index++) {
+      const angle = (index / 48) * Math.PI * 2;
       const cos = Math.cos(angle);
       const sin = Math.sin(angle);
       const inside = pixelLum(data, width, height, cx + cos * insideRadius, cy + sin * insideRadius);
       const outside = pixelLum(data, width, height, cx + cos * outsideRadius, cy + sin * outsideRadius);
-      differences.push(Math.abs(outside - inside));
+      const difference = outside - inside;
+      signedDifferences.push(difference);
+      absoluteDifferences.push(Math.abs(difference));
     }
-    const middle = median(differences);
-    const mean = differences.reduce((sum, value) => sum + value, 0) / differences.length;
-    const coverage = differences.filter(value => value >= 9).length / differences.length;
-    return { median: middle, mean, coverage };
+    const threshold = 8;
+    const blackCoverage = signedDifferences.filter(value => value >= threshold).length / signedDifferences.length;
+    const whiteCoverage = signedDifferences.filter(value => value <= -threshold).length / signedDifferences.length;
+    return {
+      signedMedian: median(signedDifferences),
+      signedMean: signedDifferences.reduce((sum, value) => sum + value, 0) / signedDifferences.length,
+      absoluteMedian: median(absoluteDifferences),
+      absoluteMean: absoluteDifferences.reduce((sum, value) => sum + value, 0) / absoluteDifferences.length,
+      blackCoverage,
+      whiteCoverage,
+      dominantCoverage: Math.max(blackCoverage, whiteCoverage),
+      mixedCoverage: Math.min(blackCoverage, whiteCoverage),
+    };
   }
 
-  function thinGridLineFeature(data, width, height, cx, cy, step) {
+  function thinGridLineFeature(data, width, height, cx, cy, step, row, col) {
     const parallelOffset = Math.max(3, step * 0.12);
     const armStart = Math.max(3, Math.round(step * 0.20));
     const armEnd = Math.max(armStart + 2, Math.round(step * 0.48));
-    let horizontal = 0;
-    let vertical = 0;
+    let darkness = 0;
     let count = 0;
-    for (let distance = armStart; distance <= armEnd; distance += 2) {
-      for (const sign of [-1, 1]) {
+
+    function sampleHorizontal(sign) {
+      for (let distance = armStart; distance <= armEnd; distance += 2) {
         const x = cx + sign * distance;
-        const y = cy + sign * distance;
-        const centerH = pixelLum(data, width, height, x, cy);
-        const sideH = (pixelLum(data, width, height, x, cy - parallelOffset) + pixelLum(data, width, height, x, cy + parallelOffset)) * 0.5;
-        const centerV = pixelLum(data, width, height, cx, y);
-        const sideV = (pixelLum(data, width, height, cx - parallelOffset, y) + pixelLum(data, width, height, cx + parallelOffset, y)) * 0.5;
-        horizontal += Math.max(0, sideH - centerH);
-        vertical += Math.max(0, sideV - centerV);
+        const center = pixelLum(data, width, height, x, cy);
+        const sides = (pixelLum(data, width, height, x, cy - parallelOffset) + pixelLum(data, width, height, x, cy + parallelOffset)) * 0.5;
+        darkness += Math.max(0, sides - center);
         count++;
       }
     }
-    const raw = count ? (horizontal + vertical) / (count * 2) : 0;
-    return { raw, score: clamp01(raw / 17) };
+
+    function sampleVertical(sign) {
+      for (let distance = armStart; distance <= armEnd; distance += 2) {
+        const y = cy + sign * distance;
+        const center = pixelLum(data, width, height, cx, y);
+        const sides = (pixelLum(data, width, height, cx - parallelOffset, y) + pixelLum(data, width, height, cx + parallelOffset, y)) * 0.5;
+        darkness += Math.max(0, sides - center);
+        count++;
+      }
+    }
+
+    if (col > 0) sampleHorizontal(-1);
+    if (col < SIZE - 1) sampleHorizontal(1);
+    if (row > 0) sampleVertical(-1);
+    if (row < SIZE - 1) sampleVertical(1);
+
+    const raw = count ? darkness / count : 0;
+    const expectedArms = (col > 0 ? 1 : 0) + (col < SIZE - 1 ? 1 : 0) + (row > 0 ? 1 : 0) + (row < SIZE - 1 ? 1 : 0);
+    return { raw, score: clamp01(raw / 17), expectedArms };
   }
 
-  function extractCellFeatures(data, width, height, point, step) {
+  function computeCircleOccupancy(radial, bodyDelta, profileDelta, thinLineScore) {
+    const toneContrast = Math.abs(bodyDelta);
+    const profileContrast = Math.abs(profileDelta);
+    const signedStrength = Math.abs(radial.signedMedian);
+    const polarityAligned = bodyDelta * radial.signedMedian <= -60 && toneContrast >= 10 && signedStrength >= 5;
+    const profileAligned = bodyDelta * profileDelta > 0;
+    const coverageScore = clamp01((radial.dominantCoverage - 0.28) / 0.55);
+    const radialStrengthScore = clamp01((radial.absoluteMedian - 5) / 35);
+    const toneContrastScore = clamp01((toneContrast - 8) / 55);
+    const profileScore = clamp01((profileContrast - 4) / 35);
+    const score = clamp01(
+      coverageScore * 0.28 +
+      radialStrengthScore * 0.20 +
+      toneContrastScore * 0.23 +
+      profileScore * 0.20 +
+      (polarityAligned && profileAligned ? 0.15 : 0) -
+      thinLineScore * 0.08
+    );
+    const normalCircle =
+      radial.dominantCoverage >= 0.46 &&
+      radial.absoluteMedian >= 9 &&
+      toneContrast >= 14 &&
+      profileContrast >= 7 &&
+      polarityAligned &&
+      profileAligned;
+    const veryStrongCircle =
+      radial.dominantCoverage >= 0.72 &&
+      radial.absoluteMedian >= 18 &&
+      toneContrast >= 10 &&
+      profileContrast >= 5 &&
+      polarityAligned &&
+      profileAligned;
+    return { score, candidate: normalCircle || veryStrongCircle, polarityAligned, profileAligned };
+  }
+
+  function extractCellFeatures(data, width, height, point, step, row, col) {
     const centerAcc = createStatsAccumulator();
     const bodyAcc = createStatsAccumulator();
     const ringAcc = createStatsAccumulator();
@@ -2261,7 +2345,13 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
         if (distance <= 0.27) addStatsSample(centerAcc, data, index);
         if (distance <= 0.39) addStatsSample(bodyAcc, data, index);
         if (distance >= 0.30 && distance <= 0.49) addStatsSample(ringAcc, data, index);
-        if (Math.abs(dx) >= step * 0.34 && Math.abs(dy) >= step * 0.34) addStatsSample(backgroundAcc, data, index);
+        if (
+          Math.abs(dx) >= step * 0.34 &&
+          Math.abs(dy) >= step * 0.34 &&
+          isBoardInteriorDirection(row, col, dx, dy, step)
+        ) {
+          addStatsSample(backgroundAcc, data, index);
+        }
       }
     }
 
@@ -2269,22 +2359,24 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const body = finishStats(bodyAcc);
     const ring = finishStats(ringAcc);
     const background = finishStats(backgroundAcc);
+    const localTone = sampleLocalBoardTone(data, width, height, point.x, point.y, step, row, col);
+    const referenceTone = localTone * 0.72 + background.mean * 0.28;
     const radial = radialBoundaryFeature(data, width, height, point.x, point.y, step);
-    const thinLine = thinGridLineFeature(data, width, height, point.x, point.y, step);
-    const bodyDelta = body.mean - background.mean;
-    const ringDelta = ring.mean - background.mean;
-    const contrast = Math.abs(bodyDelta) * 0.65 + Math.abs(ringDelta) * 0.35;
-    const edgeScore = clamp01(radial.median / 25) * 0.55 + clamp01(radial.mean / 30) * 0.20 + radial.coverage * 0.25;
-    const occupancyScore = clamp01(
-      edgeScore * 0.43 +
-      radial.coverage * 0.17 +
-      clamp01(contrast / 42) * 0.23 +
-      (1 - thinLine.score) * 0.17
-    );
-    const colorKey = body.mean * 0.72 + ring.mean * 0.28;
-    return { point, center, body, ring, background, radial, thinLine, bodyDelta, ringDelta, contrast, occupancyScore, colorKey };
+    const thinLine = thinGridLineFeature(data, width, height, point.x, point.y, step, row, col);
+    const bodyDelta = body.mean - referenceTone;
+    const ringDelta = ring.mean - referenceTone;
+    const profileDelta = body.mean - ring.mean;
+    const circle = computeCircleOccupancy(radial, bodyDelta, profileDelta, thinLine.score);
+    const colorKey = bodyDelta * 0.72 + profileDelta * 0.28;
+    return {
+      point, row, col, center, body, ring, background, localTone, referenceTone,
+      radial, thinLine, bodyDelta, ringDelta, profileDelta,
+      profileContrast: Math.abs(profileDelta),
+      occupancyScore: circle.score,
+      circleCandidate: circle.candidate,
+      colorKey,
+    };
   }
-
   function kmeansTwo(values) {
     if (!values.length) return null;
     let low = Math.min(...values);
@@ -2321,16 +2413,16 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const occupancyValues = features.map(feature => feature.occupancyScore);
     const occupancyClusters = kmeansTwo(occupancyValues);
     const separation = occupancyClusters ? occupancyClusters.high - occupancyClusters.low : 0;
-    const occupancyThreshold = separation >= 0.10
-      ? clamp(occupancyClusters.threshold, 0.32, 0.58)
-      : 0.43;
+    const occupancyThreshold = separation >= 0.12
+      ? clamp(occupancyClusters.threshold, 0.48, 0.70)
+      : 0.52;
 
     const occupiedIndexes = [];
     for (let index = 0; index < features.length; index++) {
       const feature = features[index];
-      const hasCircleEvidence = feature.radial.coverage >= 0.25 || feature.contrast >= 14 || feature.thinLine.score <= 0.24;
-      if (feature.occupancyScore >= occupancyThreshold && hasCircleEvidence) occupiedIndexes.push(index);
+      if (feature.circleCandidate && feature.occupancyScore >= occupancyThreshold) occupiedIndexes.push(index);
     }
+    const occupiedSet = new Set(occupiedIndexes);
 
     const colorValues = occupiedIndexes.map(index => features[index].colorKey);
     const colorClusters = colorValues.length >= 4 ? kmeansTwo(colorValues) : null;
@@ -2341,25 +2433,24 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     for (let index = 0; index < features.length; index++) {
       const feature = features[index];
       let stone = 0;
-      let confidence = clamp(0.58 + Math.abs(feature.occupancyScore - occupancyThreshold) * 1.9, 0, 1);
-      if (occupiedIndexes.includes(index)) {
-        const strongBlack = feature.bodyDelta <= -19 || feature.ringDelta <= -17;
-        const strongWhite = feature.bodyDelta >= 7 || feature.body.mean >= 196;
+      let confidence = clamp(0.58 + Math.abs(feature.occupancyScore - occupancyThreshold) * 1.6, 0, 1);
+      if (occupiedSet.has(index)) {
+        const strongBlack = feature.bodyDelta <= -16 && feature.radial.signedMedian >= 7;
+        const strongWhite = feature.bodyDelta >= 16 && feature.radial.signedMedian <= -7;
         if (strongBlack) stone = 1;
         else if (strongWhite) stone = 2;
         else if (useColorClusters) stone = feature.colorKey < colorClusters.threshold ? 1 : 2;
-        else stone = feature.bodyDelta < -8 ? 1 : 2;
+        else stone = feature.radial.signedMedian >= 0 ? 1 : 2;
 
         const colorMargin = useColorClusters
           ? Math.abs(feature.colorKey - colorClusters.threshold) / Math.max(20, colorSeparation)
-          : Math.abs(feature.bodyDelta + 8) / 38;
+          : Math.abs(feature.radial.signedMedian) / 45;
         confidence = clamp(confidence * 0.62 + clamp01(colorMargin) * 0.38, 0, 1);
       }
       importState.recognizedBoard[index] = stone;
       importState.confidenceMap[index] = confidence;
     }
   }
-
   function renderRecognitionPreview() {
     if (!isPreviewMode()) return;
     srcCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
@@ -2418,8 +2509,16 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     refineWarpedIntersections();
     const imageData = warpCtx.getImageData(0, 0, warpedCanvas.width, warpedCanvas.height);
     const step = getRefinedGridStep();
-    const features = importState.warpedIntersections.map(point =>
-      extractCellFeatures(imageData.data, imageData.width, imageData.height, point, step)
+    const features = importState.warpedIntersections.map((point, index) =>
+      extractCellFeatures(
+        imageData.data,
+        imageData.width,
+        imageData.height,
+        point,
+        step,
+        Math.floor(index / SIZE),
+        index % SIZE
+      )
     );
     classifyBoardFeatures(features);
     importState.mode = "recognized";
