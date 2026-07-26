@@ -1,0 +1,63 @@
+name: Apply preview mask and annotation fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/apply-preview-mask-annotation-fix.js
+      - .github/workflows/apply-preview-mask-annotation-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply preview and detection update
+        run: node tools/apply-preview-mask-annotation-fix.js
+
+      - name: Validate generated files
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('makevcf.html').read_text(encoding='utf-8')
+          start = html.index('<script>') + len('<script>')
+          end = html.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
+          required = (
+              'function suppressOuterAnnotations(gray)',
+              'detectionGray = suppressOuterAnnotations(gray)',
+              'rgba(108, 176, 255, 0.60)',
+              'srcCtx.fill("evenodd")',
+              'rgba(0, 0, 0, 0.98)',
+              'rgba(255, 255, 255, 0.98)',
+          )
+          for token in required:
+              if token not in html:
+                  raise RuntimeError(f'Missing generated token: {token}')
+          if 'globalCompositeOperation = "destination-out"' in html:
+              raise RuntimeError('Preview erases underlying source image')
+          if html.count('for (const x of importState.gridXs)') or html.count('for (const y of importState.gridYs)'):
+              raise RuntimeError('Internal preview grid lines were restored unexpectedly')
+          PY
+          node --check /tmp/makevcf-inline.js
+          git diff --check
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html 規格書.MD
+          git commit -m "改善辨識預覽遮罩與文字干擾"
+          git push
