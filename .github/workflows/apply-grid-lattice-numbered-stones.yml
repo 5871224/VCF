@@ -30,7 +30,12 @@ jobs:
           new = "html = replaceFunction(html, '  function extractCellFeatures(', '  function kmeansTwo(', extract, 'replace cell features');"
           if old not in text:
               raise RuntimeError('Expected patch-script boundary line was not found')
-          path.write_text(text.replace(old, new), encoding='utf-8')
+          text = text.replace(old, new)
+          old_score = "          const score = coverage * 0.43 + spanCoverage * 0.27 + residualScore * 0.20 + lengthScore * 0.10 - missingPenalty * 0.06;"
+          new_score = "          const observedCenter = (observedMin + observedMax) * 0.5;\n          const fittedCenter = (start + end) * 0.5;\n          const centerPenalty = Math.min(1, Math.abs(fittedCenter - observedCenter) / Math.max(step * 3, 1));\n          const score = coverage * 0.43 + spanCoverage * 0.27 + residualScore * 0.20 + lengthScore * 0.10 - missingPenalty * 0.06 - centerPenalty * 0.10;"
+          if old_score not in text:
+              raise RuntimeError('Expected lattice score line was not found')
+          path.write_text(text.replace(old_score, new_score), encoding='utf-8')
           PY
           node --check tools/apply-grid-lattice-numbered-stones.js
 
@@ -53,6 +58,7 @@ jobs:
               'stoneBandValues',
               'feature.outlinedWhiteCircle',
               'contourBest.score < 0.74',
+              'const centerPenalty = Math.min(1, Math.abs(fittedCenter - observedCenter)',
           )
           for token in required:
               if token not in html:
@@ -135,4 +141,4 @@ jobs:
           git commit -m "改善缺邊棋盤與數字棋子辨識"
           git push
 
-# retrigger 2026-07-26
+# retrigger with centered lattice scoring
