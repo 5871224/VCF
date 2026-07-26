@@ -1,0 +1,54 @@
+name: Apply image import preview v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/apply-import-preview-v2.js.gz.b64
+      - .github/workflows/apply-import-preview-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Decode patch script
+        run: |
+          base64 -d scripts/apply-import-preview-v2.js.gz.b64 | gunzip > /tmp/apply-import-preview-v2.js
+          node --check /tmp/apply-import-preview-v2.js
+
+      - name: Apply changes
+        run: node /tmp/apply-import-preview-v2.js
+
+      - name: Validate generated page
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const html = fs.readFileSync('makevcf.html', 'utf8');
+          const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1]);
+          if (!scripts.length) throw new Error('No inline script found');
+          fs.writeFileSync('/tmp/makevcf-inline.js', scripts.join('\n'));
+          for (const token of ['btn-import-back', 'OUTER_MARGIN_CELLS', 'refineWarpedIntersections', 'editPreviewPoint']) {
+            if (!html.includes(token)) throw new Error('Missing generated token: ' + token);
+          }
+          NODE
+          node --check /tmp/makevcf-inline.js
+          git diff --check
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add makevcf.html README.md 規格書.MD
+          git commit -m "重寫圖片匯入預覽與棋子辨識"
+          git push
