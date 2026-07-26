@@ -61,3 +61,5 @@ jobs:
           git add makevcf.html 規格書.MD
           git commit -m "改善辨識預覽遮罩與文字干擾"
           git push
+
+# retrigger existing workflow
