@@ -3,6 +3,24 @@
 (function installGeneratorCompatibility(global) {
   const service = global.VCFBitboard;
   if (!service) return;
+
+  const normalizeRules = rules => {
+    const value = Number(rules);
+    return value === 0 || value === 1 || value === 2 ? value : 2;
+  };
+
+  // 原本使用 Number(rules) || 2，會把自由五子棋的規則值 0 誤判成有禁。
+  // 在相容層覆寫規則廣播，完整保留 0／1／2 三種規則。
+  service.broadcastRules = async function broadcastRulesCompat(rules) {
+    this.rules = normalizeRules(rules);
+    await Promise.all([
+      this.main.call("setGameRules", { rules: this.rules }),
+      ...this.pool.map(worker => worker.call("setGameRules", { rules: this.rules })),
+    ]);
+    await this.syncReady;
+    return true;
+  };
+
   const originalReady = service.syncReady;
   const compatReady = originalReady.then(() => {
     const levelPoint = service.syncModule.cwrap(
@@ -15,6 +33,9 @@
       "number",
       ["number", "number", "number", "number", "number"],
     );
+    global.setGameRules = rules => {
+      service.rules = normalizeRules(rules);
+    };
     global.getLevelPoint = (idx, color, arr) => {
       service.writeSyncBoard(arr);
       return levelPoint(service.syncBoardPtr, idx, color, service.rules);
