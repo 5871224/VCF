@@ -44,12 +44,33 @@
   document.head.appendChild(style);
 })();
 
-// The file name matches the Pages makevcf-generator-*.js copy rule.
-(function loadImageImportRuntimeFix() {
-  if (document.querySelector('script[data-vcf-image-import-fix="true"]')) return;
-  const script = document.createElement("script");
-  script.src = "makevcf-generator-image-import-fix.js";
-  script.async = false;
-  script.dataset.vcfImageImportFix = "true";
-  document.body.appendChild(script);
+// These file names match the Pages makevcf-generator-*.js copy rule.
+(function loadImageImportRuntimeFixes() {
+  function loadScript(src, marker) {
+    return new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[data-vcf-image-import-fix="${marker}"]`);
+      if (existing) {
+        if (existing.dataset.loaded === "true") resolve();
+        else {
+          existing.addEventListener("load", resolve, { once: true });
+          existing.addEventListener("error", reject, { once: true });
+        }
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = false;
+      script.dataset.vcfImageImportFix = marker;
+      script.addEventListener("load", () => {
+        script.dataset.loaded = "true";
+        resolve();
+      }, { once: true });
+      script.addEventListener("error", reject, { once: true });
+      document.body.appendChild(script);
+    });
+  }
+
+  loadScript("makevcf-generator-image-import-fix.js", "base")
+    .then(() => loadScript("makevcf-generator-image-import-fix-v2.js", "hough-v2"))
+    .catch(error => console.error("圖片匯入修正載入失敗", error));
 })();
