@@ -20,125 +20,125 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Repair and validate patch script
+      - name: Apply and validate with diagnostic capture
+        id: apply
+        shell: bash
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('tools/apply-grid-lattice-numbered-stones.js')
-          text = path.read_text(encoding='utf-8')
-          old = "html = replaceFunction(html, '  function extractCellFeatures(', '  function kmeansTwo(', extract + '  function kmeansTwo(', 'replace cell features');"
-          new = "html = replaceFunction(html, '  function extractCellFeatures(', '  function kmeansTwo(', extract, 'replace cell features');"
-          if old not in text:
-              raise RuntimeError('Expected patch-script boundary line was not found')
-          text = text.replace(old, new)
-          old_score = "          const score = coverage * 0.43 + spanCoverage * 0.27 + residualScore * 0.20 + lengthScore * 0.10 - missingPenalty * 0.06;"
-          new_score = "          const observedCenter = (observedMin + observedMax) * 0.5;\n          const fittedCenter = (start + end) * 0.5;\n          const centerPenalty = Math.min(1, Math.abs(fittedCenter - observedCenter) / Math.max(step * 3, 1));\n          const score = coverage * 0.43 + spanCoverage * 0.27 + residualScore * 0.20 + lengthScore * 0.10 - missingPenalty * 0.06 - centerPenalty * 0.10;"
-          if old_score not in text:
-              raise RuntimeError('Expected lattice score line was not found')
-          path.write_text(text.replace(old_score, new_score), encoding='utf-8')
-          PY
-          node --check tools/apply-grid-lattice-numbered-stones.js
+          set +e
+          {
+            python - <<'PY'
+            from pathlib import Path
+            path = Path('tools/apply-grid-lattice-numbered-stones.js')
+            text = path.read_text(encoding='utf-8')
+            old = "html = replaceFunction(html, '  function extractCellFeatures(', '  function kmeansTwo(', extract + '  function kmeansTwo(', 'replace cell features');"
+            new = "html = replaceFunction(html, '  function extractCellFeatures(', '  function kmeansTwo(', extract, 'replace cell features');"
+            if old not in text:
+                raise RuntimeError('Expected patch-script boundary line was not found')
+            text = text.replace(old, new)
+            old_score = "          const score = coverage * 0.43 + spanCoverage * 0.27 + residualScore * 0.20 + lengthScore * 0.10 - missingPenalty * 0.06;"
+            new_score = "          const observedCenter = (observedMin + observedMax) * 0.5;\n          const fittedCenter = (start + end) * 0.5;\n          const centerPenalty = Math.min(1, Math.abs(fittedCenter - observedCenter) / Math.max(step * 3, 1));\n          const score = coverage * 0.43 + spanCoverage * 0.27 + residualScore * 0.20 + lengthScore * 0.10 - missingPenalty * 0.06 - centerPenalty * 0.10;"
+            if old_score not in text:
+                raise RuntimeError('Expected lattice score line was not found')
+            path.write_text(text.replace(old_score, new_score), encoding='utf-8')
+            PY
+            node --check tools/apply-grid-lattice-numbered-stones.js
+            node tools/apply-grid-lattice-numbered-stones.js
+            python - <<'PY'
+            from pathlib import Path
+            html = Path('makevcf.html').read_text(encoding='utf-8')
+            start = html.index('<script>') + len('<script>')
+            end = html.rindex('</script>')
+            Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
+            required = (
+                'function fitGridLatticePairs(',
+                "source: 'hough-lattice'",
+                'function robustTone(',
+                'darkOutlineCoverage',
+                'stoneBandValues',
+                'feature.outlinedWhiteCircle',
+                'contourBest.score < 0.74',
+                'const centerPenalty = Math.min(1, Math.abs(fittedCenter - observedCenter)',
+            )
+            for token in required:
+                if token not in html:
+                    raise RuntimeError(f'Missing generated token: {token}')
+            PY
+            node --check /tmp/makevcf-inline.js
+            node <<'NODE'
+            const fs = require('fs');
+            const html = fs.readFileSync('makevcf.html', 'utf8');
+            const SIZE = 15;
+            let start = html.indexOf('  function makeParallelLine(');
+            let end = html.indexOf('\n  function detectHoughCandidates(', start);
+            if (start < 0 || end < 0) throw new Error('Cannot extract lattice helpers');
+            eval(html.slice(start, end));
+            const bundle = [];
+            for (let index = 1; index <= 13; index++) {
+              if (index === 4 || index === 10) continue;
+              bundle.push({ a: 1, b: 0, c: -(20 + index * 45), rho: 20 + index * 45, length: 420 });
+            }
+            bundle.push({ a: 1, b: 0, c: -188, rho: 188, length: 90 });
+            bundle.push({ a: 1, b: 0, c: -514, rho: 514, length: 80 });
+            bundle.sort((a, b) => a.rho - b.rho);
+            const fitted = fitGridLatticePairs(bundle, 700);
+            if (!fitted.length) throw new Error('Missing-boundary lattice was not fitted');
+            if (Math.abs(fitted[0].low.rho - 20) > 9 || Math.abs(fitted[0].high.rho - 650) > 9) {
+              throw new Error(`Lattice extrapolation inaccurate: ${fitted[0].low.rho}, ${fitted[0].high.rho}`);
+            }
+            start = html.indexOf('  function robustTone(');
+            end = html.indexOf('\n  function radialBoundaryFeature(', start);
+            const median = values => {
+              const sorted = values.slice().sort((a, b) => a - b);
+              const middle = Math.floor(sorted.length / 2);
+              return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) * 0.5;
+            };
+            eval(html.slice(start, end));
+            const blackWithWhiteDigits = [...Array(72).fill(18), ...Array(28).fill(238)];
+            const whiteWithBlackDigits = [...Array(72).fill(240), ...Array(28).fill(12)];
+            if (robustTone(blackWithWhiteDigits, 0.24) > 55) throw new Error('White digits corrupted black-stone tone');
+            if (robustTone(whiteWithBlackDigits, 0.24) < 205) throw new Error('Black digits corrupted white-stone tone');
+            start = html.indexOf('  function computeCircleOccupancy(');
+            end = html.indexOf('\n  function extractCellFeatures(', start);
+            const clamp01 = value => Math.max(0, Math.min(1, value));
+            eval(html.slice(start, end));
+            const numberedBlack = computeCircleOccupancy({
+              signedMedian: 92, absoluteMedian: 94, dominantCoverage: 0.88,
+              darkOutlineCoverage: 0.28, darkOutlineMedian: 5,
+            }, -84, -42, 0.08);
+            const outlinedWhite = computeCircleOccupancy({
+              signedMedian: 1, absoluteMedian: 6, dominantCoverage: 0.10,
+              darkOutlineCoverage: 0.84, darkOutlineMedian: 24,
+            }, 1, 31, 0.08);
+            if (!numberedBlack.candidate || numberedBlack.score < 0.55) throw new Error('Numbered black stone fixture rejected');
+            if (!outlinedWhite.candidate || !outlinedWhite.outlinedWhiteCircle) throw new Error('Outlined white stone fixture rejected');
+            NODE
+            git diff --check
+          } > /tmp/grid-fix.log 2>&1
+          status=$?
+          cat /tmp/grid-fix.log
+          cp /tmp/grid-fix.log tools/grid-fix-diagnostic.txt
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
 
-      - name: Apply recognition and lattice update
-        run: node tools/apply-grid-lattice-numbered-stones.js
-
-      - name: Validate generated page
+      - name: Commit diagnostic on failure
+        if: steps.apply.outputs.status != '0'
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          html = Path('makevcf.html').read_text(encoding='utf-8')
-          start = html.index('<script>') + len('<script>')
-          end = html.rindex('</script>')
-          Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
-          required = (
-              'function fitGridLatticePairs(',
-              "source: 'hough-lattice'",
-              'function robustTone(',
-              'darkOutlineCoverage',
-              'stoneBandValues',
-              'feature.outlinedWhiteCircle',
-              'contourBest.score < 0.74',
-              'const centerPenalty = Math.min(1, Math.abs(fittedCenter - observedCenter)',
-          )
-          for token in required:
-              if token not in html:
-                  raise RuntimeError(f'Missing generated token: {token}')
-          forbidden = (
-              "extract + '  function kmeansTwo('",
-              'function kmeansTwo(  function kmeansTwo(',
-          )
-          for token in forbidden:
-              if token in html:
-                  raise RuntimeError(f'Broken generated token remains: {token}')
-          PY
-          node --check /tmp/makevcf-inline.js
-
-      - name: Run lattice and numbered-stone regression fixtures
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const html = fs.readFileSync('makevcf.html', 'utf8');
-          const SIZE = 15;
-
-          const latticeStart = html.indexOf('  function makeParallelLine(');
-          const latticeEnd = html.indexOf('\n  function detectHoughCandidates(', latticeStart);
-          if (latticeStart < 0 || latticeEnd < 0) throw new Error('Cannot extract lattice helpers');
-          eval(html.slice(latticeStart, latticeEnd));
-
-          const bundle = [];
-          for (let index = 1; index <= 13; index++) {
-            if (index === 4 || index === 10) continue;
-            bundle.push({ a: 1, b: 0, c: -(20 + index * 45), rho: 20 + index * 45, length: 420 });
-          }
-          bundle.push({ a: 1, b: 0, c: -188, rho: 188, length: 90 });
-          bundle.push({ a: 1, b: 0, c: -514, rho: 514, length: 80 });
-          bundle.sort((a, b) => a.rho - b.rho);
-          const fitted = fitGridLatticePairs(bundle, 700);
-          if (!fitted.length) throw new Error('Missing-boundary lattice was not fitted');
-          const lowError = Math.abs(fitted[0].low.rho - 20);
-          const highError = Math.abs(fitted[0].high.rho - 650);
-          if (lowError > 9 || highError > 9) throw new Error(`Lattice extrapolation inaccurate: ${lowError}, ${highError}`);
-
-          const robustStart = html.indexOf('  function robustTone(');
-          const robustEnd = html.indexOf('\n  function radialBoundaryFeature(', robustStart);
-          const median = values => {
-            const sorted = values.slice().sort((a, b) => a - b);
-            const middle = Math.floor(sorted.length / 2);
-            return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) * 0.5;
-          };
-          eval(html.slice(robustStart, robustEnd));
-          const blackWithWhiteDigits = [...Array(72).fill(18), ...Array(28).fill(238)];
-          const whiteWithBlackDigits = [...Array(72).fill(240), ...Array(28).fill(12)];
-          if (robustTone(blackWithWhiteDigits, 0.24) > 55) throw new Error('White digits corrupted black-stone tone');
-          if (robustTone(whiteWithBlackDigits, 0.24) < 205) throw new Error('Black digits corrupted white-stone tone');
-
-          const occupancyStart = html.indexOf('  function computeCircleOccupancy(');
-          const occupancyEnd = html.indexOf('\n  function extractCellFeatures(', occupancyStart);
-          const clamp01 = value => Math.max(0, Math.min(1, value));
-          eval(html.slice(occupancyStart, occupancyEnd));
-          const numberedBlack = computeCircleOccupancy({
-            signedMedian: 92, absoluteMedian: 94, dominantCoverage: 0.88,
-            darkOutlineCoverage: 0.28, darkOutlineMedian: 5,
-          }, -84, -42, 0.08);
-          const outlinedWhite = computeCircleOccupancy({
-            signedMedian: 1, absoluteMedian: 6, dominantCoverage: 0.10,
-            darkOutlineCoverage: 0.84, darkOutlineMedian: 24,
-          }, 1, 31, 0.08);
-          if (!numberedBlack.candidate || numberedBlack.score < 0.55) throw new Error('Numbered black stone fixture rejected');
-          if (!outlinedWhite.candidate || !outlinedWhite.outlinedWhiteCircle) throw new Error('Outlined white stone fixture rejected');
-          NODE
-          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/grid-fix-diagnostic.txt
+          git commit -m "記錄缺邊棋盤修正失敗原因"
+          git push
 
       - name: Commit generated changes
+        if: steps.apply.outputs.status == '0'
         run: |
-          if git diff --quiet -- makevcf.html 規格書.MD; then
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f tools/grid-fix-diagnostic.txt 2>/dev/null || true
+          git add makevcf.html 規格書.MD
+          if git diff --cached --quiet; then
             echo "No generated changes"
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add makevcf.html 規格書.MD
           git commit -m "改善缺邊棋盤與數字棋子辨識"
           git push
-
-# retrigger with centered lattice scoring
