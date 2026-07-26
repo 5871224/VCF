@@ -1,0 +1,98 @@
+name: Apply numbered stone annulus fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/apply-numbered-stone-annulus-fix.js
+      - .github/workflows/apply-numbered-stone-annulus-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate patch script
+        run: node --check tools/apply-numbered-stone-annulus-fix.js
+
+      - name: Apply annulus recognition update
+        run: node tools/apply-numbered-stone-annulus-fix.js
+
+      - name: Validate generated page
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('makevcf.html').read_text(encoding='utf-8')
+          start = html.index('<script>') + len('<script>')
+          end = html.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
+          required = (
+              'function sampleStoneAnnulusFeature(',
+              'const numberedCircle =',
+              'annularPurity >= 0.52',
+              'const bodyDelta = annulus.tone - referenceTone;',
+              'feature.annulus.purity >= 0.44',
+          )
+          for token in required:
+              if token not in html:
+                  raise RuntimeError(f'Missing generated token: {token}')
+          PY
+          node --check /tmp/makevcf-inline.js
+          git diff --check
+
+      - name: Run center-text regression fixtures
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const html = fs.readFileSync('makevcf.html', 'utf8');
+          const clamp01 = value => Math.max(0, Math.min(1, value));
+
+          let start = html.indexOf('  function computeCircleOccupancy(');
+          let end = html.indexOf('\n  function extractCellFeatures(', start);
+          if (start < 0 || end < 0) throw new Error('Cannot extract occupancy classifier');
+          eval(html.slice(start, end));
+
+          const radial = (dominantCoverage, absoluteMedian, signedMedian, blackCoverage, whiteCoverage) => ({
+            dominantCoverage,
+            absoluteMedian,
+            signedMedian,
+            blackCoverage,
+            whiteCoverage,
+          });
+          const blackWithWhiteDigits = computeCircleOccupancy(
+            radial(0.70, 22, 24, 0.70, 0.03), -165, -55, 0.08, 0.68
+          );
+          const whiteWithBlackDigits = computeCircleOccupancy(
+            radial(0.66, 20, -20, 0.04, 0.66), 64, 30, 0.08, 0.64
+          );
+          const emptyGrid = computeCircleOccupancy(
+            radial(0.16, 4, 1, 0.09, 0.07), 2, 1, 0.78, 0.18
+          );
+          if (!blackWithWhiteDigits.candidate || !blackWithWhiteDigits.numberedCircle) {
+            throw new Error('Black stone with white digits was rejected');
+          }
+          if (!whiteWithBlackDigits.candidate || !whiteWithBlackDigits.numberedCircle) {
+            throw new Error('White stone with black digits was rejected');
+          }
+          if (emptyGrid.candidate) throw new Error('Empty grid was accepted as a stone');
+          NODE
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet -- makevcf.html 規格書.MD; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html 規格書.MD
+          git commit -m "改善棋子中央手數干擾辨識"
+          git push
