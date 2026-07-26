@@ -1,0 +1,61 @@
+name: Apply manual stone count status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/apply-manual-stone-count-status.js
+      - .github/workflows/apply-manual-stone-count-status.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate patch script
+        run: node --check tools/apply-manual-stone-count-status.js
+
+      - name: Apply status update
+        run: node tools/apply-manual-stone-count-status.js
+
+      - name: Validate generated page and requirement
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('makevcf.html').read_text(encoding='utf-8')
+          spec = Path('規格書.MD').read_text(encoding='utf-8')
+          required_html = 'setImportStatus("目前棋子數：黑子 " + black + " 顆、白子 " + white + " 顆。");'
+          forbidden_html = '已手動將第 '
+          required_spec = '狀態列只顯示目前黑子與白子數量'
+          if required_html not in html:
+              raise RuntimeError('Missing current stone-count status')
+          if forbidden_html in html:
+              raise RuntimeError('Old manual edit status still exists')
+          if required_spec not in spec:
+              raise RuntimeError('Missing updated specification')
+          start = html.index('<script>') + len('<script>')
+          end = html.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
+          PY
+          node --check /tmp/makevcf-inline.js
+          git diff --check
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet -- makevcf.html 規格書.MD; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html 規格書.MD
+          git commit -m "手動修正後顯示黑白棋子數"
+          git push
