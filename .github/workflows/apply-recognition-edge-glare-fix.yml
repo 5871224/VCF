@@ -1,0 +1,82 @@
+name: Apply recognition edge and glare fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/apply-recognition-edge-glare-fix.js
+      - .github/workflows/apply-recognition-edge-glare-fix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply recognition fix
+        run: node tools/apply-recognition-edge-glare-fix.js
+
+      - name: Validate generated page and recognition gates
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('makevcf.html').read_text(encoding='utf-8')
+          start = html.index('<script>') + len('<script>')
+          end = html.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
+          for token in (
+              'function computeCircleOccupancy(',
+              'function sampleLocalBoardTone(',
+              'expectedArms',
+              'circleCandidate',
+              'feature.radial.signedMedian',
+          ):
+              if token not in html:
+                  raise RuntimeError(f'Missing recognition token: {token}')
+          for token in (
+              'feature.thinLine.score <= 0.24',
+              'feature.body.mean >= 196',
+              '(1 - thinLine.score) * 0.17',
+          ):
+              if token in html:
+                  raise RuntimeError(f'Obsolete recognition rule remains: {token}')
+          PY
+          node --check /tmp/makevcf-inline.js
+          node <<'NODE'
+          const fs = require('fs');
+          const html = fs.readFileSync('makevcf.html', 'utf8');
+          const start = html.indexOf('  function computeCircleOccupancy(');
+          const end = html.indexOf('\n  function extractCellFeatures(', start);
+          if (start < 0 || end < 0) throw new Error('Cannot extract computeCircleOccupancy');
+          const clamp01 = value => Math.max(0, Math.min(1, value));
+          eval(html.slice(start, end));
+          const radial = (dominantCoverage, absoluteMedian, signedMedian) => ({ dominantCoverage, absoluteMedian, signedMedian });
+          const black = computeCircleOccupancy(radial(0.90, 80, 95), -90, -30, 0.05);
+          const white = computeCircleOccupancy(radial(0.90, 70, -80), 78, 38, 0.05);
+          const darkBorder = computeCircleOccupancy(radial(0.70, 150, 145), 3, -50, 0.15);
+          const glare = computeCircleOccupancy(radial(0.54, 16, -11), 29, 2, 0.10);
+          if (!black.candidate || black.score < 0.70) throw new Error('Black stone fixture rejected');
+          if (!white.candidate || white.score < 0.70) throw new Error('White stone fixture rejected');
+          if (darkBorder.candidate) throw new Error('Dark board border fixture accepted');
+          if (glare.candidate) throw new Error('Broad glare fixture accepted');
+          NODE
+          git diff --check
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html 規格書.MD
+          git commit -m "修正棋盤邊界與反光誤判"
+          git push
