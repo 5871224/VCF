@@ -261,7 +261,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   <div id="import-canvases">
     <div id="import-canvas-card" class="canvas-card">
       <h3 id="import-view-title">原圖與棋盤框</h3>
-      <p id="source-hint">支援上傳、貼上截圖、手機拍照；可拖曳四角點修正棋盤區域。</p>
+      <p id="source-hint">支援上傳、貼上截圖、手機拍照；桌機拖角點，手機可從對應象限任意位置拖曳該角。</p>
       <canvas id="source-canvas" class="import-canvas" width="900" height="900"></canvas>
       <div id="preview-edit-hint" class="hint preview-edit-hint" hidden>
         點一下交點可依序切換「空點 → 黑子 → 白子 → 空點」。標記採半透明顯示，可直接和原圖對照。
@@ -1094,6 +1094,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     sourceRect: null,
     boardCorners: [],
     dragCorner: -1,
+    dragOffset: null,
     warpedIntersections: [],
     gridXs: [],
     gridYs: [],
@@ -1116,7 +1117,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     importViewTitleEl.textContent = preview ? "辨識預覽（可手動修正）" : "原圖與棋盤框";
     sourceHintEl.textContent = preview
       ? "半透明標記疊在校正後原圖上；點擊任一交點可手動切換空、黑、白。"
-      : "支援上傳、貼上截圖、手機拍照；可拖曳四角點修正棋盤區域。";
+      : "支援上傳、貼上截圖、手機拍照；桌機拖角點，手機可從對應象限任意位置拖曳該角。";
     previewEditHintEl.hidden = !preview;
     importCanvasCardEl.classList.toggle("preview-mode", preview);
   }
@@ -1150,6 +1151,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     importState.sourceRect = null;
     importState.boardCorners = [];
     importState.dragCorner = -1;
+    importState.dragOffset = null;
     importState.warpedIntersections = [];
     importState.gridXs = [];
     importState.gridYs = [];
@@ -1358,7 +1360,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       drawSource();
       resetWarpedView();
       setImportStatus("圖片已載入，正在嘗試自動偵測棋盤區域...");
-      sourceHintEl.textContent = "若棋盤框不準，可直接拖曳四個角點修正。";
+      sourceHintEl.textContent = "若棋盤框不準：桌機拖角點；手機從對應象限任意位置拖曳，角點會依手指位移相對移動。";
       setImportButtons();
       await autoDetectBoard();
     } finally {
@@ -2195,7 +2197,12 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const point = getCanvasPoint(evt, sourceCanvas);
     const idx = isTouchCornerEvent(evt) ? pickCornerByQuadrant(point) : pickCorner(point);
     if (idx >= 0) {
+      const corner = importState.boardCorners[idx];
       importState.dragCorner = idx;
+      importState.dragOffset = {
+        x: corner.x - point.x,
+        y: corner.y - point.y,
+      };
       drawSource();
       evt.preventDefault();
     }
@@ -2204,10 +2211,11 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   function moveCornerDrag(evt) {
     if (importState.dragCorner < 0) return;
     const pt = getCanvasPoint(evt, sourceCanvas);
+    const offset = importState.dragOffset || { x: 0, y: 0 };
     const r = importState.sourceRect;
     importState.boardCorners[importState.dragCorner] = {
-      x: clamp(pt.x, r.x, r.x + r.w),
-      y: clamp(pt.y, r.y, r.y + r.h),
+      x: clamp(pt.x + offset.x, r.x, r.x + r.w),
+      y: clamp(pt.y + offset.y, r.y, r.y + r.h),
     };
     drawSource();
     evt.preventDefault();
@@ -2216,6 +2224,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   function endCornerDrag() {
     if (importState.dragCorner >= 0) {
       importState.dragCorner = -1;
+      importState.dragOffset = null;
       drawSource();
     }
   }
@@ -2900,6 +2909,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     if (!isPreviewMode()) return;
     importState.mode = "cornersEditing";
     importState.dragCorner = -1;
+    importState.dragOffset = null;
     drawSource();
     setImportStatus("已返回棋盤框調整；拖曳四角後可再次確認棋盤區域。");
     setImportButtons();
