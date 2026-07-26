@@ -378,10 +378,15 @@
               if (expected[anchor] !== GEN_EMPTY) continue;
               expected[anchor] = GEN_WHITE;
 
+              const lineInfo = testLineFour(
+                anchor,
+                candidate.direction.line,
+                GEN_WHITE,
+                expected,
+              );
               const rawLevel = getLevelPoint(anchor, GEN_WHITE, expected);
-              const whiteShape = rawLevel & 0x0f;
-              const whiteDoubleFour = Boolean(rawLevel & 0x60);
-              if (whiteShape !== GEN_FOUR_NOFREE || whiteDoubleFour) continue;
+              // 抓禁手會被整體等級判成活四（9），但指定方向的幾何棋型仍必須是死四（8）。
+              if ((lineInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE || (rawLevel & 0x60)) continue;
               if (!isFoul(forbiddenPoint, expected)) continue;
 
               candidate.captureForbidden = true;
@@ -459,8 +464,12 @@
       return null;
     }
 
+    const line = Number(candidate.direction?.line);
+    if (!Number.isInteger(line) || line < 0 || line > 3) return null;
+    const lineInfo = testLineFour(candidate.anchor, line, GEN_WHITE, expected);
     const rawLevel = getLevelPoint(candidate.anchor, GEN_WHITE, expected);
-    if ((rawLevel & 0x0f) !== GEN_FOUR_NOFREE || (rawLevel & 0x60)) return null;
+    // 整體等級可因黑方唯一防點為禁手而升成抓禁活四，但模板方向必須仍是死四。
+    if ((lineInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE || (rawLevel & 0x60)) return null;
     if (!isFoul(forbiddenPoint, expected)) return null;
     return expected;
   };
