@@ -43,3 +43,13 @@
   `;
   document.head.appendChild(style);
 })();
+
+// The file name matches the Pages makevcf-generator-*.js copy rule.
+(function loadImageImportRuntimeFix() {
+  if (document.querySelector('script[data-vcf-image-import-fix="true"]')) return;
+  const script = document.createElement("script");
+  script.src = "makevcf-generator-image-import-fix.js";
+  script.async = false;
+  script.dataset.vcfImageImportFix = "true";
+  document.body.appendChild(script);
+})();
