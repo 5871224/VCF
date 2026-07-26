@@ -21,6 +21,29 @@
 
   addOrderControl();
 
+  // 此檔在抓禁擴充前載入，先保存原本的一般題型產生流程。
+  // 所有同步腳本載入完成後，抓禁擴充已覆寫 genFindTwoStep；此時再包成混合模式。
+  const normalFindTwoStep = genFindTwoStep;
+  setTimeout(() => {
+    if (window.__generatorWhiteModeMixInstalled) return;
+    const forbiddenFindTwoStep = genFindTwoStep;
+    if (typeof forbiddenFindTwoStep !== "function" || forbiddenFindTwoStep === normalFindTwoStep) return;
+
+    window.__generatorWhiteModeMixInstalled = true;
+    genFindTwoStep = async function generatorFindWhiteSeedWithMixedModes(
+      attacker,
+      rules,
+      options,
+      counters,
+      targetSteps,
+    ) {
+      if (rules === 2 && attacker === GEN_WHITE && genRand(2) === 0) {
+        return normalFindTwoStep(attacker, rules, options, counters, targetSteps);
+      }
+      return forbiddenFindTwoStep(attacker, rules, options, counters, targetSteps);
+    };
+  }, 0);
+
   const originalOptions = genOptions;
   genOptions = function generatorOptionsWithOrderMode() {
     const options = originalOptions();
