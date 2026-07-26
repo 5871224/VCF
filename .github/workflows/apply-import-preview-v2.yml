@@ -4,7 +4,10 @@ on:
   push:
     branches: [main]
     paths:
-      - scripts/apply-import-preview-v2.js.gz.b64
+      - scripts/apply-import-preview-v2.part0
+      - scripts/apply-import-preview-v2.part1
+      - scripts/apply-import-preview-v2.part2
+      - scripts/apply-import-preview-v2.part3
       - .github/workflows/apply-import-preview-v2.yml
   workflow_dispatch:
 
@@ -29,14 +32,23 @@ jobs:
           {
             echo "commit=$GITHUB_SHA"
             echo "started=$(date -u +%FT%TZ)"
-            base64 -d scripts/apply-import-preview-v2.js.gz.b64 | gunzip > /tmp/apply-import-preview-v2.js
+            cat scripts/apply-import-preview-v2.part0 \
+                scripts/apply-import-preview-v2.part1 \
+                scripts/apply-import-preview-v2.part2 \
+                scripts/apply-import-preview-v2.part3 \
+              | base64 -d | gunzip > /tmp/apply-import-preview-v2.js
             DECODE_STATUS=$?
             echo "decode_status=$DECODE_STATUS"
             if [ "$DECODE_STATUS" -eq 0 ]; then
               node --check /tmp/apply-import-preview-v2.js
-              echo "patch_syntax_status=$?"
-              node /tmp/apply-import-preview-v2.js
-              APPLY_STATUS=$?
+              PATCH_SYNTAX_STATUS=$?
+              echo "patch_syntax_status=$PATCH_SYNTAX_STATUS"
+              if [ "$PATCH_SYNTAX_STATUS" -eq 0 ]; then
+                node /tmp/apply-import-preview-v2.js
+                APPLY_STATUS=$?
+              else
+                APPLY_STATUS=89
+              fi
             else
               APPLY_STATUS=90
             fi
