@@ -202,6 +202,13 @@ jobs:
           NODE
           ls -lh .cache/vcf-bitboard-engine
 
+      - name: Apply image import build fixes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tools/apply-image-import-build-fixes.js
+          git diff --check -- makevcf.html 規格書.MD
+
       - name: Prepare static site
         shell: bash
         run: |
