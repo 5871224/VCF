@@ -134,3 +134,5 @@ jobs:
           git add makevcf.html 規格書.MD
           git commit -m "改善缺邊棋盤與數字棋子辨識"
           git push
+
+# retrigger 2026-07-26
