@@ -4,35 +4,46 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const runtimePath = 'makevcf-generator-image-import-fix.js';
+const houghV2Path = 'makevcf-generator-image-import-fix-v2.js';
 const loaderPath = 'makevcf-mobile.js';
 const htmlPath = 'makevcf.html';
 const specPath = '規格書.MD';
 
 function fail(message) {
-  throw new Error(`[圖片匯入建置修正] ${message}`);
+  throw new Error(`[圖片匯入建置驗證] ${message}`);
 }
 
-for (const requiredPath of [runtimePath, loaderPath, htmlPath, specPath]) {
+for (const requiredPath of [runtimePath, houghV2Path, loaderPath, htmlPath, specPath]) {
   if (!fs.existsSync(requiredPath)) fail(`缺少必要檔案：${requiredPath}`);
 }
 
 const runtime = fs.readFileSync(runtimePath, 'utf8');
+const houghV2 = fs.readFileSync(houghV2Path, 'utf8');
 const loader = fs.readFileSync(loaderPath, 'utf8');
 
 for (const token of [
   'function removeCenterText(imageData)',
-  'function fitLattice(bundle, minDimension)',
-  'function augmentHoughValues(values, width, height)',
-  'function patchedHoughLinesP(',
+  'function analyzeStoneAt(',
   'darkOutlineCoverage >= 0.50',
   'const fallbackRecognitionCall = warpCallSequence % 2 === 0;',
 ]) {
-  if (!runtime.includes(token)) fail(`正式修正模組缺少：${token}`);
+  if (!runtime.includes(token)) fail(`數字棋子修正模組缺少：${token}`);
+}
+
+for (const token of [
+  'function fitLattice(bundle, width, height)',
+  'function addSyntheticOuterLines(',
+  'const originalValues = Array.from(lines.data32S || [])',
+  'patchedHoughLinesP[V2_FLAG] = true',
+  'window.setInterval(',
+]) {
+  if (!houghV2.includes(token)) fail(`缺邊晶格修正模組缺少：${token}`);
 }
 
 for (const token of [
   'makevcf-generator-image-import-fix.js',
-  'data-vcf-image-import-fix',
+  'makevcf-generator-image-import-fix-v2.js',
+  'loadImageImportRuntimeFixes',
 ]) {
   if (!loader.includes(token)) fail(`載入入口缺少：${token}`);
 }
@@ -50,6 +61,7 @@ function syntaxCheck(filename, content) {
 }
 
 syntaxCheck('makevcf-generator-image-import-fix.js', runtime);
+syntaxCheck('makevcf-generator-image-import-fix-v2.js', houghV2);
 syntaxCheck('makevcf-mobile.js', loader);
 
-console.log('圖片匯入缺邊格線與中央數字棋子正式模組已通過建置驗證。');
+console.log('圖片匯入數字棋子與缺邊晶格修正已通過正式建置驗證。');
