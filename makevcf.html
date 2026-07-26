@@ -2321,7 +2321,18 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       profileContrast >= 5 &&
       polarityAligned &&
       profileAligned;
-    return { score, candidate: normalCircle || veryStrongCircle, polarityAligned, profileAligned };
+    const outlinedWhiteCircle =
+      radial.whiteCoverage >= 0.72 &&
+      radial.absoluteMedian >= 10 &&
+      bodyDelta >= 5 &&
+      profileDelta >= 16;
+    return {
+      score,
+      candidate: normalCircle || veryStrongCircle || outlinedWhiteCircle,
+      polarityAligned,
+      profileAligned,
+      outlinedWhiteCircle,
+    };
   }
 
   function extractCellFeatures(data, width, height, point, step, row, col) {
@@ -2462,30 +2473,22 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     srcCtx.save();
     srcCtx.lineWidth = Math.max(1, step * 0.022);
     srcCtx.strokeStyle = "rgba(28, 98, 205, 0.34)";
-    for (const x of importState.gridXs) {
-      srcCtx.beginPath();
-      srcCtx.moveTo(x * scaleX, importState.gridYs[0] * scaleY);
-      srcCtx.lineTo(x * scaleX, importState.gridYs[SIZE - 1] * scaleY);
-      srcCtx.stroke();
-    }
-    for (const y of importState.gridYs) {
-      srcCtx.beginPath();
-      srcCtx.moveTo(importState.gridXs[0] * scaleX, y * scaleY);
-      srcCtx.lineTo(importState.gridXs[SIZE - 1] * scaleX, y * scaleY);
-      srcCtx.stroke();
-    }
+    const left = importState.gridXs[0] * scaleX;
+    const top = importState.gridYs[0] * scaleY;
+    const right = importState.gridXs[SIZE - 1] * scaleX;
+    const bottom = importState.gridYs[SIZE - 1] * scaleY;
+    srcCtx.strokeRect(left, top, right - left, bottom - top);
 
     for (let index = 0; index < importState.warpedIntersections.length; index++) {
       const originalPoint = importState.warpedIntersections[index];
       const point = { x: originalPoint.x * scaleX, y: originalPoint.y * scaleY };
       const stone = importState.recognizedBoard[index];
       const confidence = importState.confidenceMap[index];
-      if (!stone) {
-        srcCtx.beginPath();
-        srcCtx.arc(point.x, point.y, step * 0.075, 0, Math.PI * 2);
-        srcCtx.fillStyle = "rgba(22, 105, 220, 0.55)";
-        srcCtx.fill();
-      } else {
+      srcCtx.beginPath();
+      srcCtx.arc(point.x, point.y, step * 0.065, 0, Math.PI * 2);
+      srcCtx.fillStyle = "rgba(22, 105, 220, 0.46)";
+      srcCtx.fill();
+      if (stone) {
         srcCtx.beginPath();
         srcCtx.arc(point.x, point.y, step * 0.40, 0, Math.PI * 2);
         srcCtx.strokeStyle = stone === 1
