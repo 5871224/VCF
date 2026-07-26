@@ -16,6 +16,33 @@
   let doubleThreeEntries = null;
   let blackDeadFourBases = null;
 
+  // The evaluator reports a white dead four whose only block is a black foul as level 9.
+  // Normal free fours store the 0x80 mark, while catch-foul stores no four mark.
+  // For generator board matching, catch-foul completes after White's move, not before it.
+  const baseAnalyzeVCFGroup = genAnalyzeVCFGroup;
+  genAnalyzeVCFGroup = function analyzeForbiddenCaptureGroup(initialBoard, moves, attacker) {
+    const analysis = baseAnalyzeVCFGroup(initialBoard, moves, attacker);
+    const rawLevel = analysis?.rawLevels?.at(-1);
+    const isWhiteCatchFoul =
+      analysis?.valid &&
+      attacker === GEN_WHITE &&
+      (rawLevel & 0x0f) === GEN_FOUR_FREE &&
+      (rawLevel & 0xe0) === 0;
+
+    if (isWhiteCatchFoul) {
+      const foulPoint = (rawLevel >>> 8) & 0xff;
+      if (
+        foulPoint >= 0 &&
+        foulPoint < 225 &&
+        analysis.completedBoard[foulPoint] === GEN_EMPTY &&
+        isFoul(foulPoint, analysis.completedBoard)
+      ) {
+        analysis.standardBoard = genCloneBoard(analysis.completedBoard);
+      }
+    }
+    return analysis;
+  };
+
   // Keep the forbidden-capture metadata while the normal reverse layer generator
   // extends the one-step seed to two or more steps.
   const baseBuildLayerCandidates = genBuildLayerCandidates;
