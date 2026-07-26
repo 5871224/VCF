@@ -1,0 +1,64 @@
+name: Apply relative quadrant corner drag
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/apply-relative-quadrant-corner-drag.js
+      - .github/workflows/apply-relative-quadrant-corner-drag.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate patch script
+        run: node --check tools/apply-relative-quadrant-corner-drag.js
+
+      - name: Apply relative corner dragging
+        run: node tools/apply-relative-quadrant-corner-drag.js
+
+      - name: Validate generated page and specification
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('makevcf.html').read_text(encoding='utf-8')
+          spec = Path('規格書.MD').read_text(encoding='utf-8')
+          required_html = [
+              'dragOffset: null',
+              'x: corner.x - point.x',
+              'y: corner.y - point.y',
+              'x: clamp(pt.x + offset.x',
+              'y: clamp(pt.y + offset.y',
+          ]
+          for token in required_html:
+              if token not in html:
+                  raise RuntimeError(f'Missing required token: {token}')
+          if '角點不得跳到手指位置' not in spec:
+              raise RuntimeError('Missing relative-drag requirement')
+          start = html.index('<script>') + len('<script>')
+          end = html.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(html[start:end], encoding='utf-8')
+          PY
+          node --check /tmp/makevcf-inline.js
+          git diff --check
+
+      - name: Commit generated changes
+        run: |
+          if git diff --quiet -- makevcf.html 規格書.MD; then
+            echo "No generated changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html 規格書.MD
+          git commit -m "手機四象限拖角改為相對位移"
+          git push
