@@ -123,8 +123,9 @@ class GeneratorVCFEngine {
     const withRules = type === "init" || type === "setGameRules"
       ? data
       : { ...data, rules: this.rules };
+    const withPruning = { ...data, pruning: genSelectedPruning() };
     const normalized = type === "findVCF"
-      ? { ...withRules, pruning: genSelectedPruning() }
+      ? { ...withPruning, rules: this.rules }
       : withRules;
     return this.callRaw(type, normalized);
   }
