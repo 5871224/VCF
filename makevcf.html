@@ -983,7 +983,6 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     recognizedBoard: new Array(225).fill(0),
     confidenceMap: new Array(225).fill(0),
     classificationMeta: [],
-    manualEdits: new Array(225).fill(false),
   };
 
   function setImportStatus(text, danger = false) {
@@ -1040,7 +1039,6 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     importState.recognizedBoard.fill(0);
     importState.confidenceMap.fill(0);
     importState.classificationMeta = [];
-    importState.manualEdits.fill(false);
     if (!keepCv) importState.cvReady = false;
     srcCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
     srcCtx.fillStyle = "#f3f3f3";
@@ -2340,7 +2338,6 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const useColorClusters = !!colorClusters && colorSeparation >= 24 && colorClusters.lowCount >= 2 && colorClusters.highCount >= 2;
 
     importState.classificationMeta = features;
-    importState.manualEdits.fill(false);
     for (let index = 0; index < features.length; index++) {
       const feature = features[index];
       let stone = 0;
@@ -2392,28 +2389,21 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       const point = { x: originalPoint.x * scaleX, y: originalPoint.y * scaleY };
       const stone = importState.recognizedBoard[index];
       const confidence = importState.confidenceMap[index];
-      const manual = importState.manualEdits[index];
       if (!stone) {
         srcCtx.beginPath();
         srcCtx.arc(point.x, point.y, step * 0.075, 0, Math.PI * 2);
-        srcCtx.fillStyle = manual ? "rgba(255, 153, 0, 0.72)" : "rgba(22, 105, 220, 0.55)";
+        srcCtx.fillStyle = "rgba(22, 105, 220, 0.55)";
         srcCtx.fill();
       } else {
         srcCtx.beginPath();
         srcCtx.arc(point.x, point.y, step * 0.40, 0, Math.PI * 2);
-        srcCtx.fillStyle = stone === 1 ? "rgba(0, 0, 0, 0.43)" : "rgba(255, 255, 255, 0.40)";
-        srcCtx.strokeStyle = stone === 1 ? "rgba(0, 0, 0, 0.80)" : "rgba(45, 45, 45, 0.76)";
-        srcCtx.lineWidth = Math.max(1.5, step * 0.035);
-        srcCtx.fill();
+        srcCtx.strokeStyle = stone === 1
+          ? "rgba(38, 117, 235, 0.95)"
+          : "rgba(235, 193, 36, 0.95)";
+        srcCtx.lineWidth = Math.max(2, step * 0.06);
         srcCtx.stroke();
       }
-      if (manual) {
-        srcCtx.beginPath();
-        srcCtx.arc(point.x, point.y, step * 0.46, 0, Math.PI * 2);
-        srcCtx.strokeStyle = "rgba(255, 145, 0, 0.95)";
-        srcCtx.lineWidth = Math.max(2, step * 0.045);
-        srcCtx.stroke();
-      } else if (confidence < 0.62) {
+      if (confidence < 0.62) {
         srcCtx.beginPath();
         srcCtx.arc(point.x, point.y, step * 0.46, 0, Math.PI * 2);
         srcCtx.strokeStyle = "rgba(220, 55, 55, 0.90)";
@@ -2468,7 +2458,6 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const index = row.index * SIZE + column.index;
     importState.recognizedBoard[index] = (importState.recognizedBoard[index] + 1) % 3;
     importState.confidenceMap[index] = 1;
-    importState.manualEdits[index] = true;
     renderRecognitionPreview();
     const labels = ["空點", "黑子", "白子"];
     setImportStatus("已手動將第 " + (row.index + 1) + " 路、第 " + (column.index + 1) + " 路改為" + labels[importState.recognizedBoard[index]] + "。");
