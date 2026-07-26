@@ -53,6 +53,11 @@ function genSelectedPruning() {
   }
 }
 
+function genNormalizeRules(rules) {
+  const value = Number(rules);
+  return value === 0 || value === 1 || value === 2 ? value : 2;
+}
+
 class GeneratorVCFEngine {
   constructor() {
     this.rules = 2;
@@ -114,14 +119,18 @@ class GeneratorVCFEngine {
 
   async post(type, data = {}) {
     await this.ready;
+    // 每個搜尋／驗證請求都明確附帶規則，避免自由規則 0 被 Worker 的預設值覆蓋。
+    const withRules = type === "init" || type === "setGameRules"
+      ? data
+      : { ...data, rules: this.rules };
     const normalized = type === "findVCF"
-      ? { ...data, pruning: genSelectedPruning() }
-      : data;
+      ? { ...withRules, pruning: genSelectedPruning() }
+      : withRules;
     return this.callRaw(type, normalized);
   }
 
   async setRules(rules) {
-    this.rules = Number(rules) || 2;
+    this.rules = genNormalizeRules(rules);
     await this.ready;
     await this.callRaw("setGameRules", { rules: this.rules });
   }
@@ -206,7 +215,7 @@ function genGetAttacker() {
 }
 
 function genGetRules() {
-  return Number(genChecked("rules").value);
+  return genNormalizeRules(genChecked("rules").value);
 }
 
 function genGetTargetSteps() {
