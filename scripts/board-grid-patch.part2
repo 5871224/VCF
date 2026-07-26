@@ -1,0 +1,216 @@
+          const segmentHits = new Uint16Array(segmentCount);
+          const from = crop;
+          const to = workSize - 1 - crop;
+          const span = Math.max(1, to - from + 1);
+          for (let variable = from; variable <= to; variable++) {
+            let found = false;
+            for (let side = -1; side <= 1; side++) {
+              const x = vertical ? clamp(fixed + side, 0, workSize - 1) : variable;
+              const y = vertical ? variable : clamp(fixed + side, 0, workSize - 1);
+              if (data[y * workSize + x]) { found = true; break; }
+            }
+            if (found) {
+              hits++;
+              const seg = clamp(Math.floor(((variable - from) / span) * segmentCount), 0, segmentCount - 1);
+              segmentHits[seg]++;
+            }
+          }
+          const minSegmentHits = Math.max(1, Math.floor(span / segmentCount * 0.035));
+          for (const count of segmentHits) if (count >= minSegmentHits) liveSegments++;
+          const strength = hits / span;
+          const continuity = liveSegments / segmentCount;
+          if (strength > bestStrength) {
+            bestStrength = strength;
+            bestContinuity = continuity;
+          }
+        }
+        return { strength: bestStrength, continuity: bestContinuity };
+      }
+
+      const on = [];
+      const continuity = [];
+      for (let i = 1; i < SIZE - 1; i++) {
+        const vertical = strengthAt(i * step, true);
+        const horizontal = strengthAt(i * step, false);
+        on.push(vertical.strength, horizontal.strength);
+        continuity.push(vertical.continuity, horizontal.continuity);
+      }
+      const off = [];
+      for (let i = 0; i < SIZE - 1; i++) {
+        off.push(strengthAt((i + 0.5) * step, true).strength);
+        off.push(strengthAt((i + 0.5) * step, false).strength);
+      }
+      const sortedOff = off.slice().sort((a, b) => a - b);
+      const offMedian = sortedOff[Math.floor(sortedOff.length / 2)] || 0.001;
+      const meanOn = on.reduce((a, b) => a + b, 0) / Math.max(1, on.length);
+      const meanOff = off.reduce((a, b) => a + b, 0) / Math.max(1, off.length);
+      const ratio = meanOn / Math.max(0.001, meanOff);
+      const coverage = on.filter(v => v > offMedian * 1.18 + 0.0025).length / Math.max(1, on.length);
+      const continuityScore = continuity.reduce((a, b) => a + b, 0) / Math.max(1, continuity.length);
+      const verticalMean = on.filter((_, i) => i % 2 === 0).reduce((a, b) => a + b, 0) / (SIZE - 2);
+      const horizontalMean = on.filter((_, i) => i % 2 === 1).reduce((a, b) => a + b, 0) / (SIZE - 2);
+      const balance = Math.min(verticalMean, horizontalMean) / Math.max(0.001, Math.max(verticalMean, horizontalMean));
+      const ratioScore = clamp01((ratio - 1.03) / 1.15);
+      const score = clamp01(ratioScore * 0.42 + coverage * 0.30 + continuityScore * 0.18 + balance * 0.10);
+      return { score, ratio, coverage, continuity: continuityScore, balance };
+    } catch (e) {
+      console.warn('棋盤候選評分失敗', e);
+      return { score: 0, ratio: 0, coverage: 0, continuity: 0, balance: 0 };
+    } finally {
+      if (srcPts) srcPts.delete();
+      if (dstPts) dstPts.delete();
+      if (matrix) matrix.delete();
+      if (warped) warped.delete();
+      if (blurred) blurred.delete();
+      if (edge) edge.delete();
+    }
+  }
+
+  function detectContourCandidates(gray) {
+    const width = gray.cols;
+    const height = gray.rows;
+    const minArea = width * height * 0.055;
+    let blur = null, edges = null, closed = null, adaptive = null, adaptiveClosed = null, kernel = null;
+    const base = [];
+    try {
+      blur = new cv.Mat();
+      edges = new cv.Mat();
+      closed = new cv.Mat();
+      adaptive = new cv.Mat();
+      adaptiveClosed = new cv.Mat();
+      cv.GaussianBlur(gray, blur, new cv.Size(5, 5), 0);
+      cv.Canny(blur, edges, 38, 125);
+      const kernelSize = Math.max(3, Math.round(Math.min(width, height) / 220) * 2 + 1);
+      kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kernelSize, kernelSize));
+      cv.morphologyEx(edges, closed, cv.MORPH_CLOSE, kernel, new cv.Point(-1, -1), 2);
+      let blockSize = Math.max(21, Math.round(Math.min(width, height) / 22));
+      if (blockSize % 2 === 0) blockSize++;
+      cv.adaptiveThreshold(blur, adaptive, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, blockSize, 7);
+      cv.morphologyEx(adaptive, adaptiveClosed, cv.MORPH_CLOSE, kernel, new cv.Point(-1, -1), 1);
+
+      for (const mask of [closed, adaptiveClosed]) {
+        const work = mask.clone();
+        const contours = new cv.MatVector();
+        const hierarchy = new cv.Mat();
+        try {
+          cv.findContours(work, contours, hierarchy, cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE);
+          for (let i = 0; i < contours.size(); i++) {
+            const contour = contours.get(i);
+            try {
+              const area = Math.abs(cv.contourArea(contour));
+              if (area < minArea) continue;
+              const perimeter = cv.arcLength(contour, true);
+              for (const epsilon of [0.012, 0.02, 0.032, 0.045]) {
+                const approx = new cv.Mat();
+                try {
+                  cv.approxPolyDP(contour, approx, epsilon * perimeter, true);
+                  if (approx.rows !== 4) continue;
+                  const pts = [];
+                  for (let j = 0; j < 4; j++) {
+                    const row = approx.intPtr(j, 0);
+                    pts.push({ x: row[0], y: row[1] });
+                  }
+                  const quad = orderCorners(pts);
+                  if (isUsableQuad(quad, width, height)) base.push({ quad, source: 'contour', area: quadArea(quad) });
+                } finally {
+                  approx.delete();
+                }
+              }
+            } finally {
+              contour.delete();
+            }
+          }
+        } finally {
+          work.delete();
+          contours.delete();
+          hierarchy.delete();
+        }
+      }
+    } finally {
+      if (blur) blur.delete();
+      if (edges) edges.delete();
+      if (closed) closed.delete();
+      if (adaptive) adaptive.delete();
+      if (adaptiveClosed) adaptiveClosed.delete();
+      if (kernel) kernel.delete();
+    }
+
+    const uniqueBase = dedupeQuads(base.sort((a, b) => b.area - a.area).slice(0, 14), width, height);
+    const expanded = [];
+    for (const candidate of uniqueBase) {
+      for (const inset of [-0.015, 0, 0.025, 0.05, 0.075, 0.10]) {
+        expanded.push({ quad: insetQuad(candidate.quad, inset), source: 'contour', inset });
+      }
+    }
+    return dedupeQuads(expanded, width, height);
+  }
+
+  function orientationPeaks(segments) {
+    const bins = 90;
+    const hist = new Float64Array(bins);
+    for (const seg of segments) {
+      const bin = Math.round((seg.angle / Math.PI) * bins) % bins;
+      hist[bin] += seg.length;
+    }
+    const smooth = new Float64Array(bins);
+    for (let i = 0; i < bins; i++) {
+      for (let d = -2; d <= 2; d++) smooth[i] += hist[(i + d + bins) % bins] * (3 - Math.abs(d));
+    }
+    let first = 0;
+    for (let i = 1; i < bins; i++) if (smooth[i] > smooth[first]) first = i;
+    let second = -1;
+    let secondValue = 0;
+    for (let i = 0; i < bins; i++) {
+      const a = (first / bins) * Math.PI;
+      const b = (i / bins) * Math.PI;
+      const distance = angularDistance(a, b);
+      if (distance < Math.PI * 0.19 || distance > Math.PI * 0.47) continue;
+      if (smooth[i] > secondValue) {
+        second = i;
+        secondValue = smooth[i];
+      }
+    }
+    if (second < 0) return null;
+    return [(first / bins) * Math.PI, (second / bins) * Math.PI];
+  }
+
+  function buildLineBundle(segments, peakAngle, minDimension) {
+    const refNormal = { x: -Math.sin(peakAngle), y: Math.cos(peakAngle) };
+    const tolerance = Math.PI / 12;
+    const raw = [];
+    for (const seg of segments) {
+      if (angularDistance(seg.angle, peakAngle) > tolerance) continue;
+      const dx = seg.x2 - seg.x1;
+      const dy = seg.y2 - seg.y1;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      if (length < 1) continue;
+      let a = -dy / length;
+      let b = dx / length;
+      if (a * refNormal.x + b * refNormal.y < 0) { a = -a; b = -b; }
+      const mx = (seg.x1 + seg.x2) * 0.5;
+      const my = (seg.y1 + seg.y2) * 0.5;
+      const rho = a * mx + b * my;
+      raw.push({ a, b, c: -rho, rho, length });
+    }
+    raw.sort((a, b) => a.rho - b.rho);
+    const merged = [];
+    const rhoTolerance = Math.max(4, minDimension * 0.006);
+    for (const line of raw) {
+      const last = merged[merged.length - 1];
+      if (last && Math.abs(last.rho - line.rho) < rhoTolerance) {
+        if (line.length > last.length) merged[merged.length - 1] = line;
+      } else {
+        merged.push(line);
+      }
+    }
+    return merged;
+  }
+
+  function boundaryPairs(bundle, minDimension) {
+    if (bundle.length < 4) return [];
+    const edgeCount = Math.min(4, Math.max(2, Math.floor(bundle.length / 3)));
+    const lows = bundle.slice(0, edgeCount);
+    const highs = bundle.slice(-edgeCount);
+    const pairs = [];
+    for (const low of lows) {
+      for (const high of highs) {
