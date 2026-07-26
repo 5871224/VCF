@@ -17,38 +17,43 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Decode patch script
         run: |
+          set -euxo pipefail
           base64 -d scripts/apply-import-preview-v2.js.gz.b64 | gunzip > /tmp/apply-import-preview-v2.js
           node --check /tmp/apply-import-preview-v2.js
 
       - name: Apply changes
         run: node /tmp/apply-import-preview-v2.js
 
-      - name: Validate generated page
+      - name: Check inline JavaScript syntax
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          const html = fs.readFileSync('makevcf.html', 'utf8');
-          const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1]);
-          if (!scripts.length) throw new Error('No inline script found');
-          fs.writeFileSync('/tmp/makevcf-inline.js', scripts.join('\n'));
-          for (const token of ['btn-import-back', 'OUTER_MARGIN_CELLS', 'refineWarpedIntersections', 'editPreviewPoint']) {
-            if (!html.includes(token)) throw new Error('Missing generated token: ' + token);
-          }
-          NODE
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('makevcf.html').read_text(encoding='utf-8')
+          start = text.index('<script>') + len('<script>')
+          end = text.rindex('</script>')
+          Path('/tmp/makevcf-inline.js').write_text(text[start:end], encoding='utf-8')
+          for token in ('btn-import-back', 'OUTER_MARGIN_CELLS', 'refineWarpedIntersections', 'editPreviewPoint'):
+              if token not in text:
+                  raise RuntimeError(f'Missing generated token: {token}')
+          PY
           node --check /tmp/makevcf-inline.js
-          git diff --check
 
-      - name: Commit generated changes
+      - name: Check patch
+        run: git diff --check
+
+      - name: Commit result
         run: |
           if git diff --quiet; then
-            echo "No changes to commit"
+            echo "No changes"
             exit 0
           fi
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add makevcf.html README.md 規格書.MD
           git commit -m "重寫圖片匯入預覽與棋子辨識"
           git push
