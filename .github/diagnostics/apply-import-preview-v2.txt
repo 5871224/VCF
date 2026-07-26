@@ -1,23 +1,9 @@
-commit=fb049a8bec40b68bc617b86a5fd92d17366df5a5
-started=2026-07-26T09:57:45Z
-decode_status=0
-patch_syntax_status=0
-/tmp/apply-import-preview-v2.js:5
-  if (count !== 1) throw new Error(`${label}: expected exactly one match, got ${count}`);
-                   ^
+commit=dbcf910d1f61cc718e3e948bc2ce16c148c3c978
+started=2026-07-26T10:01:38Z
+base64: invalid input
 
-Error: update README image import bullet: expected exactly one match, got 0
-    at replaceExact (/tmp/apply-import-preview-v2.js:5:26)
-    at Object.<anonymous> (/tmp/apply-import-preview-v2.js:908:10)
-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
-    at Object..js (node:internal/modules/cjs/loader:1913:10)
-    at Module.load (node:internal/modules/cjs/loader:1505:32)
-    at Function._load (node:internal/modules/cjs/loader:1309:12)
-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
-    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)
-    at node:internal/main/run_main_module:36:49
-
-Node.js v22.23.1
-apply_status=1
-finished=2026-07-26T09:57:47Z
-final_status=1
+gzip: stdin: invalid compressed data--format violated
+decode_status=1
+apply_status=90
+finished=2026-07-26T10:01:38Z
+final_status=90
