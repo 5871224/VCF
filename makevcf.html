@@ -2312,6 +2312,41 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     return values.length ? median(values) : pixelLum(data, width, height, cx, cy);
   }
 
+  function sampleStoneAnnulusFeature(data, width, height, cx, cy, step) {
+    const values = [];
+    const radialValues = [];
+    for (let angleIndex = 0; angleIndex < 96; angleIndex++) {
+      const angle = (angleIndex / 96) * Math.PI * 2;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const directionValues = [];
+      for (const radiusRatio of [0.24, 0.29, 0.34, 0.38]) {
+        const value = pixelLum(data, width, height, cx + cos * step * radiusRatio, cy + sin * step * radiusRatio);
+        values.push(value);
+        directionValues.push(value);
+      }
+      radialValues.push(median(directionValues));
+    }
+    const tone = median(values);
+    const directionTone = median(radialValues);
+    const deviations = radialValues.map(value => Math.abs(value - directionTone));
+    const mad = median(deviations);
+    const tolerance = Math.max(18, mad * 2.4 + 7);
+    const purity = radialValues.filter(value => Math.abs(value - directionTone) <= tolerance).length / radialValues.length;
+    const sorted = radialValues.slice().sort((a, b) => a - b);
+    const lower = sorted[Math.floor(sorted.length * 0.18)] || directionTone;
+    const upper = sorted[Math.floor(sorted.length * 0.82)] || directionTone;
+    return {
+      tone: directionTone * 0.76 + tone * 0.24,
+      median: directionTone,
+      mad,
+      purity,
+      lower,
+      upper,
+      spread: upper - lower,
+    };
+  }
+
   function radialBoundaryFeature(data, width, height, cx, cy, step) {
     const signedDifferences = [];
     const absoluteDifferences = [];
@@ -2379,49 +2414,53 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     return { raw, score: clamp01(raw / 17), expectedArms };
   }
 
-  function computeCircleOccupancy(radial, bodyDelta, profileDelta, thinLineScore) {
+  function computeCircleOccupancy(radial, bodyDelta, profileDelta, thinLineScore, annularPurity) {
     const toneContrast = Math.abs(bodyDelta);
     const profileContrast = Math.abs(profileDelta);
     const signedStrength = Math.abs(radial.signedMedian);
-    const polarityAligned = bodyDelta * radial.signedMedian <= -60 && toneContrast >= 10 && signedStrength >= 5;
+    const polarityAligned = bodyDelta * radial.signedMedian <= -42 && toneContrast >= 8 && signedStrength >= 4;
     const profileAligned = bodyDelta * profileDelta > 0;
-    const coverageScore = clamp01((radial.dominantCoverage - 0.28) / 0.55);
-    const radialStrengthScore = clamp01((radial.absoluteMedian - 5) / 35);
-    const toneContrastScore = clamp01((toneContrast - 8) / 55);
-    const profileScore = clamp01((profileContrast - 4) / 35);
+    const coverageScore = clamp01((radial.dominantCoverage - 0.24) / 0.58);
+    const radialStrengthScore = clamp01((radial.absoluteMedian - 4) / 34);
+    const toneContrastScore = clamp01((toneContrast - 7) / 55);
+    const profileScore = clamp01((profileContrast - 3) / 35);
+    const annularScore = clamp01((annularPurity - 0.28) / 0.62);
     const score = clamp01(
-      coverageScore * 0.28 +
-      radialStrengthScore * 0.20 +
-      toneContrastScore * 0.23 +
-      profileScore * 0.20 +
-      (polarityAligned && profileAligned ? 0.15 : 0) -
-      thinLineScore * 0.08
+      coverageScore * 0.22 +
+      radialStrengthScore * 0.17 +
+      toneContrastScore * 0.24 +
+      profileScore * 0.13 +
+      annularScore * 0.20 +
+      (polarityAligned && profileAligned ? 0.12 : 0) -
+      thinLineScore * 0.05
     );
     const normalCircle =
-      radial.dominantCoverage >= 0.46 &&
-      radial.absoluteMedian >= 9 &&
-      toneContrast >= 14 &&
-      profileContrast >= 7 &&
-      polarityAligned &&
-      profileAligned;
-    const veryStrongCircle =
-      radial.dominantCoverage >= 0.72 &&
-      radial.absoluteMedian >= 18 &&
-      toneContrast >= 10 &&
+      radial.dominantCoverage >= 0.42 &&
+      radial.absoluteMedian >= 8 &&
+      toneContrast >= 12 &&
       profileContrast >= 5 &&
-      polarityAligned &&
-      profileAligned;
+      polarityAligned;
+    const veryStrongCircle =
+      radial.dominantCoverage >= 0.66 &&
+      radial.absoluteMedian >= 15 &&
+      toneContrast >= 9;
     const outlinedWhiteCircle =
-      radial.whiteCoverage >= 0.72 &&
-      radial.absoluteMedian >= 10 &&
-      bodyDelta >= 5 &&
-      profileDelta >= 16;
+      radial.whiteCoverage >= 0.66 &&
+      radial.absoluteMedian >= 9 &&
+      bodyDelta >= 4 &&
+      profileDelta >= 12;
+    const numberedCircle =
+      annularPurity >= 0.52 &&
+      toneContrast >= 15 &&
+      radial.dominantCoverage >= 0.28 &&
+      radial.absoluteMedian >= 5;
     return {
       score,
-      candidate: normalCircle || veryStrongCircle || outlinedWhiteCircle,
+      candidate: normalCircle || veryStrongCircle || outlinedWhiteCircle || numberedCircle,
       polarityAligned,
       profileAligned,
       outlinedWhiteCircle,
+      numberedCircle,
     };
   }
 
@@ -2443,9 +2482,9 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
         const distance = Math.sqrt(dx * dx + dy * dy) / step;
         if (distance > 0.80) continue;
         const index = (y * width + x) * 4;
-        if (distance <= 0.27) addStatsSample(centerAcc, data, index);
-        if (distance <= 0.39) addStatsSample(bodyAcc, data, index);
-        if (distance >= 0.30 && distance <= 0.49) addStatsSample(ringAcc, data, index);
+        if (distance <= 0.18) addStatsSample(centerAcc, data, index);
+        if (distance >= 0.22 && distance <= 0.39) addStatsSample(bodyAcc, data, index);
+        if (distance >= 0.42 && distance <= 0.57) addStatsSample(ringAcc, data, index);
         if (
           Math.abs(dx) >= step * 0.34 &&
           Math.abs(dy) >= step * 0.34 &&
@@ -2461,23 +2500,27 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const ring = finishStats(ringAcc);
     const background = finishStats(backgroundAcc);
     const localTone = sampleLocalBoardTone(data, width, height, point.x, point.y, step, row, col);
-    const referenceTone = localTone * 0.72 + background.mean * 0.28;
+    const referenceTone = localTone * 0.76 + background.mean * 0.24;
+    const annulus = sampleStoneAnnulusFeature(data, width, height, point.x, point.y, step);
     const radial = radialBoundaryFeature(data, width, height, point.x, point.y, step);
     const thinLine = thinGridLineFeature(data, width, height, point.x, point.y, step, row, col);
-    const bodyDelta = body.mean - referenceTone;
+    const bodyDelta = annulus.tone - referenceTone;
     const ringDelta = ring.mean - referenceTone;
-    const profileDelta = body.mean - ring.mean;
-    const circle = computeCircleOccupancy(radial, bodyDelta, profileDelta, thinLine.score);
-    const colorKey = bodyDelta * 0.72 + profileDelta * 0.28;
+    const profileDelta = annulus.tone - ring.mean;
+    const circle = computeCircleOccupancy(radial, bodyDelta, profileDelta, thinLine.score, annulus.purity);
+    const colorKey = bodyDelta * 0.82 + radial.signedMedian * -0.18;
     return {
       point, row, col, center, body, ring, background, localTone, referenceTone,
-      radial, thinLine, bodyDelta, ringDelta, profileDelta,
+      annulus, radial, thinLine, bodyDelta, ringDelta, profileDelta,
       profileContrast: Math.abs(profileDelta),
       occupancyScore: circle.score,
       circleCandidate: circle.candidate,
+      outlinedWhiteCircle: circle.outlinedWhiteCircle,
+      numberedCircle: circle.numberedCircle,
       colorKey,
     };
   }
+
   function kmeansTwo(values) {
     if (!values.length) return null;
     let low = Math.min(...values);
@@ -2514,44 +2557,47 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const occupancyValues = features.map(feature => feature.occupancyScore);
     const occupancyClusters = kmeansTwo(occupancyValues);
     const separation = occupancyClusters ? occupancyClusters.high - occupancyClusters.low : 0;
-    const occupancyThreshold = separation >= 0.12
-      ? clamp(occupancyClusters.threshold, 0.48, 0.70)
-      : 0.52;
+    const occupancyThreshold = separation >= 0.10
+      ? clamp(occupancyClusters.threshold, 0.43, 0.66)
+      : 0.47;
 
     const occupiedIndexes = [];
     for (let index = 0; index < features.length; index++) {
       const feature = features[index];
-      if (feature.circleCandidate && feature.occupancyScore >= occupancyThreshold) occupiedIndexes.push(index);
+      const numberedAccepted = feature.numberedCircle && feature.occupancyScore >= occupancyThreshold - 0.08;
+      if (feature.circleCandidate && (feature.occupancyScore >= occupancyThreshold || numberedAccepted)) occupiedIndexes.push(index);
     }
     const occupiedSet = new Set(occupiedIndexes);
 
     const colorValues = occupiedIndexes.map(index => features[index].colorKey);
     const colorClusters = colorValues.length >= 4 ? kmeansTwo(colorValues) : null;
     const colorSeparation = colorClusters ? colorClusters.high - colorClusters.low : 0;
-    const useColorClusters = !!colorClusters && colorSeparation >= 24 && colorClusters.lowCount >= 2 && colorClusters.highCount >= 2;
+    const useColorClusters = !!colorClusters && colorSeparation >= 20 && colorClusters.lowCount >= 2 && colorClusters.highCount >= 2;
 
     importState.classificationMeta = features;
     for (let index = 0; index < features.length; index++) {
       const feature = features[index];
       let stone = 0;
-      let confidence = clamp(0.58 + Math.abs(feature.occupancyScore - occupancyThreshold) * 1.6, 0, 1);
+      let confidence = clamp(0.58 + Math.abs(feature.occupancyScore - occupancyThreshold) * 1.7, 0, 1);
       if (occupiedSet.has(index)) {
-        const strongBlack = feature.bodyDelta <= -16 && feature.radial.signedMedian >= 7;
-        const strongWhite = feature.bodyDelta >= 16 && feature.radial.signedMedian <= -7;
-        if (strongBlack) stone = 1;
+        const strongBlack = feature.bodyDelta <= -13 && feature.annulus.purity >= 0.44;
+        const strongWhite = feature.bodyDelta >= 11 && feature.annulus.purity >= 0.44;
+        if (feature.outlinedWhiteCircle) stone = 2;
+        else if (strongBlack) stone = 1;
         else if (strongWhite) stone = 2;
         else if (useColorClusters) stone = feature.colorKey < colorClusters.threshold ? 1 : 2;
-        else stone = feature.radial.signedMedian >= 0 ? 1 : 2;
+        else stone = feature.bodyDelta < 0 ? 1 : 2;
 
         const colorMargin = useColorClusters
-          ? Math.abs(feature.colorKey - colorClusters.threshold) / Math.max(20, colorSeparation)
-          : Math.abs(feature.radial.signedMedian) / 45;
-        confidence = clamp(confidence * 0.62 + clamp01(colorMargin) * 0.38, 0, 1);
+          ? Math.abs(feature.colorKey - colorClusters.threshold) / Math.max(18, colorSeparation)
+          : Math.abs(feature.bodyDelta) / 55;
+        confidence = clamp(confidence * 0.58 + clamp01(colorMargin) * 0.42, 0, 1);
       }
       importState.recognizedBoard[index] = stone;
       importState.confidenceMap[index] = confidence;
     }
   }
+
   function renderRecognitionPreview() {
     if (!isPreviewMode()) return;
     srcCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
