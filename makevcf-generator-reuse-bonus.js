@@ -88,11 +88,11 @@
   window.__generatorTargetBoardPolicyScriptRequested = true;
 
   // The first target-board policy is embedded in concentration.js and would otherwise reject
-  // an incomplete or 64-route search before the v2 current-result policy can handle it.
+  // an incomplete or 64-route search before the current-result policy can handle it.
   window.__generatorTargetBoardUniquePolicyInstalled = true;
 
   const script = document.createElement("script");
-  script.src = new URL("makevcf-generator-target-board.js", document.baseURI).href;
+  script.src = new URL("makevcf-generator-target-board-v3.js", document.baseURI).href;
   script.async = false;
   document.head.appendChild(script);
 })();
