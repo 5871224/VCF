@@ -81,8 +81,8 @@
   };
 })();
 
-// Load the final target-board uniqueness policy. The policy defers installation until all
-// later generator scripts and their deferred wrappers have finished loading.
+// Load the final target-board uniqueness policy first, then load the progress overlay. The
+// progress script waits until the deferred target-board policy has installed before wrapping it.
 (function loadGeneratorTargetBoardPolicy() {
   if (window.__generatorTargetBoardPolicyScriptRequested) return;
   window.__generatorTargetBoardPolicyScriptRequested = true;
@@ -90,5 +90,13 @@
   const script = document.createElement("script");
   script.src = new URL("makevcf-generator-target-board-v3.js", document.baseURI).href;
   script.async = false;
+  script.addEventListener("load", () => {
+    if (window.__generatorProgressScriptRequested) return;
+    window.__generatorProgressScriptRequested = true;
+    const progressScript = document.createElement("script");
+    progressScript.src = new URL("makevcf-generator-progress.js", document.baseURI).href;
+    progressScript.async = false;
+    document.head.appendChild(progressScript);
+  });
   document.head.appendChild(script);
 })();
