@@ -37,9 +37,18 @@ function genOptions() {
 
 async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
   const allPlacements = genBuildBasePlacements(attacker, rules);
-  const basePlacements = targetSteps === 1
-    ? allPlacements.filter(item => item.materialType === "deadFour")
-    : allPlacements;
+  let basePlacements;
+
+  if (targetSteps === 1) {
+    basePlacements = allPlacements.filter(item => item.materialType === "deadFour");
+  } else if (rules === 2 && attacker === GEN_WHITE) {
+    // 白方有禁規則的「一般題型」會由外層與抓禁題型各占一半。
+    // 一般題型內再固定分成活三／死四各半，避免成功率差異讓結果長期只剩死四。
+    const materialType = genRand(2) === 0 ? "liveThree" : "deadFour";
+    basePlacements = allPlacements.filter(item => item.materialType === materialType);
+  } else {
+    basePlacements = allPlacements;
+  }
 
   if (!basePlacements.length) {
     if (targetSteps === 1 && rules === 2 && attacker === GEN_BLACK) {
