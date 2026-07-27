@@ -86,6 +86,11 @@
 (function loadGeneratorTargetBoardPolicy() {
   if (window.__generatorTargetBoardPolicyScriptRequested) return;
   window.__generatorTargetBoardPolicyScriptRequested = true;
+
+  // The first target-board policy is embedded in concentration.js and would otherwise reject
+  // an incomplete or 64-route search before the v2 current-result policy can handle it.
+  window.__generatorTargetBoardUniquePolicyInstalled = true;
+
   const script = document.createElement("script");
   script.src = new URL("makevcf-generator-target-board.js", document.baseURI).href;
   script.async = false;
