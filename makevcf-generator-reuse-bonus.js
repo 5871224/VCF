@@ -81,15 +81,11 @@
   };
 })();
 
-// Load the final target-board uniqueness policy. The policy itself defers installation until
-// all later generator scripts and their deferred wrappers have finished loading.
+// Load the final target-board uniqueness policy. The policy defers installation until all
+// later generator scripts and their deferred wrappers have finished loading.
 (function loadGeneratorTargetBoardPolicy() {
   if (window.__generatorTargetBoardPolicyScriptRequested) return;
   window.__generatorTargetBoardPolicyScriptRequested = true;
-
-  // The first target-board policy is embedded in concentration.js and would otherwise reject
-  // an incomplete or 64-route search before the current-result policy can handle it.
-  window.__generatorTargetBoardUniquePolicyInstalled = true;
 
   const script = document.createElement("script");
   script.src = new URL("makevcf-generator-target-board-v3.js", document.baseURI).href;
