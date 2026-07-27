@@ -80,3 +80,14 @@
     return record;
   };
 })();
+
+// Load the final target-board uniqueness policy. The policy itself defers installation until
+// all later generator scripts and their deferred wrappers have finished loading.
+(function loadGeneratorTargetBoardPolicy() {
+  if (window.__generatorTargetBoardPolicyScriptRequested) return;
+  window.__generatorTargetBoardPolicyScriptRequested = true;
+  const script = document.createElement("script");
+  script.src = new URL("makevcf-generator-target-board.js", document.baseURI).href;
+  script.async = false;
+  document.head.appendChild(script);
+})();
