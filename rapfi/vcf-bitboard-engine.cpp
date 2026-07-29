@@ -411,7 +411,12 @@ bool routeStillWins(BitBoardState board,
                 return true;
             if (wins.size() != 1)
                 return false;
-            if (ply + 1 >= routeLen || route[ply + 1] != wins.front())
+
+            const uint8_t defense = wins.front();
+            const MoveAnalysis defenseAnalysis = analyzePoint(board, defense, defender, rule);
+            if (!legalMove(defenseAnalysis, defender, rule))
+                return true;
+            if (ply + 1 >= routeLen || route[ply + 1] != defense)
                 return false;
         }
         else {
@@ -790,6 +795,31 @@ extern "C" VCF_BB_KEEPALIVE int vcfBbSelfTest()
     board.undo(0);
     if (before != board.black || board.cells[0] != EMPTY)
         return 4;
+
+    // 白棋最後一手形成唯一連五點，而黑棋落在該點會成為長連禁手。
+    // 固定路線驗證必須把這種抓禁視為白棋仍勝，且無關的預補黑子不能解禁。
+    BitBoardState catchFoul;
+    catchFoul.clear();
+    for (int x = 0; x <= 3; x++)
+        catchFoul.play(7 * BOARD_SIZE + x, BLACK);
+    catchFoul.play(7 * BOARD_SIZE + 5, BLACK);
+    catchFoul.play(2 * BOARD_SIZE + 4, BLACK);
+    for (int y = 3; y <= 5; y++)
+        catchFoul.play(y * BOARD_SIZE + 4, WHITE);
+
+    const uint8_t catchRoute[] = {uint8_t(6 * BOARD_SIZE + 4)};
+    SearchContext catchCtx;
+    catchCtx.maxNodes = 100000;
+    catchCtx.maxDepth = 3;
+    if (!routeStillWins(catchFoul, WHITE, RENJU, catchRoute, 1, catchCtx))
+        return 5;
+
+    catchFoul.play(14 * BOARD_SIZE + 14, BLACK);
+    SearchContext catchDefenseCtx;
+    catchDefenseCtx.maxNodes = 100000;
+    catchDefenseCtx.maxDepth = 3;
+    if (!routeStillWins(catchFoul, WHITE, RENJU, catchRoute, 1, catchDefenseCtx))
+        return 6;
 
     return 0;
 }
