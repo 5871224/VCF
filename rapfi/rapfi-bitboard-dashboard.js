@@ -211,6 +211,8 @@
   if (typeof doSearch === "function") {
     doSearch = async function(arr, color) {
       lastParam = { arr, color };
+      lastVCFMoves = null;
+      lastVCFColor = color;
       setBusy(true);
       window._clearVCF();
       window._clearAnalysis();

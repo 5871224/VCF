@@ -546,10 +546,34 @@ function getBlockVCF(param) {
     };
   }
 
+  // 防點成立的前提是原始盤面上的指定手順本來確實獲勝。
+  // 若攻方顏色、盤面或手順不相符，不能因每個預補點都驗證失敗而把全盤誤報為防點。
+  writeBoard(baseBoard);
+  const baselineValid = api.validate(
+    ptr.board,
+    attacker,
+    rules,
+    ptr.route,
+    routeLen,
+    maxNode,
+    ptr.stats,
+  );
+  const baselineStats = readStats();
+  if (!baselineValid || baselineStats.aborted) {
+    return {
+      ...baselineStats,
+      elapsedMs: performance.now() - startedAt,
+      routeCount: 0,
+      candidateCount: 0,
+      points: [],
+      candidateMode: baselineStats.aborted ? "baseline-aborted" : "invalid-route",
+    };
+  }
+
   const generated = oldGetBlockCandidates(baseBoard, attacker, rules, route, includeFour, maxNode);
   const points = [];
-  let totalNodes = 0;
-  let maxPly = 0;
+  let totalNodes = baselineStats.nodeCount || 0;
+  let maxPly = baselineStats.maxPly || 0;
   let aborted = false;
   const seen = new Set();
 

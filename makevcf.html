@@ -730,6 +730,7 @@ function fmtRate(nodes, t0) {
 let searching = false;
 let lastParam = null;
 let lastVCFMoves = null;
+let lastVCFColor = 1;
 let vcfGroups = null;
 let vcfGroupIdx = 0;
 let vcfGroupColor = 1;
@@ -737,6 +738,7 @@ let vcfGroupColor = 1;
 function setVcfGroup(idx) {
   vcfGroupIdx = idx;
   lastVCFMoves = vcfGroups[idx];
+  lastVCFColor = vcfGroupColor;
   window._showVCF(lastVCFMoves, vcfGroupColor);
   document.getElementById("btn-block-vcf").disabled = false;
   document.getElementById("btn-vcf-prev").disabled = idx === 0;
@@ -766,6 +768,8 @@ function setBusy(v) {
 
 async function doSearch(arr, color) {
   lastParam = { arr, color };
+  lastVCFMoves = null;
+  lastVCFColor = color;
   setBusy(true);
   window._clearVCF();
   window._clearAnalysis();
@@ -885,7 +889,8 @@ document.getElementById("btn-clear").addEventListener("click", () => {
 document.getElementById("btn-block-vcf").addEventListener("click", async () => {
   if (!lastVCFMoves || !lastVCFMoves.length) { setStatus("請先計算出 VCF 路線，再查 VCF 防守點"); return; }
   const arr = window._getArr();
-  const color = getAColor();
+  // 必須使用產生目前手順時的攻方顏色；分析色只供其他分析功能選色。
+  const color = lastVCFColor;
   const cName = color===1 ? "黑" : "白";
   setBusy(true);
   const t0 = performance.now();
@@ -920,6 +925,7 @@ document.getElementById("btn-block-vcf-all").addEventListener("click", async () 
       return;
     }
     lastVCFMoves = vcfResult.winMoves[0];
+    lastVCFColor = color;
     document.getElementById("btn-block-vcf").disabled = false;
 
     setStatus(`取得 ${cName} VCF 防守候選點...`);
@@ -962,6 +968,7 @@ document.getElementById("btn-level3").addEventListener("click", async () => {
     if (!vcfResult) return;
     if (vcfResult.winMoves && vcfResult.winMoves[0] && vcfResult.winMoves[0].length) {
       lastVCFMoves = vcfResult.winMoves[0];
+      lastVCFColor = color;
       window._showVCF(vcfResult.winMoves[0], color);
       setStatus(`${cName} 已有 VCF，共 ${vcfResult.winMoves[0].length} 手（${elapsed(t0)}，${fmtNodes(vcfResult.nodeCount)}，${fmtRate(vcfResult.nodeCount, t0)}）`);
       return;
