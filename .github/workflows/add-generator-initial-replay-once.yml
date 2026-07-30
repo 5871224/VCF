@@ -1,3 +1,4 @@
+# Existing workflow is now on main; this follow-up push triggers it.
 name: Add generator initial replay once
 
 on:
