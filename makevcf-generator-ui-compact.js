@@ -22,7 +22,8 @@
       .vcf-control-stack {
         grid-template-columns: 1fr !important;
       }
-      .vcf-search-card > .vcf-option-row {
+      .vcf-search-card > .vcf-option-row,
+      .vcf-search-card > #vcf-search-options {
         margin-bottom: 9px;
       }
       .vcf-search-card > .vcf-action-grid + .vcf-action-grid {
@@ -202,15 +203,20 @@
     const ruleBox = document.getElementById("rule-box");
     const mainActions = document.getElementById("btns");
     const analysisBox = document.getElementById("analysis-box");
+    const searchOptions = document.getElementById("vcf-search-options");
     const analysisActions = document.getElementById("btns2");
     if (!searchCard || !ruleBox || !mainActions || !analysisBox || !analysisActions) return false;
 
     const heading = searchCard.querySelector(".vcf-card-heading h2");
     if (heading) heading.textContent = "搜尋與分析";
 
-    // Keep the original containers and IDs so all existing and later-loaded
-    // button handlers continue to work; only place them in one card.
-    searchCard.append(ruleBox, analysisBox, mainActions, analysisActions);
+    // Keep every original container and ID so existing and later-loaded handlers
+    // continue to work. In particular, vcf-search-options contains the former
+    // advanced settings (pruning, time, node and add-search mode) and must be moved
+    // before the old analysis card is removed.
+    searchCard.append(ruleBox, analysisBox);
+    if (searchOptions) searchCard.append(searchOptions);
+    searchCard.append(mainActions, analysisActions);
     if (analysisCard) analysisCard.remove();
     return true;
   }
