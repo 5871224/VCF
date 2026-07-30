@@ -1,8 +1,8 @@
 "use strict";
 
 // Workbench multi-VCF may optionally compare same-type routes at the move before
-// a final open four. The problem generator always compares the complete route,
-// including that final open-four move.
+// a final open four. The problem generator handles its fixed complete-route rule
+// directly in makevcf-generator-core.js.
 (function initVCFLiveFourGroupingOption() {
   if (window.__vcfLiveFourGroupingOptionLoaded) return;
   window.__vcfLiveFourGroupingOptionLoaded = true;
@@ -95,20 +95,6 @@
     return true;
   }
 
-  function installGeneratorOverride() {
-    if (window.__vcfGeneratorLiveFourGroupingWrapped) return true;
-    if (typeof genEngine === "undefined" || !genEngine || typeof genEngine.trimGroups !== "function") return false;
-
-    // Generator same-type comparison is fixed: never remove a final open-four
-    // move, regardless of the workbench checkbox.
-    genEngine.trimGroups = async function trimGeneratorGroupsKeepingLiveFour(_arr, groups, color) {
-      return normalizedGroupsWithLiveFour(groups, color);
-    };
-
-    window.__vcfGeneratorLiveFourGroupingWrapped = true;
-    return true;
-  }
-
   function installBusyState() {
     if (window.__vcfLiveFourGroupingBusyWrapped) return true;
     if (typeof setBusy !== "function") return false;
@@ -145,7 +131,6 @@
     installCheckbox();
     const complete = [
       installWorkbenchOverride(),
-      installGeneratorOverride(),
       installBusyState(),
       installStatusWording(),
     ].every(Boolean);
