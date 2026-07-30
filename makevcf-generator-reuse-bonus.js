@@ -136,3 +136,13 @@
   });
   document.head.appendChild(script);
 })();
+
+(function loadVCFLiveFourGroupingOption() {
+  if (window.__vcfLiveFourGroupingOptionScriptRequested) return;
+  window.__vcfLiveFourGroupingOptionScriptRequested = true;
+
+  const script = document.createElement("script");
+  script.src = new URL("vcf-live-four-grouping-option.js", document.baseURI).href;
+  script.async = false;
+  document.head.appendChild(script);
+})();
