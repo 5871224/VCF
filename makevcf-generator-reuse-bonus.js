@@ -144,7 +144,7 @@
   window.__compactVCFInterfaceScriptRequested = true;
 
   const script = document.createElement("script");
-  script.src = new URL("makevcf-ui-compact.js", document.baseURI).href;
+  script.src = new URL("makevcf-generator-ui-compact.js", document.baseURI).href;
   script.async = false;
   document.head.appendChild(script);
 })();
