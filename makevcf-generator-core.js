@@ -150,7 +150,7 @@ class GeneratorVCFEngine {
     })) || { winMoves: [], nodeCount: 0 };
   }
 
-  async trimGroups(_arr, groups, color) {
+  async trimGroups(arr, groups, color) {
     const attacker = Number(color) === GEN_WHITE ? GEN_WHITE : GEN_BLACK;
     const defender = genOther(attacker);
     const seen = new Set();
@@ -161,14 +161,41 @@ class GeneratorVCFEngine {
         .filter(idx => Number.isInteger(idx) && idx >= 0 && idx < 225);
       if (!moves.length) continue;
 
-      // 題目產生器比較相同 VCF 時固定保留最後活四手，不讀工作台
-      // 「同型-活四取前一手」設定。只忽略同色棋的落子先後順序。
-      const key = moves
+      const board = genCloneBoard(arr);
+      let replayValid = true;
+      for (let i = 0; i < moves.length - 1; i++) {
+        const idx = moves[i];
+        if (board[idx] !== GEN_EMPTY) {
+          replayValid = false;
+          break;
+        }
+        board[idx] = (i & 1) ? defender : attacker;
+      }
+
+      let normalized = moves;
+      const finalIndex = moves[moves.length - 1];
+      const finalSide = ((moves.length - 1) & 1) ? defender : attacker;
+      if (
+        replayValid &&
+        moves.length > 1 &&
+        finalSide === attacker &&
+        board[finalIndex] === GEN_EMPTY
+      ) {
+        board[finalIndex] = attacker;
+        const finalLevel = getLevelPoint(finalIndex, attacker, board) & 0x0f;
+        board[finalIndex] = GEN_EMPTY;
+        if (finalLevel === GEN_FOUR_FREE) normalized = moves.slice(0, -1);
+      }
+
+      // 多手路線若最後一手為活四，以活四前的攻守棋集合判定同型；
+      // 一手活四必須保留該落子點，避免不同現成活三都縮成空 key。
+      const key = normalized
         .map((idx, i) => `${idx}:${(i & 1) ? defender : attacker}`)
         .sort()
         .join(",");
       if (seen.has(key)) continue;
       seen.add(key);
+      // 去重只改比較 key；答案與 getBlockVCF 仍使用完整路線。
       processed.push(moves);
     }
 
