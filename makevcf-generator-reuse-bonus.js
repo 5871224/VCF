@@ -136,3 +136,15 @@
   });
   document.head.appendChild(script);
 })();
+
+// The card layout is created later in the build-injected script list. Load the
+// compact interface policy now; it waits until that layout is available.
+(function loadCompactVCFInterface() {
+  if (window.__compactVCFInterfaceScriptRequested) return;
+  window.__compactVCFInterfaceScriptRequested = true;
+
+  const script = document.createElement("script");
+  script.src = new URL("makevcf-ui-compact.js", document.baseURI).href;
+  script.async = false;
+  document.head.appendChild(script);
+})();
