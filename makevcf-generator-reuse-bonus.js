@@ -81,8 +81,7 @@
   };
 })();
 
-// Load the final target-board uniqueness policy first, then load the progress overlay. The
-// progress script waits until the deferred target-board policy has installed before wrapping it.
+// Load the final target-board uniqueness policy first, then load both replay layers.
 (function loadGeneratorTargetBoardPolicy() {
   if (window.__generatorTargetBoardPolicyScriptRequested) return;
   window.__generatorTargetBoardPolicyScriptRequested = true;
@@ -96,6 +95,14 @@
     const progressScript = document.createElement("script");
     progressScript.src = new URL("makevcf-generator-progress.js", document.baseURI).href;
     progressScript.async = false;
+    progressScript.addEventListener("load", () => {
+      if (window.__generatorCompleteReplayScriptRequested) return;
+      window.__generatorCompleteReplayScriptRequested = true;
+      const completeReplayScript = document.createElement("script");
+      completeReplayScript.src = new URL("makevcf-generator-replay-complete.js", document.baseURI).href;
+      completeReplayScript.async = false;
+      document.head.appendChild(completeReplayScript);
+    });
     document.head.appendChild(progressScript);
   });
   document.head.appendChild(script);
