@@ -1,38 +1,119 @@
 "use strict";
 
-(function loadLiveFourGroupingOption() {
-  if (window.__vcfLiveFourGroupingOptionScriptRequested) return;
-  window.__vcfLiveFourGroupingOptionScriptRequested = true;
-
-  const script = document.createElement("script");
-  script.src = new URL("vcf-live-four-grouping-option.js", document.baseURI).href;
-  script.async = false;
-  document.head.appendChild(script);
-})();
-
 (function installShortestVcfUi() {
+  const CHECKBOX_ID = "vcf-same-type-trim-live-four";
+  const STORAGE_KEY = "vcf_same_type_trim_live_four";
   let attempts = 0;
+
+  function normalizeGroupsKeepingLiveFour(groups, color) {
+    const attacker = Number(color) === 2 ? 2 : 1;
+    const defender = 3 - attacker;
+    const seen = new Set();
+    const processed = [];
+
+    for (const source of Array.isArray(groups) ? groups : []) {
+      const moves = Array.from(source || [])
+        .filter(idx => Number.isInteger(idx) && idx >= 0 && idx < 225);
+      if (!moves.length) continue;
+
+      const key = moves
+        .map((idx, i) => `${idx}:${(i & 1) ? defender : attacker}`)
+        .sort()
+        .join(",");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      processed.push(moves);
+    }
+
+    processed.sort((a, b) => a.length - b.length);
+    return processed;
+  }
+
+  function readCheckedDefault() {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored == null ? true : stored !== "0";
+    } catch (_) {
+      return true;
+    }
+  }
 
   const init = () => {
     const multiButton = document.getElementById("btn-multi-vcf");
-    if (!multiButton || !window.VCFBitboard?.main) {
+    if (!multiButton || !window.VCFBitboard?.main || typeof engine === "undefined") {
       if (attempts++ < 200) window.setTimeout(init, 50);
       return;
     }
     if (document.getElementById("btn-shortest-vcf")) return;
+
+    let sameTypeCheck = document.getElementById(CHECKBOX_ID);
+    if (!sameTypeCheck) {
+      const label = document.createElement("label");
+      label.id = "vcf-same-type-trim-live-four-label";
+      label.title = "勾選：最後以活四取勝時，同型比較只取到活四前一手；未勾選：把活四落子也納入同型比較。";
+      Object.assign(label.style, {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "5px",
+        padding: "7px 9px",
+        border: "1px solid #aaa",
+        borderRadius: "5px",
+        background: "#fff",
+        fontSize: "13px",
+        cursor: "pointer",
+      });
+
+      sameTypeCheck = document.createElement("input");
+      sameTypeCheck.id = CHECKBOX_ID;
+      sameTypeCheck.type = "checkbox";
+      sameTypeCheck.checked = readCheckedDefault();
+      sameTypeCheck.addEventListener("change", () => {
+        try { localStorage.setItem(STORAGE_KEY, sameTypeCheck.checked ? "1" : "0"); } catch (_) {}
+      });
+
+      label.appendChild(sameTypeCheck);
+      label.appendChild(document.createTextNode("同型-活四取前一手"));
+      multiButton.insertAdjacentElement("afterend", label);
+    }
+
+    if (!window.__vcfWorkbenchLiveFourGroupingWrapped && typeof engine.trimVCFGroups === "function") {
+      const originalTrimVCFGroups = engine.trimVCFGroups.bind(engine);
+      engine.trimVCFGroups = async function trimVCFGroupsBySelectedSameTypeMode(options = {}) {
+        if (sameTypeCheck.checked) return originalTrimVCFGroups(options);
+        return normalizeGroupsKeepingLiveFour(options.groups, options.color);
+      };
+      window.__vcfWorkbenchLiveFourGroupingWrapped = true;
+    }
+
+    if (!window.__vcfLiveFourGroupingStatusWrapped && typeof setStatus === "function") {
+      const originalSetStatus = setStatus;
+      setStatus = function setStatusWithLiveFourMode(text) {
+        let message = String(text ?? "");
+        if (!sameTypeCheck.checked) {
+          message = message
+            .replace("修剪活四尾步並去重", "保留活四尾步並去重")
+            .replace(/→修剪後/g, "→同型整理後");
+        }
+        originalSetStatus(message);
+      };
+      window.__vcfLiveFourGroupingStatusWrapped = true;
+    }
 
     const button = document.createElement("button");
     button.id = "btn-shortest-vcf";
     button.type = "button";
     button.className = multiButton.className;
     button.textContent = "最短 VCF";
-    multiButton.insertAdjacentElement("afterend", button);
+    const optionLabel = sameTypeCheck.closest("label");
+    if (optionLabel) optionLabel.insertAdjacentElement("afterend", button);
+    else multiButton.insertAdjacentElement("afterend", button);
 
     if (typeof setBusy === "function") {
       const baseSetBusy = setBusy;
       setBusy = function(value) {
         baseSetBusy(value);
         button.disabled = Boolean(value);
+        sameTypeCheck.disabled = Boolean(value);
       };
     }
 
