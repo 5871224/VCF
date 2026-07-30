@@ -150,12 +150,30 @@ class GeneratorVCFEngine {
     })) || { winMoves: [], nodeCount: 0 };
   }
 
-  async trimGroups(arr, groups, color) {
-    return (await this.post("trimVCFGroups", {
-      arr: arr.slice(),
-      groups: groups.map(moves => Array.from(moves)),
-      color,
-    })) || [];
+  async trimGroups(_arr, groups, color) {
+    const attacker = Number(color) === GEN_WHITE ? GEN_WHITE : GEN_BLACK;
+    const defender = genOther(attacker);
+    const seen = new Set();
+    const processed = [];
+
+    for (const source of Array.isArray(groups) ? groups : []) {
+      const moves = Array.from(source || [])
+        .filter(idx => Number.isInteger(idx) && idx >= 0 && idx < 225);
+      if (!moves.length) continue;
+
+      // 題目產生器比較相同 VCF 時固定保留最後活四手，不讀工作台
+      // 「同型-活四取前一手」設定。只忽略同色棋的落子先後順序。
+      const key = moves
+        .map((idx, i) => `${idx}:${(i & 1) ? defender : attacker}`)
+        .sort()
+        .join(",");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      processed.push(moves);
+    }
+
+    processed.sort((a, b) => a.length - b.length);
+    return processed;
   }
 
   async getBlockVCF(arr, color, moves, includeFour = true) {
