@@ -15,6 +15,7 @@
     const originalBuildLayerCandidates = genBuildLayerCandidates;
     const originalValidateCandidate = genValidateCandidate;
     const originalValidateExtensionCandidate = genValidateExtensionCandidate;
+    const originalShowResult = genShowResult;
 
     let timeline = [];
     let forbiddenKeys = new Set();
@@ -23,12 +24,21 @@
     let combinedElements = null;
     let lastRenderedBoard = null;
     let lastRenderedAttacker = GEN_BLACK;
+    let finalNMask = new Uint8Array(225);
+    let finalSignature = "";
 
     function cloneBoard(board) {
       const copy = Array.from(board || []).slice(0, 226);
       while (copy.length < 225) copy.push(GEN_EMPTY);
       copy.length = 226;
       copy[225] = -1;
+      return copy;
+    }
+
+    function cloneNMask(nMask) {
+      const copy = new Uint8Array(225);
+      const source = nMask instanceof Uint8Array ? nMask : Uint8Array.from(nMask || []);
+      copy.set(source.subarray(0, 225));
       return copy;
     }
 
@@ -50,6 +60,39 @@
       return "ABCDEFGHJKLMNOP"[idx % 15] + (15 - Math.floor(idx / 15));
     }
 
+    function renderNPoints(nMask) {
+      const layer = document.getElementById("generator-n-layer");
+      if (!layer) return;
+      while (layer.firstChild) layer.firstChild.remove();
+
+      const ns = "http://www.w3.org/2000/svg";
+      const bothMask = GEN_NO_BLACK | GEN_NO_WHITE;
+      const maskArray = cloneNMask(nMask);
+      const markSize = 13;
+
+      for (let idx = 0; idx < 225; idx++) {
+        const mask = maskArray[idx] & bothMask;
+        if (!mask) continue;
+        const both = mask === bothMask;
+        const cx = 22 + (idx % 15) * 34;
+        const cy = 22 + Math.floor(idx / 15) * 34;
+        const rect = document.createElementNS(ns, "rect");
+        rect.setAttribute("x", cx - markSize / 2);
+        rect.setAttribute("y", cy - markSize / 2);
+        rect.setAttribute("width", markSize);
+        rect.setAttribute("height", markSize);
+        rect.setAttribute("rx", 2);
+        rect.setAttribute("fill", both ? "#2e9f45" : (mask & GEN_NO_BLACK) ? "#222" : "#f8f8f8");
+        rect.setAttribute("stroke", both ? "#176729" : "#d02020");
+        rect.setAttribute("stroke-width", 2);
+        rect.setAttribute("opacity", .92);
+        const title = document.createElementNS(ns, "title");
+        title.textContent = both ? "雙方 N 點" : (mask & GEN_NO_BLACK) ? "黑方 N 點" : "白方 N 點";
+        rect.appendChild(title);
+        layer.appendChild(rect);
+      }
+    }
+
     function installBoardCapture() {
       const current = window._setBoardArr;
       if (typeof current !== "function" || current.__completeReplayCapture) return;
@@ -69,6 +112,7 @@
         type: "initial",
         step: {
           board: cloneBoard(record.board),
+          nMask: cloneNMask(record.nMask),
           attacker: record.attacker || GEN_BLACK,
           status: "info",
           title: record.title || "建立初始盤面",
@@ -84,6 +128,7 @@
       timeline.push({
         type: "candidate",
         signature: boardSignature(candidate.board),
+        nMask: cloneNMask(candidate.nMask),
       });
     }
 
@@ -106,6 +151,7 @@
 
       addInitialEvent({
         board,
+        nMask: source.nMask || candidate.nMask,
         attacker: GEN_WHITE,
         title: `建立禁手骨架（${label}）`,
         reason: "黑棋禁手骨架已建立，接著套入白棋死四",
@@ -122,6 +168,7 @@
         const label = base.materialType === "deadFour" ? "死四" : "活三";
         addInitialEvent({
           board: base.board,
+          nMask: base.nMask,
           attacker: base.attacker || genGetAttacker(),
           title: `建立初始${label}`,
           reason: `已選中${label}材料，接著嘗試加入第一層死四`,
@@ -154,6 +201,18 @@
     ) {
       if (genBusy) addCandidateEvent(candidate);
       return originalValidateExtensionCandidate(candidate, previousResult, targetSteps);
+    };
+
+    genShowResult = function showResultWithCompleteReplayNPoints(
+      result,
+      targetSteps,
+      attacker,
+      counters,
+      options,
+    ) {
+      finalNMask = cloneNMask(result?.nMask);
+      finalSignature = result?.board ? boardSignature(result.board) : "";
+      return originalShowResult(result, targetSteps, attacker, counters, options);
     };
 
     function ensureCombinedUI() {
@@ -250,6 +309,7 @@
       if (typeof window._setBoardArr === "function") {
         window._setBoardArr(cloneBoard(step.board), step.attacker || GEN_BLACK);
       }
+      renderNPoints(step.nMask);
     }
 
     function captureOldStep(oldPanel) {
@@ -316,6 +376,10 @@
       return indexes;
     }
 
+    function withNMask(records, nMask) {
+      return records.map(record => ({ ...record, nMask: cloneNMask(nMask) }));
+    }
+
     function mergeTimelineWithReplay(records) {
       const candidateEvents = timeline.filter(event => event.type === "candidate");
       const starts = candidateStartIndexes(records, candidateEvents);
@@ -338,13 +402,21 @@
               break;
             }
           }
-          output.push(...records.slice(start, end));
+          output.push(...withNMask(records.slice(start, end), event.nMask));
         }
         candidateNumber++;
       }
 
       if (!candidateEvents.length || starts.every(index => index < 0)) {
         output.push(...records);
+      }
+
+      if (finalSignature) {
+        for (let index = output.length - 1; index >= 0; index--) {
+          if (output[index].signature !== finalSignature) continue;
+          output[index] = { ...output[index], nMask: cloneNMask(finalNMask) };
+          break;
+        }
       }
       return output;
     }
@@ -372,6 +444,8 @@
         combinedIndex = -1;
         lastRenderedBoard = null;
         lastRenderedAttacker = genGetAttacker();
+        finalNMask = new Uint8Array(225);
+        finalSignature = "";
         if (elements) elements.panel.hidden = true;
         return;
       }
