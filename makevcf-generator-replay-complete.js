@@ -12,6 +12,7 @@
 
     const originalSetBusy = genSetBusy;
     const originalPickInitialPlacement = genPickInitialPlacement;
+    const originalBuildLayerCandidates = genBuildLayerCandidates;
     const originalValidateCandidate = genValidateCandidate;
     const originalValidateExtensionCandidate = genValidateExtensionCandidate;
 
@@ -87,10 +88,10 @@
     }
 
     function recordForbiddenBase(candidate) {
-      if (!candidate?.captureForbidden) return;
+      if (!candidate?.captureForbidden && candidate?.materialType !== "forbiddenCapture") return;
       const source = candidate.base || candidate.rootBase || candidate;
       const board = cloneBoard(source.board || candidate.board);
-      const anchor = Number(candidate.anchor);
+      const anchor = Number(candidate.anchor ?? source.anchorCandidates?.[0]);
       if (anchor >= 0 && anchor < 225 && board[anchor] === GEN_WHITE) {
         board[anchor] = GEN_EMPTY;
       }
@@ -128,6 +129,14 @@
         });
       }
       return base;
+    };
+
+    genBuildLayerCandidates = function buildLayerCandidatesWithForbiddenReplay(...args) {
+      const base = args[0];
+      if (genBusy && base?.materialType === "forbiddenCapture") {
+        recordForbiddenBase(base);
+      }
+      return originalBuildLayerCandidates(...args);
     };
 
     genValidateCandidate = async function validateCandidateWithCompleteReplay(candidate, expectedSteps) {
