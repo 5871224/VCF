@@ -1,9 +1,13 @@
 "use strict";
 
 // Apply the reuse preference to both attack stones and existing defender stones.
+// Every newly built dead-four candidate must also reserve all of its five points
+// as N points for both sides before any validation, auto-blocking, or final fill runs.
 (function initGeneratorReuseBonus() {
   if (window.__generatorReuseBonusLoaded) return;
   window.__generatorReuseBonusLoaded = true;
+
+  const bothN = GEN_NO_BLACK | GEN_NO_WHITE;
 
   function renameReuseControl() {
     const input = genEl("bonus-reuse");
@@ -18,6 +22,17 @@
       }
     }
     label.title = "0% 不加權；攻方棋，以及死四模板 X 點或五點原有的守方棋，每沿用一顆都套用相同加成；100% 時每顆沿用棋使候選權重增加 99";
+  }
+
+  function protectCandidateFivePoints(candidate) {
+    if (!candidate?.nMask) return;
+    const points = new Set([
+      candidate.fivePoint,
+      ...Array.from(candidate.lineFivePoints || []),
+    ]);
+    for (const idx of points) {
+      if (idx >= 0 && idx < 225) candidate.nMask[idx] |= bothN;
+    }
   }
 
   renameReuseControl();
@@ -47,6 +62,11 @@
     );
 
     for (const candidate of candidates) {
+      // Mark the current layer's only winning point immediately. For same-line
+      // double fours, both winning points are protected. Later defender placement
+      // therefore rejects them through the normal genIsNFor() checks.
+      protectCandidateFivePoints(candidate);
+
       const reusedDefenders = new Set();
 
       // Template X endpoints may reuse defender stones already present on the board.
