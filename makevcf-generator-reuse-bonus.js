@@ -101,7 +101,8 @@
   };
 })();
 
-// Load the final target-board uniqueness policy first, then load both replay layers.
+// Load the final target-board policy first, then the complete defense-point policy,
+// and finally both replay layers so replay records the corrected blocking process.
 (function loadGeneratorTargetBoardPolicy() {
   if (window.__generatorTargetBoardPolicyScriptRequested) return;
   window.__generatorTargetBoardPolicyScriptRequested = true;
@@ -110,20 +111,28 @@
   script.src = new URL("makevcf-generator-target-board-v3.js", document.baseURI).href;
   script.async = false;
   script.addEventListener("load", () => {
-    if (window.__generatorProgressScriptRequested) return;
-    window.__generatorProgressScriptRequested = true;
-    const progressScript = document.createElement("script");
-    progressScript.src = new URL("makevcf-generator-progress.js", document.baseURI).href;
-    progressScript.async = false;
-    progressScript.addEventListener("load", () => {
-      if (window.__generatorCompleteReplayScriptRequested) return;
-      window.__generatorCompleteReplayScriptRequested = true;
-      const completeReplayScript = document.createElement("script");
-      completeReplayScript.src = new URL("makevcf-generator-replay-complete.js", document.baseURI).href;
-      completeReplayScript.async = false;
-      document.head.appendChild(completeReplayScript);
+    if (window.__generatorDefensePointPolicyScriptRequested) return;
+    window.__generatorDefensePointPolicyScriptRequested = true;
+    const defenseScript = document.createElement("script");
+    defenseScript.src = new URL("makevcf-generator-defense-points.js", document.baseURI).href;
+    defenseScript.async = false;
+    defenseScript.addEventListener("load", () => {
+      if (window.__generatorProgressScriptRequested) return;
+      window.__generatorProgressScriptRequested = true;
+      const progressScript = document.createElement("script");
+      progressScript.src = new URL("makevcf-generator-progress.js", document.baseURI).href;
+      progressScript.async = false;
+      progressScript.addEventListener("load", () => {
+        if (window.__generatorCompleteReplayScriptRequested) return;
+        window.__generatorCompleteReplayScriptRequested = true;
+        const completeReplayScript = document.createElement("script");
+        completeReplayScript.src = new URL("makevcf-generator-replay-complete.js", document.baseURI).href;
+        completeReplayScript.async = false;
+        document.head.appendChild(completeReplayScript);
+      });
+      document.head.appendChild(progressScript);
     });
-    document.head.appendChild(progressScript);
+    document.head.appendChild(defenseScript);
   });
   document.head.appendChild(script);
 })();
