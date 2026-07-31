@@ -5,205 +5,86 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>VCF 題目產生器完整流程圖</title>
 <style>
-:root{color-scheme:light;--bg:#f3f6fa;--panel:#fff;--ink:#17212b;--muted:#5e6b78}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif}
-header{position:sticky;top:0;z-index:5;background:rgba(255,255,255,.96);border-bottom:1px solid #d7dee7;padding:12px 18px}
-h1{margin:0 0 6px;font-size:22px}.sub{font-size:13px;color:var(--muted);line-height:1.55}.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
-button{font:inherit;border:1px solid #b7c1cd;background:#fff;border-radius:7px;padding:6px 11px;cursor:pointer}button:hover{background:#eef3f8}
-main{padding:16px}.notice,.chart{max-width:1900px;margin:0 auto 12px;background:var(--panel);border:1px solid #d7dee7;border-radius:12px;box-shadow:0 3px 15px rgba(31,52,77,.07)}
-.notice{padding:11px 14px;font-size:13px;line-height:1.65}.chart{padding:10px;overflow:auto}.mermaid{min-width:1700px;text-align:center}
-.legend{display:flex;gap:18px;flex-wrap:wrap}.legend b{white-space:nowrap}.normal{color:#34495e}.call{color:#6f42c1}.loop{color:#b23b3b}.ok{color:#197a45}
-.mermaid svg{max-width:none!important;height:auto}.error{display:none;color:#a7332a;background:#fff0ee;border:1px solid #e2aaa4;border-radius:8px;padding:12px;white-space:pre-wrap}
-@media print{header,.notice{display:none}main{padding:0}.chart{border:0;box-shadow:none;overflow:visible}.mermaid{min-width:0}}
+:root{--bg:#f3f6fa;--panel:#fff;--ink:#17212b;--muted:#5f6d7a;--line:#44546a;--blue:#e8f1ff;--blue-b:#4d78b5;--yellow:#fff4b8;--yellow-b:#a98500;--orange:#fff0d5;--orange-b:#c88418;--green:#e7f7ec;--green-b:#2e8a50;--purple:#f0e9ff;--purple-b:#7650ad;--red:#fde8e5;--red-b:#c34e45}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font-family:"Microsoft JhengHei","Noto Sans TC",system-ui,sans-serif}
+header{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.97);border-bottom:1px solid #d7dee7;padding:12px 18px}h1{margin:0 0 5px;font-size:22px}.sub{font-size:13px;color:var(--muted);line-height:1.55}.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}.tools a,.tools button{font:inherit;color:inherit;text-decoration:none;border:1px solid #b7c1cd;background:#fff;border-radius:7px;padding:6px 11px;cursor:pointer}.tools a:hover,.tools button:hover{background:#eef3f8}
+main{padding:16px}.notice,.section{max-width:1180px;margin:0 auto 15px;background:var(--panel);border:1px solid #d7dee7;border-radius:12px;box-shadow:0 3px 15px rgba(31,52,77,.07)}.notice{padding:12px 15px;font-size:13px;line-height:1.7}.legend{display:flex;gap:17px;flex-wrap:wrap;margin-bottom:5px}.section{padding:16px;scroll-margin-top:115px}.section h2{margin:0 0 4px;font-size:19px}.desc{margin-bottom:14px;color:var(--muted);font-size:13px;line-height:1.6}
+.flow{display:flex;flex-direction:column;align-items:center}.node{width:min(760px,94%);padding:11px 15px;border:2px solid var(--blue-b);border-radius:10px;background:var(--blue);text-align:center;line-height:1.55;font-weight:600}.node small{display:block;font-weight:400;color:#4f5d6a}.term{border-radius:999px;background:#eef1f5;border-color:#5c6b7a}.decision{width:min(540px,88%);background:var(--yellow);border-color:var(--yellow-b);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);padding:29px 72px;border-radius:0}.validate{background:var(--orange);border-color:var(--orange-b)}.final{background:var(--green);border-color:var(--green-b)}.subroutine{background:var(--purple);border-color:var(--purple-b);border-style:dashed}.fail{background:var(--red);border-color:var(--red-b)}
+.arrow{height:34px;width:2px;background:var(--line);position:relative}.arrow:after{content:"";position:absolute;left:-5px;bottom:-1px;border-left:6px solid transparent;border-right:6px solid transparent;border-top:9px solid var(--line)}.arrow.green{background:#197a45}.arrow.green:after{border-top-color:#197a45}.arrow.purple{background:repeating-linear-gradient(to bottom,var(--purple-b) 0 6px,transparent 6px 11px)}.arrow.purple:after{border-top-color:var(--purple-b)}.arrow.red{background:var(--red-b)}.arrow.red:after{border-top-color:var(--red-b)}.arrow-label{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:#fff;border:1px solid #cad2dc;margin:4px 0}.arrow-label.ok{color:#197a45;border-color:#9ac9aa}.arrow-label.no{color:#b23b3b;border-color:#e2aaa4}.arrow-label.call{color:#7650ad;border-color:#bca9da}
+.branch{width:100%;display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;margin:4px 0}.branch.three{grid-template-columns:repeat(3,1fr)}.branch-col{display:flex;flex-direction:column;align-items:center;min-width:0}.branch .node{width:100%}.loop{width:min(900px,96%);border:2px solid var(--red-b);background:#fff5f3;color:#8e3029;border-radius:10px;padding:10px 14px;text-align:center;font-weight:700;line-height:1.55;margin:8px 0}.loop .mark{font-size:22px;vertical-align:-2px}.return{width:min(900px,96%);border:2px dashed var(--purple-b);background:#f7f3ff;color:#60408d;border-radius:10px;padding:10px 14px;text-align:center;font-weight:700;line-height:1.55;margin:8px 0}.note{width:min(960px,97%);border-left:5px solid var(--purple-b);background:#f6f1ff;padding:10px 13px;margin-top:13px;font-size:13px;line-height:1.65}.step-id{display:inline-block;min-width:34px;color:#34495e;font-weight:800}.mini{font-size:12px;color:var(--muted);font-weight:400;margin-top:3px}.wide-node{width:min(920px,97%)}
+@media(max-width:760px){header{position:static}main{padding:8px}.section{padding:11px}.branch,.branch.three{grid-template-columns:1fr}.decision{padding:28px 48px}.node{width:100%}.branch-col .node{width:100%}}
+@media print{header,.notice{display:none}body{background:#fff}main{padding:0}.section{border:0;box-shadow:none;page-break-after:always;max-width:none}.node,.loop,.return{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
 </style>
 </head>
 <body>
 <header>
 <h1>VCF 題目產生器：完整先後順序、遞迴與回溯流程圖</h1>
-<div class="sub">箭頭直接表示執行順序；紫色虛線是呼叫／返回子程序，紅色箭頭是遞迴、換候選或回溯。中途補守與最後補齊黑白子數分開畫。</div>
-<div class="tools"><button onclick="window.print()">列印／另存 PDF</button><button id="wide">放大圖面</button><button id="fit">符合視窗</button></div>
+<div class="sub">完全自包含版本，不連線至 jsDelivr 或任何外部網站。垂直箭頭表示先後順序；紅色回圈框表示遞迴、換候選與回溯；紫色虛線框表示子流程呼叫或返回。</div>
+<div class="tools"><a href="#main-flow">主流程 A</a><a href="#validate-flow">驗證遞迴 B</a><a href="#final-flow">最終處理 C</a><a href="#replay-flow">回放 D</a><button onclick="window.print()">列印／另存 PDF</button></div>
 </header>
 <main>
-<section class="notice">
-<div class="legend"><b class="normal">藍灰：一般順序</b><b class="call">紫色虛線：呼叫／返回</b><b class="loop">紅色：遞迴／回溯</b><b class="ok">綠色：成功路徑</b></div>
-<strong>最重要的時序：</strong>步數尚未到達時若出現守子，是「每層驗證時封鎖較短／其他 VCF」；真正的「補齊黑白子數」只會在已達使用者目標步數後執行。
+<section class="notice"><div class="legend"><b style="color:#34495e">藍色：一般步驟</b><b style="color:#a98500">黃色：判斷</b><b style="color:#7650ad">紫色：呼叫／返回</b><b style="color:#b23b3b">紅色：遞迴／回溯</b><b style="color:#197a45">綠色：成功</b></div><strong>時序重點：</strong>步數尚未到達時出現的守子，屬於 B 流程的「中途封鎖較短／其他 VCF」；真正的黑白子數補齊只會在已達目標步數、進入 C 流程後執行。</section>
+
+<section class="section" id="main-flow">
+<h2>A. 主產生流程</h2><div class="desc">這張圖顯示從按下產生，到逐層遞迴延伸、深層失敗回退、整體重建，再到最終輸出的完整先後順序。</div>
+<div class="flow">
+<div class="node term"><span class="step-id">A1</span>開始：按下「產生 N 步 VCF」</div><div class="arrow"></div>
+<div class="node"><span class="step-id">A2</span>讀取設定<small>攻方、規則、目標步數、排序、補齊、唯一題、剪枝、時間限制、節點限制</small></div><div class="arrow"></div>
+<div class="node"><span class="step-id">A3</span>初始化並同步 Bitboard Worker<small>所有 multi／shortest 搜尋套用使用者目前的時間與節點設定</small></div><div class="arrow"></div>
+<div class="node"><span class="step-id">A4</span>進入外層重建迴圈<small>restarts++，重新建立一組初始材料</small></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">A5</span>選擇初始材料</div><div class="arrow"></div>
+<div class="node"><span class="step-id">A6</span>列舉第一層死四候選<small>依沿用攻子、天元方向等權重排序或加權抽取</small></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">A7</span>還有第一層候選？</div>
+<div class="branch"><div class="branch-col"><div class="arrow-label ok">有</div><div class="arrow green"></div><div class="node subroutine"><span class="step-id">A8</span>呼叫子流程 B：驗證候選</div><div class="arrow purple"></div><div class="node decision"><span class="step-id">A9</span>B 返回成功？</div></div><div class="branch-col"><div class="arrow-label no">無</div><div class="arrow red"></div><div class="node fail"><span class="step-id">A17</span>放棄目前初始材料</div><div class="loop"><span class="mark">↺</span> 回到 A4，完全重建另一組初始材料</div></div></div>
+<div class="loop"><span class="mark">↺</span> A9＝否：撤銷此候選，回到 A7 改試下一個第一層候選</div>
+<div class="arrow-label ok">A9＝是</div><div class="arrow green"></div>
+<div class="node decision"><span class="step-id">A10</span>current.steps 已達使用者目標步數？</div>
+<div class="branch"><div class="branch-col"><div class="arrow-label no">否：繼續延伸</div><div class="arrow"></div><div class="node"><span class="step-id">A11</span>建立 extensionBase 並列舉 nextStep 死四候選</div><div class="arrow"></div><div class="node decision"><span class="step-id">A12</span>本層還有候選？</div><div class="arrow-label ok">有</div><div class="arrow green"></div><div class="node subroutine"><span class="step-id">A13</span>呼叫子流程 B：驗證下一層候選</div><div class="arrow purple"></div><div class="node decision"><span class="step-id">A14</span>B 返回成功？</div><div class="arrow-label ok">是</div><div class="arrow green"></div><div class="node"><span class="step-id">A15</span>next 成為 current</div><div class="loop"><span class="mark">↺</span> 遞迴回到 A10，判斷是否還要再延伸一層</div></div><div class="branch-col"><div class="arrow-label no">A12＝無</div><div class="arrow red"></div><div class="node fail"><span class="step-id">A16</span>本層候選用盡，回傳 null 給上一層</div><div class="loop"><span class="mark">↺</span> 上一層回到自己的 A12，改試下一候選；若已退回根層則進 A17 → A4</div><div class="loop"><span class="mark">↺</span> A14＝否：撤銷該延伸候選，回到本層 A12 改試下一候選</div></div></div>
+<div class="arrow-label ok">A10＝是：已達目標步數</div><div class="arrow green"></div>
+<div class="node subroutine final"><span class="step-id">A18</span>呼叫子流程 C：最終唯一題清理與真正的子數補齊</div><div class="arrow purple"></div>
+<div class="node decision"><span class="step-id">A19</span>C 返回成功？</div>
+<div class="branch"><div class="branch-col"><div class="arrow-label no">否</div><div class="loop"><span class="mark">↺</span> 回到 A4，整組題目重新建立</div></div><div class="branch-col"><div class="arrow-label ok">是</div><div class="arrow green"></div><div class="node final"><span class="step-id">A20</span>顯示題目、答案、N 點與統計</div><div class="arrow green"></div><div class="node term"><span class="step-id">A21</span>完成並建立逐步回放</div></div></div>
+</div><div class="note">A8、A13 都會進入同一套 B 遞迴驗證；A18 只有在步數已達目標後才會執行。</div>
 </section>
-<section class="chart" id="chartWrap">
-<div class="error" id="errorBox">流程圖載入失敗。請確認瀏覽器可以連線至 jsDelivr，或改由 GitHub Pages 開啟此檔。</div>
-<pre class="mermaid" id="flowchart">
-flowchart TB
-  subgraph MAIN["A. 主產生流程：由上往下"]
-    direction TB
-    A1([A1 開始：按下產生 N 步 VCF])
-    A2[A2 讀取設定<br/>攻方、規則、步數、排序、補齊、唯一題、剪枝、時間、節點]
-    A3[A3 初始化並同步 Bitboard Worker<br/>multi／shortest 套用使用者時間與節點限制]
-    A4[A4 外層重建迴圈<br/>restarts++，重新建立初始材料]
-    A5{A5 選擇初始材料}
-    A6[A6 列舉第一層死四候選<br/>依加成排序或加權隨機]
-    A7{A7 還有第一層候選？}
-    A8[A8 取下一候選並呼叫 B 驗證]
-    A9{A9 驗證成功？}
-    A10{A10 current.steps 已達目標？}
-    A11[A11 建立 extensionBase]
-    A12[A12 列舉 nextStep 的死四候選]
-    A13{A13 本層還有候選？}
-    A14[A14 取下一延伸候選並呼叫 B 驗證]
-    A15{A15 延伸候選成功？}
-    A16[A16 next 成為 current<br/>遞迴延伸下一層]
-    A17[A17 本層候選用盡<br/>回傳 null 給上一層]
-    A18[A18 一路回到根仍失敗<br/>放棄目前初始材料]
-    A19[A19 呼叫 C 最終處理]
-    A20{A20 最終處理成功？}
-    A21[A21 顯示題目、答案、N 點與統計]
-    A22([A22 完成並建立回放])
 
-    A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7
-    A7 -- 有 --> A8 --> A9
-    A7 -- 無 --> A18
-    A9 -- 否：換第一層下一候選 --> A7
-    A9 -- 是 --> A10
-    A10 -- 否 --> A11 --> A12 --> A13
-    A13 -- 有 --> A14 --> A15
-    A13 -- 無 --> A17
-    A15 -- 否：換同層下一候選 --> A13
-    A15 -- 是 --> A16
-    A16 -- 遞迴下一層 --> A10
-    A17 -- 返回呼叫者；上一層改試下一候選 --> A13
-    A17 -. 若已回到第一層 .-> A18
-    A18 -- 完全重建 --> A4
-    A10 -- 是 --> A19 --> A20
-    A20 -- 否：整體重建 --> A4
-    A20 -- 是 --> A21 --> A22
-  end
+<section class="section" id="validate-flow">
+<h2>B. 每一層候選驗證：中途補守的遞迴與回溯</h2><div class="desc">這張圖解釋為何目標步數尚未到達時也可能補守子。每補一顆守子，都會回到 B2 對新盤面重搜全部 VCF；若深層無解，就撤銷守子並換下一防點。</div>
+<div class="flow">
+<div class="node term validate"><span class="step-id">B1</span>進入候選驗證<small>來源：A8 或 A13</small></div><div class="arrow"></div>
+<div class="node validate"><span class="step-id">B2</span>搜尋目前盤面的 VCF 群組<small>最多 64 組；套用使用者時間與節點限制</small></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">B3</span>找到可分析群組？</div><div class="branch"><div class="branch-col"><div class="arrow-label no">無</div><div class="node fail">返回失敗</div></div><div class="branch-col"><div class="arrow-label ok">有</div><div class="node validate"><span class="step-id">B4</span>重播並分類<small>精確目標、較短 VCF、其他完成盤面</small></div></div></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">B5</span>至少有一組精確目標 VCF？</div><div class="branch"><div class="branch-col"><div class="arrow-label no">無</div><div class="node fail">返回失敗</div></div><div class="branch-col"><div class="arrow-label ok">有</div><div class="node decision"><span class="step-id">B6</span>仍有不需要的 VCF？</div></div></div>
+<div class="branch"><div class="branch-col"><div class="arrow-label ok">B6＝無</div><div class="node term final"><span class="step-id">B16</span>返回成功</div></div><div class="branch-col"><div class="arrow-label no">B6＝有</div><div class="node decision"><span class="step-id">B7</span>目前啟用哪種中途修補？</div></div></div>
+<div class="branch three"><div class="branch-col"><div class="arrow-label">只勾補齊</div><div class="node validate">中途只把「較短 VCF」列為不需要路線</div></div><div class="branch-col"><div class="arrow-label call">勾唯一題</div><div class="node subroutine">中途把「較短 VCF＋其他完成盤面」列為不需要路線</div></div><div class="branch-col"><div class="arrow-label no">兩者都未勾</div><div class="node fail">不允許自動補守，返回失敗</div></div></div><div class="arrow"></div>
+<div class="node validate wide-node"><span class="step-id">B8</span>逐條呼叫 getBlockVCF()，建立完整防點聯集<small>先彙總全部目標路線的防點作為保護點，再彙總全部不需要路線的防點</small></div><div class="arrow"></div>
+<div class="node validate"><span class="step-id">B9</span>排除非法防點<small>目標防點、N 點、守方形成四／五、黑方長連等</small></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">B10</span>每一條不需要 VCF 都有合法防點？</div><div class="branch"><div class="branch-col"><div class="arrow-label no">否</div><div class="node fail">此分支無解，返回失敗</div></div><div class="branch-col"><div class="arrow-label ok">是</div><div class="node validate"><span class="step-id">B11</span>依「可防住的路線數」由多至少排序</div></div></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">B12</span>還有未試防點，而且未達 96 個補守狀態？</div><div class="branch"><div class="branch-col"><div class="arrow-label no">無／達上限</div><div class="node fail">返回失敗</div></div><div class="branch-col"><div class="arrow-label ok">有</div><div class="node validate"><span class="step-id">B13</span>補上一顆守方棋</div><div class="arrow red"></div><div class="node validate"><span class="step-id">B14</span>以新盤面遞迴重搜</div></div></div>
+<div class="loop"><span class="mark">↺</span> B14 直接回到 B2：重新搜尋全部 VCF、重新分類、重新建立防點聯集與排序</div>
+<div class="return">深層 B16／失敗結果返回目前這一層 → B15 判斷</div>
+<div class="node decision"><span class="step-id">B15</span>深層遞迴成功？</div><div class="branch"><div class="branch-col"><div class="arrow-label ok">成功</div><div class="node term final">保留目前整組守子並向上返回成功</div></div><div class="branch-col"><div class="arrow-label no">失敗</div><div class="loop"><span class="mark">↺</span> 撤銷剛才 B13 的守子，回到 B12 改試下一個防點</div></div></div>
+</div><div class="note"><strong>關鍵：</strong>這裡是 DFS＋回溯，不是補一顆失敗就立即放棄整題；會先嘗試再補第二顆、第三顆，深層全部無解才退回上一顆換點。</div>
+</section>
 
-  subgraph VALID["B. 每一層候選驗證：中途補較短／其他 VCF 的遞迴"]
-    direction TB
-    B1([B1 進入候選驗證<br/>來源 A8 或 A14])
-    B2[B2 搜尋目前盤面的 VCF 群組<br/>使用者時間／節點限制]
-    B3{B3 找到可分析群組？}
-    B4[B4 重播並分類<br/>精確目標／較短 VCF／其他完成盤面]
-    B5{B5 至少有一組精確目標 VCF？}
-    B6{B6 還有較短或其他 VCF？}
-    B7{B7 允許中途補守？<br/>補齊黑白子數 或 只保留目標 VCF 任一勾選}
-    B8[B8 建立完整合法防點聯集<br/>保護全部目標防點，排除 N 點、四五、長連等]
-    B9{B9 每條不需要 VCF 都有合法防點？}
-    B10[B10 依覆蓋路線數排序防點]
-    B11{B11 還有未試防點<br/>且未達 96 個補守狀態？}
-    B12[B12 補上一顆守方棋]
-    B13[B13 以新盤面遞迴回到 B2<br/>重搜全部 VCF、重新分類、重新排名]
-    B14{B14 遞迴結果成功？}
-    B15([B15 返回成功])
-    B16([B16 返回失敗])
+<section class="section" id="final-flow">
+<h2>C. 已達目標步數後：唯一題清理與真正的黑白子數補齊</h2><div class="desc">真正的「補齊黑白子數」只在這個階段發生。若同時啟用唯一題與補齊，兩者可能互相影響，所以會往返確認。</div>
+<div class="flow">
+<div class="node term final"><span class="step-id">C1</span>result.steps 已等於使用者目標步數</div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">C2</span>勾選「只保留目標 VCF」？</div><div class="branch"><div class="branch-col"><div class="arrow-label ok">是</div><div class="node final"><span class="step-id">C3</span>執行 cleanFinalTargetBoard 遞迴<small>找其他 VCF → 防點聯集 → 補守 → 重搜；失敗撤銷並換下一防點</small></div><div class="arrow"></div><div class="node decision"><span class="step-id">C4</span>唯一題清理成功？</div></div><div class="branch-col"><div class="arrow-label">否</div><div class="node final">略過唯一題清理</div></div></div>
+<div class="loop"><span class="mark">↺</span> C4＝否：C 流程返回失敗，主流程 A19 → A4 整體重建</div><div class="arrow-label ok">C4＝是或未啟用唯一題</div><div class="arrow green"></div>
+<div class="node decision"><span class="step-id">C5</span>勾選「補齊黑白子數」？</div><div class="branch"><div class="branch-col"><div class="arrow-label">否</div><div class="node final">直接進入穩定性確認</div></div><div class="branch-col"><div class="arrow-label ok">是</div><div class="node final"><span class="step-id">C6</span>計算最後要補哪一方、幾顆</div></div></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">C7</span>remaining &gt; 0？</div><div class="branch"><div class="branch-col"><div class="arrow-label">否</div><div class="node final">進入 C13 往返確認</div></div><div class="branch-col"><div class="arrow-label ok">是</div><div class="node final"><span class="step-id">C8</span>建立一般合法空點候選<small>依三型、鄰近棋子、位置等權重排序</small></div><div class="arrow"></div><div class="node decision"><span class="step-id">C9</span>還有候選點？</div></div></div>
+<div class="branch"><div class="branch-col"><div class="arrow-label no">C9＝無</div><div class="node fail">C 流程返回失敗</div></div><div class="branch-col"><div class="arrow-label ok">C9＝有</div><div class="node final"><span class="step-id">C10</span>補一顆攻方或守方棋</div><div class="arrow"></div><div class="node final"><span class="step-id">C11</span>完整重驗<small>目標仍存在、沒有較短 VCF；唯一題時也不能有其他 VCF</small></div><div class="arrow"></div><div class="node decision"><span class="step-id">C12</span>這顆補齊棋通過？</div></div></div>
+<div class="branch"><div class="branch-col"><div class="arrow-label ok">通過</div><div class="loop"><span class="mark">↺</span> remaining--，回到 C7；若仍需補子就繼續補下一顆</div></div><div class="branch-col"><div class="arrow-label no">失敗</div><div class="loop"><span class="mark">↺</span> 撤銷 C10，回到 C9 改試下一個一般空點</div></div></div>
+<div class="arrow"></div><div class="node final wide-node"><span class="step-id">C13</span>唯一題＋補齊的往返確認<small>補齊後再清其他 VCF；清理若新增守子造成子數改變，再補齊；最多 8 輪</small></div><div class="arrow"></div>
+<div class="node decision"><span class="step-id">C14</span>盤面已穩定且驗證通過？</div><div class="branch"><div class="branch-col"><div class="arrow-label ok">是</div><div class="node term final"><span class="step-id">C15</span>向主流程返回成功</div></div><div class="branch-col"><div class="arrow-label no">否／8 輪仍不穩定</div><div class="node term fail"><span class="step-id">C16</span>向主流程返回失敗</div></div></div>
+</div>
+</section>
 
-    B1 --> B2 --> B3
-    B3 -- 無 --> B16
-    B3 -- 有 --> B4 --> B5
-    B5 -- 無 --> B16
-    B5 -- 有 --> B6
-    B6 -- 無不需要 VCF --> B15
-    B6 -- 有 --> B7
-    B7 -- 否 --> B16
-    B7 -- 是 --> B8 --> B9
-    B9 -- 有一條無合法防點 --> B16
-    B9 -- 全部都有 --> B10 --> B11
-    B11 -- 無／達上限 --> B16
-    B11 -- 有 --> B12 --> B13
-    B13 -- 遞迴呼叫 --> B2
-    B15 -. 遞迴返回成功 .-> B14
-    B16 -. 遞迴返回失敗 .-> B14
-    B14 -- 成功：保留整組守子 --> B15
-    B14 -- 失敗：撤銷剛才守子，換下一防點 --> B11
-  end
-
-  A8 -. 呼叫 B .-> B1
-  A14 -. 呼叫 B .-> B1
-  B15 -. 返回成功 .-> A9
-  B16 -. 返回失敗 .-> A9
-  B15 -. 延伸驗證成功 .-> A15
-  B16 -. 延伸驗證失敗 .-> A15
-
-  subgraph FINAL["C. 已達目標步數後：唯一題清理與真正的黑白子數補齊"]
-    direction TB
-    C1([C1 result.steps === 使用者目標步數])
-    C2{C2 只保留目標 VCF？}
-    C3[C3 cleanFinalTargetBoard 遞迴<br/>找其他 VCF → 防點聯集 → 補守 → 重搜<br/>失敗即撤銷並換下一防點]
-    C4{C4 補齊黑白子數？}
-    C5[C5 計算最後應補哪一方、幾顆]
-    C6{C6 remaining > 0？}
-    C7[C7 建立一般合法空點候選<br/>依三型與鄰近棋子加權]
-    C8{C8 還有候選點？}
-    C9[C9 補一顆攻方或守方棋並完整重驗<br/>目標仍在、無較短；唯一題時也不能有其他 VCF]
-    C10{C10 這顆補齊棋通過？}
-    C11[C11 唯一題＋補齊往返確認<br/>補齊後再清其他 VCF；清理若新增守子再補齊<br/>最多 8 輪]
-    C12([C12 最終成功])
-    C13([C13 最終失敗])
-
-    C1 --> C2
-    C2 -- 是 --> C3
-    C2 -- 否 --> C4
-    C3 -- 清理完成 --> C4
-    C3 -- 無解／達限制 --> C13
-    C4 -- 否 --> C11
-    C4 -- 是 --> C5 --> C6
-    C6 -- 否 --> C11
-    C6 -- 是 --> C7 --> C8
-    C8 -- 無 --> C13
-    C8 -- 有 --> C9 --> C10
-    C10 -- 通過：remaining-- --> C6
-    C10 -- 失敗：撤銷並換下一點 --> C8
-    C11 -- 穩定且驗證通過 --> C12
-    C11 -- 8 輪仍不穩定／驗證失敗 --> C13
-  end
-
-  A19 -. 呼叫 C .-> C1
-  C12 -. 返回成功 .-> A20
-  C13 -. 返回失敗 .-> A20
-
-  subgraph REPLAY["D. 回放紀錄"]
-    direction LR
-    D1[D1 記錄初始材料、死四候選、每次補守、每次補齊與每次搜尋]
-    D2[D2 最後採用路徑標通過<br/>被回溯或未採用分支標未通過]
-    D3[D3 合併成最前／上一步／下一步／最後]
-    D4[D4 回放包含失敗嘗試<br/>看到一顆守子不代表它最後被保留]
-    D1 --> D2 --> D3 --> D4
-  end
-  A22 --> D1
-
-  classDef main fill:#e8f1ff,stroke:#4d78b5,stroke-width:2px,color:#17212b;
-  classDef decision fill:#fff4b8,stroke:#a98500,stroke-width:2px,color:#17212b;
-  classDef validate fill:#fff0d5,stroke:#c88418,stroke-width:2px,color:#17212b;
-  classDef final fill:#e7f7ec,stroke:#2e8a50,stroke-width:2px,color:#17212b;
-  classDef replay fill:#f0e9ff,stroke:#7650ad,stroke-width:2px,color:#17212b;
-  classDef terminal fill:#eef1f5,stroke:#5c6b7a,stroke-width:2px,color:#17212b;
-  classDef fail fill:#fde8e5,stroke:#c34e45,stroke-width:2px,color:#17212b;
-
-  class A2,A3,A4,A6,A8,A11,A12,A14,A16,A19,A21 main;
-  class A5,A7,A9,A10,A13,A15,A20 decision;
-  class A1,A22 terminal;
-  class A17,A18 fail;
-  class B2,B4,B8,B10,B12,B13 validate;
-  class B3,B5,B6,B7,B9,B11,B14 decision;
-  class B1,B15 terminal;
-  class B16 fail;
-  class C3,C5,C7,C9,C11 final;
-  class C2,C4,C6,C8,C10 decision;
-  class C1,C12 terminal;
-  class C13 fail;
-  class D1,D2,D3,D4 replay;
-
-  linkStyle default stroke:#44546a,stroke-width:2px;
-</pre>
+<section class="section" id="replay-flow">
+<h2>D. 回放紀錄</h2><div class="desc">回放會保留成功與失敗嘗試，所以其中出現的守子不一定最後被採用。</div>
+<div class="flow"><div class="node subroutine wide-node"><span class="step-id">D1</span>記錄初始材料、死四候選、每次搜尋、每次中途補守與最後補齊</div><div class="arrow purple"></div><div class="node subroutine wide-node"><span class="step-id">D2</span>最後採用路徑標「通過」；被回溯或未採用分支標「未通過」</div><div class="arrow purple"></div><div class="node subroutine"><span class="step-id">D3</span>合併成「最前／上一步／下一步／最後」</div><div class="arrow purple"></div><div class="node validate wide-node"><span class="step-id">D4</span>回放包含失敗嘗試<small>看到一顆守子，不代表它最後被保留，也不代表它屬於最終子數補齊</small></div></div>
 </section>
 </main>
-<script type="module">
-import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-try{
-  mermaid.initialize({startOnLoad:false,securityLevel:"loose",theme:"base",flowchart:{htmlLabels:true,curve:"stepAfter",nodeSpacing:35,rankSpacing:45},themeVariables:{fontFamily:"Microsoft JhengHei, Noto Sans TC, sans-serif",fontSize:"14px",lineColor:"#44546a"}});
-  await mermaid.run({nodes:[document.getElementById("flowchart")]});
-}catch(error){console.error(error);document.getElementById("errorBox").style.display="block"}
-const wrap=document.getElementById("chartWrap");
-document.getElementById("wide").onclick=()=>{const svg=wrap.querySelector("svg");if(svg){svg.style.width="2600px";svg.style.maxWidth="none"}};
-document.getElementById("fit").onclick=()=>{const svg=wrap.querySelector("svg");if(svg){svg.style.width="100%";svg.style.maxWidth="100%"}};
-</script>
 </body>
 </html>
