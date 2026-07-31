@@ -148,3 +148,15 @@
   script.async = false;
   document.head.appendChild(script);
 })();
+
+// Load the optional multi-search dominance control. It waits for both the
+// Bitboard search bar and engine bridge, so it is safe regardless of script order.
+(function loadOpenFourStopOption() {
+  if (window.__openFourStopOptionScriptRequested) return;
+  window.__openFourStopOptionScriptRequested = true;
+
+  const script = document.createElement("script");
+  script.src = new URL("makevcf-open-four-stop.js", document.baseURI).href;
+  script.async = false;
+  document.head.appendChild(script);
+})();
