@@ -237,6 +237,28 @@ function legacyIsFoul(board, idx, rules) {
   return result;
 }
 
+function legacyIsOverline(board, idx) {
+  if (idx < 0 || idx >= BOARD_CELLS) return false;
+  const previous = board[idx];
+  if (previous !== EMPTY && previous !== BLACK) return false;
+
+  board[idx] = BLACK;
+  let overline = false;
+  for (let direction = 0; direction < 4 && !overline; direction++) {
+    let count = 1;
+    for (const sign of [-1, 1]) {
+      for (let distance = 1; distance < 15; distance++) {
+        const next = moveIndex(idx, distance * sign, direction);
+        if (next >= BOARD_CELLS || board[next] !== BLACK) break;
+        count++;
+      }
+    }
+    if (count > 5) overline = true;
+  }
+  board[idx] = previous;
+  return overline;
+}
+
 function scanInitialCounterFours(board, defender, rules) {
   const result = new Uint8Array(BOARD_CELLS);
   for (let idx = 0; idx < BOARD_CELLS; idx++) {
@@ -261,7 +283,7 @@ function validateDefensePoint(baseBoard, attacker, rules, routeLen, idx, maxNode
   if (idx < 0 || idx >= BOARD_CELLS || baseBoard[idx] !== EMPTY) {
     return { blocks: false, stats: null };
   }
-  if (defender === BLACK && rules === RENJU && legacyIsFoul(baseBoard, idx, rules)) {
+  if (defender === BLACK && rules === RENJU && legacyIsOverline(baseBoard, idx)) {
     return { blocks: false, stats: null };
   }
   const tested = baseBoard.slice();
@@ -514,7 +536,7 @@ function oldGetBlockCandidates(baseBoard, attacker, rules, route, includeFour, m
   const candidates = [];
   for (let idx = 0; idx < BOARD_CELLS; idx++) {
     if (!blockMask[idx] || baseBoard[idx] !== EMPTY) continue;
-    if (defender === BLACK && rules === RENJU && legacyIsFoul(baseBoard, idx, rules)) continue;
+    if (defender === BLACK && rules === RENJU && legacyIsOverline(baseBoard, idx)) continue;
     candidates.push(idx);
   }
   return { candidates, fast };
