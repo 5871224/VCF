@@ -160,3 +160,15 @@
   script.async = false;
   document.head.appendChild(script);
 })();
+
+// Remember all user-adjustable workbench and generator settings, including
+// controls added later by optional feature scripts.
+(function loadUserSettingPersistence() {
+  if (window.__vcfUserSettingPersistenceScriptRequested) return;
+  window.__vcfUserSettingPersistenceScriptRequested = true;
+
+  const script = document.createElement("script");
+  script.src = new URL("makevcf-generator-settings-persistence.js", document.baseURI).href;
+  script.async = false;
+  document.head.appendChild(script);
+})();
