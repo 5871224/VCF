@@ -65,7 +65,10 @@ static int singleFourWayTransTableV5SelfTest()
 #define vcfBbFindModeV3 vcfBbFindModeV3MultiInternal
 #define vcfBbScanPointsModeV3 vcfBbScanPointsModeV3MultiInternal
 #define vcfBbSearchV2SelfTest vcfBbSearchV2SelfTestMultiV3
+// 多組快速與嚴格模式共同套用可選的節點內活四支配剪枝；單組核心不受影響。
+#define scanCandidates scanCandidatesWithOpenFourStopV4
 #include "vcf-bitboard-search-multi-v3.inc"
+#undef scanCandidates
 #undef vcfBbSearchV2SelfTest
 #undef vcfBbScanPointsModeV3
 #undef vcfBbFindModeV3
