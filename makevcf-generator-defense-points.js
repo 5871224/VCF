@@ -1,9 +1,10 @@
 "use strict";
 
-// Use the complete defense-point union for shorter and non-target VCF blocking.
-// Points are ranked by how many unwanted VCF routes they block, after excluding
-// every target-route defense point, defender N points, defender four/five points,
-// and (for a black defender) overline points only.
+// Mid-layer shorter/non-target VCF blocking is progressive:
+// find the first unwanted route, subtract the currently found target-route
+// defense points, add one defender immediately, then re-search the new board.
+// The final board still uses the complete 64-route defense union and coverage
+// ranking so final uniqueness is not weakened by the faster mid-layer policy.
 (function scheduleGeneratorDefensePointPolicy() {
   function installMobileDoubleTapGuard() {
     const viewport = document.querySelector('meta[name="viewport"]');
@@ -40,7 +41,8 @@
     window.__generatorDefensePointPolicyInstalled = true;
     installMobileDoubleTapGuard();
 
-    const MAX_GROUPS = 64;
+    const FINAL_MAX_GROUPS = 64;
+    const MID_GROUP_LIMITS = [2, 4, 8, 16];
     const MAX_DEPTH = 200;
     const DEFAULT_MAX_NODE = 5000000;
     const STATE_LIMIT = 96;
@@ -73,16 +75,6 @@
         : genBuildExpectedBaseBoard(candidate);
     }
 
-    function defenderAllowance(board, attacker) {
-      let black = 0;
-      let white = 0;
-      for (let idx = 0; idx < 225; idx++) {
-        if (board[idx] === GEN_BLACK) black++;
-        else if (board[idx] === GEN_WHITE) white++;
-      }
-      return attacker === GEN_BLACK ? black - white : white + 1 - black;
-    }
-
     function isSameBoard(left, right) {
       return Boolean(left && right) && genBoardsEqual(left, right);
     }
@@ -113,32 +105,6 @@
       return defenderCreatesFourFiveOrBlackOverline(state, idx, defender);
     }
 
-    async function findGroups(state, expectedSteps, blockOtherVCF) {
-      const options = blockOtherVCF
-        ? {
-            mode: "multi",
-            simplify: true,
-            pruning: genSelectedPruning(),
-            maxDepth: MAX_DEPTH,
-            maxNode: DEFAULT_MAX_NODE,
-          }
-        : {
-            mode: "multi",
-            simplify: true,
-            pruning: "strict",
-            maxDepth: genTargetSearchPly(expectedSteps),
-            maxNode: DEFAULT_MAX_NODE,
-          };
-
-      const info = await genEngine.findVCF(state.board, state.attacker, MAX_GROUPS, options);
-      if (genCancelled || !info?.winMoves?.length) return null;
-      const raw = info.winMoves.filter(moves => moves?.length);
-      if (!raw.length) return null;
-      const groups = await genEngine.trimGroups(state.board, raw, state.attacker);
-      if (genCancelled || !groups?.length) return null;
-      return { info, groups };
-    }
-
     function analyzeGroups(state, groups, expectedBoard, expectedSteps, blockOtherVCF) {
       const analyzed = [];
       for (const moves of groups) {
@@ -158,6 +124,104 @@
       return { analyzed, exactTargets, unwanted };
     }
 
+    async function findShortestAnalyzed(state, expectedSteps) {
+      const info = await genEngine.findVCF(state.board, state.attacker, 1, {
+        mode: "shortest",
+        simplify: true,
+        pruning: "strict",
+        maxDepth: genTargetSearchPly(expectedSteps),
+        maxNode: DEFAULT_MAX_NODE,
+      });
+      if (genCancelled) return null;
+      const moves = Array.from(info?.winMoves?.[0] || []);
+      if (!moves.length) return { info, item: null };
+      const analysis = genAnalyzeVCFGroup(state.board, moves, state.attacker);
+      return {
+        info,
+        item: analysis?.valid ? { moves, analysis } : null,
+      };
+    }
+
+    async function findProgressiveCandidate(
+      state,
+      expectedBoard,
+      expectedSteps,
+      blockOtherVCF,
+    ) {
+      // First ask the dedicated shortest-one search. If it exposes a shorter
+      // route, that route is handled as soon as one target route is available.
+      const shortest = await findShortestAnalyzed(state, expectedSteps);
+      if (genCancelled || !shortest) return null;
+
+      let firstUnwanted = null;
+      if (shortest.item) {
+        if (shortest.item.analysis.steps < expectedSteps) {
+          firstUnwanted = shortest.item;
+        } else if (
+          blockOtherVCF &&
+          !isSameBoard(shortest.item.analysis.standardBoard, expectedBoard)
+        ) {
+          firstUnwanted = shortest.item;
+        }
+      }
+
+      const options = blockOtherVCF
+        ? {
+            mode: "multi",
+            simplify: true,
+            pruning: genSelectedPruning(),
+            maxDepth: MAX_DEPTH,
+            maxNode: DEFAULT_MAX_NODE,
+          }
+        : {
+            mode: "multi",
+            simplify: true,
+            pruning: "strict",
+            maxDepth: genTargetSearchPly(expectedSteps),
+            maxNode: DEFAULT_MAX_NODE,
+          };
+
+      let lastFound = null;
+      for (const limit of MID_GROUP_LIMITS) {
+        const info = await genEngine.findVCF(state.board, state.attacker, limit, options);
+        if (genCancelled || !info?.winMoves?.length) return null;
+        const raw = info.winMoves.filter(moves => moves?.length);
+        if (!raw.length) return null;
+        const groups = await genEngine.trimGroups(state.board, raw, state.attacker);
+        if (genCancelled || !groups?.length) return null;
+
+        const analyzed = analyzeGroups(
+          state,
+          groups,
+          expectedBoard,
+          expectedSteps,
+          blockOtherVCF,
+        );
+        if (!analyzed.exactTargets.length) continue;
+
+        const unwanted = firstUnwanted
+          ? [firstUnwanted]
+          : analyzed.unwanted.slice(0, 1);
+        const routeCount = Number(info.vcfCount ?? raw.length);
+        const exhausted = !info.aborted && routeCount < limit;
+        lastFound = {
+          info,
+          groups,
+          exactTargets: analyzed.exactTargets,
+          unwanted,
+          complete: exhausted,
+        };
+
+        // Once one unwanted route is found, return immediately. Do not keep
+        // enumerating routes just to build a complete coverage union.
+        if (unwanted.length || exhausted) return lastFound;
+      }
+
+      // Mid-layer search is deliberately capped. A clean result at this point
+      // is provisional; final 64-route cleanup still performs the full check.
+      return lastFound;
+    }
+
     async function collectDefenseSets(state, routes) {
       return Promise.all(routes.map(async item => {
         const points = await genEngine.getBlockVCF(
@@ -170,13 +234,37 @@
       }));
     }
 
-    async function rankDefensePoints(state, unwanted, exactTargets) {
-      // First enumerate every target VCF defense point, not only one target route.
+    async function immediateDefensePoints(state, unwanted, exactTargets) {
       const targetDefenseSets = await collectDefenseSets(state, exactTargets);
       if (genCancelled) return null;
       const targetDefensePoints = new Set(targetDefenseSets.flat());
 
-      // Then enumerate the complete defense-point set for every unwanted VCF.
+      const unwantedPoints = await genEngine.getBlockVCF(
+        state.board,
+        state.attacker,
+        unwanted.moves,
+        true,
+      );
+      if (genCancelled) return null;
+
+      const seen = new Set();
+      const legal = [];
+      for (const idx of unwantedPoints) {
+        if (seen.has(idx)) continue;
+        seen.add(idx);
+        if (isIllegalDefenderPoint(state, idx, targetDefensePoints)) continue;
+        legal.push(idx);
+      }
+      return legal;
+    }
+
+    // Final-only complete union. At the final board, enumerate every currently
+    // returned target/unwanted route and rank points by route coverage.
+    async function rankDefensePoints(state, unwanted, exactTargets) {
+      const targetDefenseSets = await collectDefenseSets(state, exactTargets);
+      if (genCancelled) return null;
+      const targetDefensePoints = new Set(targetDefenseSets.flat());
+
       const unwantedDefenseSets = await collectDefenseSets(state, unwanted);
       if (genCancelled) return null;
 
@@ -185,7 +273,6 @@
         const legalPoints = unwantedDefenseSets[routeIndex]
           .filter(idx => !isIllegalDefenderPoint(state, idx, targetDefensePoints));
 
-        // If one unwanted VCF has no legal remaining defense point, this branch cannot work.
         if (!legalPoints.length) return null;
         for (const idx of legalPoints) {
           let entry = frequency.get(idx);
@@ -198,10 +285,45 @@
         }
       }
 
-      // Always try the point covering the most unwanted VCFs first.
-      // Use board index only as a deterministic tie-breaker; never randomize equal counts.
       return Array.from(frequency.values())
         .sort((left, right) => right.count - left.count || left.idx - right.idx);
+    }
+
+    async function findCompleteGroups(state, expectedSteps, blockOtherVCF) {
+      const options = blockOtherVCF
+        ? {
+            mode: "multi",
+            simplify: true,
+            pruning: genSelectedPruning(),
+            maxDepth: MAX_DEPTH,
+            maxNode: DEFAULT_MAX_NODE,
+          }
+        : {
+            mode: "multi",
+            simplify: true,
+            pruning: "strict",
+            maxDepth: genTargetSearchPly(expectedSteps),
+            maxNode: DEFAULT_MAX_NODE,
+          };
+
+      const info = await genEngine.findVCF(
+        state.board,
+        state.attacker,
+        FINAL_MAX_GROUPS,
+        options,
+      );
+      if (genCancelled || !info?.winMoves?.length) return null;
+      const raw = info.winMoves.filter(moves => moves?.length);
+      if (!raw.length) return null;
+      const groups = await genEngine.trimGroups(state.board, raw, state.attacker);
+      if (genCancelled || !groups?.length) return null;
+      return {
+        info,
+        groups,
+        incomplete: Boolean(info.aborted) ||
+          raw.length >= FINAL_MAX_GROUPS ||
+          Number(info.vcfCount || 0) >= FINAL_MAX_GROUPS,
+      };
     }
 
     function addLayerDefender(candidate, idx) {
@@ -231,7 +353,7 @@
       return { state: next, expectedBoard: nextExpectedBoard };
     }
 
-    async function validateWithRankedDefense(
+    async function validateWithImmediateDefense(
       candidate,
       expectedSteps,
       previousResult,
@@ -242,44 +364,41 @@
       const expectedBoard = expectedBoardFor(candidate, previousResult);
       if (!expectedBoard) return null;
 
-      const found = await findGroups(candidate, expectedSteps, policy.blockOtherVCF);
-      if (!found) return null;
-      const { exactTargets, unwanted } = analyzeGroups(
+      const found = await findProgressiveCandidate(
         candidate,
-        found.groups,
         expectedBoard,
         expectedSteps,
         policy.blockOtherVCF,
       );
-      if (!exactTargets.length) return null;
+      if (!found?.exactTargets?.length) return null;
 
-      if (!unwanted.length) {
+      if (!found.unwanted.length) {
         const result = genFinalizeValidatedResult(
           candidate,
-          exactTargets[0],
+          found.exactTargets[0],
           found.info,
           found.groups,
           previousResult,
         );
-        return policy.blockOtherVCF
+        return policy.blockOtherVCF && found.complete
           ? { ...result, uniqueVCFVerified: true }
           : result;
       }
 
-      if (!policy.blockOtherVCF && defenderAllowance(candidate.board, candidate.attacker) <= 0) {
-        return null;
-      }
+      const points = await immediateDefensePoints(
+        candidate,
+        found.unwanted[0],
+        found.exactTargets,
+      );
+      if (!points?.length) return null;
 
-      const ranked = await rankDefensePoints(candidate, unwanted, exactTargets);
-      if (!ranked?.length) return null;
-
-      // Ranked already contains the complete legal union. Try in coverage order until
-      // a branch succeeds or the shared state budget is exhausted.
-      for (const { idx } of ranked) {
+      // Try one route's legal defense points immediately. Every successful add
+      // re-enters this function and re-searches the entire changed position.
+      for (const idx of points) {
         if (genCancelled) return null;
         const next = addLayerDefender(candidate, idx);
         if (!next) continue;
-        const result = await validateWithRankedDefense(
+        const result = await validateWithImmediateDefense(
           next,
           expectedSteps,
           previousResult,
@@ -293,7 +412,7 @@
 
     async function cleanFinalTargetBoard(state, expectedBoard, targetSteps, budget) {
       if (genCancelled || budget.nodes++ >= STATE_LIMIT) return null;
-      const found = await findGroups(state, targetSteps, true);
+      const found = await findCompleteGroups(state, targetSteps, true);
       if (!found) return null;
       const { exactTargets, unwanted } = analyzeGroups(
         state,
@@ -305,6 +424,7 @@
       if (!exactTargets.length) return null;
 
       if (!unwanted.length) {
+        if (found.incomplete) return null;
         const target = exactTargets[0];
         return {
           ...state,
@@ -335,7 +455,7 @@
       return null;
     }
 
-    genValidateCandidate = async function validateCandidateWithCompleteDefenseUnion(
+    genValidateCandidate = async function validateCandidateWithImmediateDefense(
       candidate,
       expectedSteps,
     ) {
@@ -344,7 +464,7 @@
       if (!blockOtherVCF && !balanceStones) {
         return previousValidateCandidate(candidate, expectedSteps);
       }
-      return validateWithRankedDefense(
+      return validateWithImmediateDefense(
         cloneState(candidate),
         expectedSteps,
         null,
@@ -353,7 +473,7 @@
       );
     };
 
-    genValidateExtensionCandidate = async function validateExtensionWithCompleteDefenseUnion(
+    genValidateExtensionCandidate = async function validateExtensionWithImmediateDefense(
       candidate,
       previousResult,
       targetSteps,
@@ -364,7 +484,7 @@
         return previousValidateExtensionCandidate(candidate, previousResult, targetSteps);
       }
       if (targetSteps !== previousResult.steps + 1) return null;
-      return validateWithRankedDefense(
+      return validateWithImmediateDefense(
         cloneState(candidate),
         targetSteps,
         previousResult,
@@ -373,7 +493,7 @@
       );
     };
 
-    genExtendToTarget = async function extendWithCompleteDefenseUnion(
+    genExtendToTarget = async function extendWithProgressiveDefense(
       current,
       targetSteps,
       attacker,
@@ -386,7 +506,7 @@
       }
 
       // Build layers through the previous stack without invoking the older final
-      // non-target blocker. The validators above still enforce the new policy.
+      // non-target blocker. The validators above still enforce progressive blocking.
       let result = await previousExtendToTarget(
         current,
         targetSteps,
@@ -397,7 +517,7 @@
       );
       if (!result || result.steps !== targetSteps) return result;
 
-      genSetStatus(`正在統計完整防點聯集並封鎖其他 VCF……已驗證 ${counters.attempts} 個候選`);
+      genSetStatus(`正在完整驗證並封鎖其他 VCF……已驗證 ${counters.attempts} 個候選`);
       result = await cleanFinalTargetBoard(
         result,
         result.standardBoard,
