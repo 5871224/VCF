@@ -1,6 +1,6 @@
 "use strict";
 
-// 多組 VCF 的可選節點內支配剪枝：
+// 統一多組型搜尋的使用者時間／節點限制，並提供可選的節點內支配剪枝：
 // 同一盤面若已有直接五或活四勝法，只搜尋全部終局候選，
 // 不再展開後面的單防死四分支。快速、嚴格模式共同適用。
 (function initOpenFourStopOption(global) {
@@ -13,14 +13,20 @@
   const OPEN_FOUR_FLAG = 0x40000000;
   const NODE_MASK = 0x000003ff;
   const MAX_TIME_SECONDS = 0x000fffff;
+  const DEFAULT_TIME_SECONDS = 30;
+  const DEFAULT_NODE_MILLIONS = 20;
   const LEGACY_UNLIMITED_NODES = 0xffffffff;
 
-  function storedEnabled() {
+  function storageGet(key) {
     try {
-      return global.localStorage?.getItem(STORAGE_KEY) === "1";
+      return global.localStorage?.getItem(key) ?? null;
     } catch (_) {
-      return false;
+      return null;
     }
+  }
+
+  function storedEnabled() {
+    return storageGet(STORAGE_KEY) === "1";
   }
 
   function control() {
@@ -30,6 +36,40 @@
   function enabled() {
     const input = control();
     return input ? input.checked : storedEnabled();
+  }
+
+  function clampInteger(value, min, max, fallback) {
+    if (value == null || String(value).trim() === "") return fallback;
+    const parsed = Math.trunc(Number(value));
+    return Number.isFinite(parsed)
+      ? Math.max(min, Math.min(max, parsed))
+      : fallback;
+  }
+
+  function selectedSearchLimits() {
+    const timeInput = global.document?.getElementById("vcf-multi-time-seconds") || null;
+    const nodeInput = global.document?.getElementById("vcf-multi-node-millions") || null;
+    const storedTime = storageGet("vcf_multi_time_seconds");
+    const storedNodes = storageGet("vcf_multi_node_millions");
+
+    // 在正式工作台／題目產生器使用欄位目前值；隔離測試或沒有介面的
+    // 呼叫端則保留原本傳入值，避免憑空套用頁面預設。
+    if (!timeInput && !nodeInput && storedTime == null && storedNodes == null) return null;
+
+    return {
+      timeSeconds: clampInteger(
+        timeInput?.value ?? storedTime,
+        0,
+        MAX_TIME_SECONDS,
+        DEFAULT_TIME_SECONDS,
+      ),
+      nodeMillions: clampInteger(
+        nodeInput?.value ?? storedNodes,
+        0,
+        NODE_MASK,
+        DEFAULT_NODE_MILLIONS,
+      ),
+    };
   }
 
   function normalizeTimeInput() {
@@ -86,20 +126,38 @@
     return Number(param?.maxVCF || 1) > 1;
   }
 
-  function encodeLimits(value, useOpenFourFlag) {
+  function encodeCallerLimits(value) {
     const numeric = Number(value);
     let encoded = Number.isFinite(numeric) ? Math.trunc(numeric) >>> 0 : 0;
 
     // 舊主橋接以 0xffffffff 表示不限節點；它的 bit 31 雖然為 1，
     // 但不是新版封裝值，必須先正規化成只有封裝旗標的不限格式。
     if (encoded === LEGACY_UNLIMITED_NODES) {
-      encoded = PACKED_FLAG;
-    } else if ((encoded & PACKED_FLAG) === 0) {
-      const unlimited = !Number.isFinite(numeric) || numeric <= 0;
-      const nodeMillions = unlimited
-        ? 0
-        : Math.max(1, Math.min(NODE_MASK, Math.ceil(numeric / 1_000_000)));
-      encoded = (PACKED_FLAG | nodeMillions) >>> 0;
+      return PACKED_FLAG;
+    }
+    if ((encoded & PACKED_FLAG) !== 0) return encoded;
+
+    const unlimited = !Number.isFinite(numeric) || numeric <= 0;
+    const nodeMillions = unlimited
+      ? 0
+      : Math.max(1, Math.min(NODE_MASK, Math.ceil(numeric / 1_000_000)));
+    return (PACKED_FLAG | nodeMillions) >>> 0;
+  }
+
+  function encodeLimits(value, useOpenFourFlag) {
+    const selected = selectedSearchLimits();
+    let encoded;
+
+    if (selected) {
+      // 題目產生器舊流程即使仍傳入 500 萬等歷史預設，也必須以使用者
+      // 現在設定的時間／節點欄位覆蓋，0 分別代表不限時間／不限節點。
+      encoded = (
+        PACKED_FLAG +
+        selected.timeSeconds * 1024 +
+        selected.nodeMillions
+      ) >>> 0;
+    } else {
+      encoded = encodeCallerLimits(value);
     }
 
     // 每次請求都依目前勾選狀態重設 bit 30，避免沿用舊請求或超大時間值。
@@ -159,6 +217,8 @@
   }
 
   global.vcfStopAfterOpenFourEnabled = enabled;
+  global.vcfGetSearchLimitSnapshot = selectedSearchLimits;
+  global.vcfEncodeCurrentMultiLimits = value => encodeLimits(value, enabled());
 
   let rounds = 0;
   const timer = global.setInterval(() => {
