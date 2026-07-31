@@ -36,6 +36,11 @@
     const input = global.document?.getElementById("vcf-multi-time-seconds");
     if (!input) return;
     input.max = String(MAX_TIME_SECONDS);
+    if (!input.__openFourTimeLimitBound) {
+      input.addEventListener("input", normalizeTimeInput);
+      input.addEventListener("change", normalizeTimeInput);
+      Object.defineProperty(input, "__openFourTimeLimitBound", { value: true });
+    }
     const value = Math.trunc(Number(input.value));
     if (Number.isFinite(value) && value > MAX_TIME_SECONDS) {
       input.value = String(MAX_TIME_SECONDS);
@@ -81,7 +86,7 @@
     return Number(param?.maxVCF || 1) > 1;
   }
 
-  function encodeLimits(value) {
+  function encodeLimits(value, useOpenFourFlag) {
     const numeric = Number(value);
     let encoded = Number.isFinite(numeric) ? Math.trunc(numeric) >>> 0 : 0;
 
@@ -96,12 +101,16 @@
         : Math.max(1, Math.min(NODE_MASK, Math.ceil(numeric / 1_000_000)));
       encoded = (PACKED_FLAG | nodeMillions) >>> 0;
     }
-    return (encoded | OPEN_FOUR_FLAG) >>> 0;
+
+    // 每次請求都依目前勾選狀態重設 bit 30，避免沿用舊請求或超大時間值。
+    encoded = (encoded & ~OPEN_FOUR_FLAG) >>> 0;
+    if (useOpenFourFlag) encoded = (encoded | OPEN_FOUR_FLAG) >>> 0;
+    return encoded;
   }
 
-  function withOpenFourFlag(param) {
-    if (!enabled() || !isMultiSearch(param)) return param;
-    return { ...param, maxNode: encodeLimits(param?.maxNode) };
+  function withOpenFourSetting(param) {
+    if (!isMultiSearch(param)) return param;
+    return { ...param, maxNode: encodeLimits(param?.maxNode, enabled()) };
   }
 
   function wrapMethod(target, name, transform) {
@@ -121,17 +130,17 @@
       wrapMethod(api, "send", args => {
         const [cmd, param] = args;
         return [cmd, cmd === "findVCF" || cmd === "getLevelPoints"
-          ? withOpenFourFlag(param || {})
+          ? withOpenFourSetting(param || {})
           : param];
       });
-      wrapMethod(api, "poolGetLevelPoints", args => [withOpenFourFlag(args[0] || {})]);
+      wrapMethod(api, "poolGetLevelPoints", args => [withOpenFourSetting(args[0] || {})]);
     }
 
     if (global.genEngine) {
       wrapMethod(global.genEngine, "post", args => {
         const [cmd, param] = args;
         return [cmd, cmd === "findVCF" || cmd === "getLevelPoints"
-          ? withOpenFourFlag(param || {})
+          ? withOpenFourSetting(param || {})
           : param];
       });
     }
