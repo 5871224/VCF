@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VCF 題目產生器完整流程圖</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f6fb;
+      --surface: #ffffff;
+      --ink: #172033;
+      --muted: #5e687a;
+      --line: #aab4c5;
+      --blue: #1f6feb;
+      --blue-bg: #eaf2ff;
+      --purple: #7557d3;
+      --purple-bg: #f0ebff;
+      --orange: #b85d00;
+      --orange-bg: #fff1df;
+      --red: #c53b3b;
+      --red-bg: #ffebeb;
+      --green: #16834d;
+      --green-bg: #e7f7ee;
+      --gray: #647184;
+      --gray-bg: #edf1f5;
+      --warning: #8a5a00;
+      --warning-bg: #fff7d6;
+      --shadow: 0 8px 28px rgba(32, 52, 86, .09);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+      line-height: 1.55;
+    }
+    button, input { font: inherit; }
+    a { color: var(--blue); }
+
+    .hero {
+      padding: 34px 20px 24px;
+      color: #fff;
+      background:
+        radial-gradient(circle at 85% 0%, rgba(255,255,255,.2), transparent 30%),
+        linear-gradient(135deg, #183b72, #315fa7 55%, #654eaf);
+    }
+    .hero-inner, .page { width: min(1180px, calc(100% - 28px)); margin: auto; }
+    h1 { margin: 0 0 8px; font-size: clamp(28px, 4vw, 46px); line-height: 1.18; }
+    .subtitle { max-width: 900px; margin: 0; opacity: .9; }
+    .hero-meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+    .hero-meta span {
+      padding: 5px 10px;
+      border: 1px solid rgba(255,255,255,.28);
+      border-radius: 999px;
+      background: rgba(255,255,255,.1);
+      font-size: 13px;
+    }
+
+    .toolbar-wrap {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid #d6dce7;
+      background: rgba(255,255,255,.95);
+      backdrop-filter: blur(10px);
+    }
+    .toolbar {
+      width: min(1180px, calc(100% - 28px));
+      margin: auto;
+      padding: 10px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .toolbar button, .toolbar input {
+      min-height: 36px;
+      border: 1px solid #bbc5d5;
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+    }
+    .toolbar button { padding: 6px 11px; cursor: pointer; }
+    .toolbar button:hover { border-color: var(--blue); }
+    .toolbar button.active { color: #fff; border-color: var(--blue); background: var(--blue); }
+    .toolbar input { min-width: 220px; padding: 6px 10px; }
+    .toolbar .spacer { flex: 1; }
+
+    .page { padding: 24px 0 64px; }
+    .notice, .definition-grid, .source-map, .limitations {
+      margin-bottom: 22px;
+      border: 1px solid #d8dfeb;
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .notice { padding: 18px 20px; border-color: #e9cb70; background: var(--warning-bg); }
+    .notice strong { color: var(--warning); }
+    .notice p { margin: 5px 0 0; }
+
+    .legend {
+      display: flex;
+      gap: 9px;
+      flex-wrap: wrap;
+      margin: 0 0 22px;
+    }
+    .legend button {
+      padding: 7px 11px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      cursor: pointer;
+      background: var(--surface);
+      box-shadow: 0 2px 8px rgba(27,39,63,.08);
+    }
+    .legend button[data-filter="generation"] { border-color: var(--blue); }
+    .legend button[data-filter="validation"] { border-color: var(--purple); }
+    .legend button[data-filter="shorter"] { border-color: var(--orange); }
+    .legend button[data-filter="other"] { border-color: var(--red); }
+    .legend button[data-filter="final"] { border-color: var(--green); }
+    .legend button[data-filter="replay"] { border-color: var(--gray); }
+
+    .flow { position: relative; }
+    .phase {
+      position: relative;
+      margin: 0 auto 30px;
+      padding: 18px;
+      border: 1px solid #d8dfeb;
+      border-radius: 16px;
+      background: rgba(255,255,255,.68);
+      box-shadow: var(--shadow);
+      transition: opacity .18s, filter .18s, transform .18s;
+    }
+    .phase::after {
+      content: "↓";
+      position: absolute;
+      left: 50%;
+      bottom: -31px;
+      transform: translateX(-50%);
+      color: #718097;
+      font-size: 25px;
+      font-weight: 800;
+    }
+    .phase:last-child::after { display: none; }
+    .phase-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .phase-no {
+      flex: 0 0 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      color: #fff;
+      background: #33445f;
+      font-weight: 800;
+    }
+    .phase h2 { margin: 0; font-size: 23px; line-height: 1.3; }
+    .phase-intro { margin: 3px 0 0; color: var(--muted); }
+
+    .row { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; align-items: stretch; }
+    .node {
+      position: relative;
+      grid-column: span 12;
+      padding: 14px 15px;
+      border: 2px solid var(--line);
+      border-radius: 12px;
+      background: var(--surface);
+      transition: opacity .18s, filter .18s, transform .18s, box-shadow .18s;
+    }
+    .node h3 { margin: 0 0 6px; font-size: 17px; }
+    .node p { margin: 4px 0; color: #344057; }
+    .node ul, .node ol { margin: 7px 0 0; padding-left: 22px; }
+    .node code { padding: 1px 5px; border-radius: 5px; background: rgba(27,39,63,.08); }
+    .node details { margin-top: 9px; border-top: 1px dashed rgba(34,50,77,.22); padding-top: 8px; }
+    .node summary { cursor: pointer; font-weight: 700; color: #34445f; }
+    .node .tag {
+      display: inline-block;
+      margin: 0 5px 5px 0;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 12px;
+      color: #344057;
+      background: rgba(27,39,63,.07);
+    }
+    .node[data-kind~="generation"] { border-color: var(--blue); background: var(--blue-bg); }
+    .node[data-kind~="validation"] { border-color: var(--purple); background: var(--purple-bg); }
+    .node[data-kind~="shorter"] { border-color: var(--orange); background: var(--orange-bg); }
+    .node[data-kind~="other"] { border-color: var(--red); background: var(--red-bg); }
+    .node[data-kind~="final"] { border-color: var(--green); background: var(--green-bg); }
+    .node[data-kind~="replay"] { border-color: var(--gray); background: var(--gray-bg); }
+    .node.decision { border-style: dashed; }
+    .node.decision h3::before { content: "◇ "; }
+    .node.loop h3::before { content: "↻ "; }
+    .node.backtrack h3::before { content: "↩ "; }
+    .node.warning { box-shadow: inset 0 0 0 3px rgba(197,59,59,.12); }
+
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-8 { grid-column: span 8; }
+    .span-9 { grid-column: span 9; }
+
+    .branch-label {
+      display: inline-block;
+      margin-bottom: 7px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      background: rgba(255,255,255,.7);
+    }
+
+    .definition-grid { padding: 18px; }
+    .definition-grid h2, .source-map h2, .limitations h2 { margin: 0 0 12px; font-size: 22px; }
+    .definitions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .definition { padding: 13px; border: 1px solid #d4dce8; border-radius: 11px; background: #fff; }
+    .definition h3 { margin: 0 0 5px; font-size: 16px; }
+    .definition p { margin: 0; color: var(--muted); }
+
+    .source-map, .limitations { padding: 18px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; }
+    th, td { padding: 10px; border-bottom: 1px solid #dde3ed; text-align: left; vertical-align: top; }
+    th { background: #eef2f8; }
+    .limitations li { margin: 7px 0; }
+
+    .dimmed { opacity: .16 !important; filter: grayscale(.9); }
+    .matched { box-shadow: 0 0 0 4px rgba(31,111,235,.22), var(--shadow) !important; transform: translateY(-2px); }
+
+    .mini-flow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .mini-flow span { padding: 5px 8px; border-radius: 7px; background: rgba(255,255,255,.72); }
+    .mini-flow b { color: #63728a; }
+
+    footer { margin-top: 24px; color: var(--muted); text-align: center; font-size: 13px; }
+
+    @media (max-width: 900px) {
+      .span-3, .span-4, .span-5, .span-6, .span-7, .span-8, .span-9 { grid-column: span 12; }
+      .definitions { grid-template-columns: 1fr; }
+      .toolbar .spacer { display: none; }
+      .toolbar input { flex: 1; min-width: 160px; }
+    }
+    @media print {
+      .toolbar-wrap, .legend { display: none !important; }
+      body { background: #fff; }
+      .hero { padding: 18px; color: #000; background: #fff; border-bottom: 2px solid #555; }
+      .hero-meta { display: none; }
+      .page { width: 100%; padding: 10px; }
+      .phase, .notice, .definition-grid, .source-map, .limitations { box-shadow: none; break-inside: avoid; }
+      .node details { display: block; }
+      .node details > summary { display: none; }
+      .node details > * { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-inner">
+      <h1>VCF 題目產生器完整流程圖</h1>
+      <p class="subtitle">依目前正式程式的實際呼叫順序整理，涵蓋初始材料、逐層死四延伸、較短 VCF／其他 VCF 補守、DFS 回溯、最終補齊黑白子數、唯一題清理與回放紀錄。</p>
+      <div class="hero-meta">
+        <span>流程基準：main 目前版本</span>
+        <span>搜尋限制：使用者設定的時間／節點</span>
+        <span>規則：自由五子棋／無禁五子棋／連珠</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="toolbar-wrap">
+    <div class="toolbar">
+      <button type="button" id="show-all" class="active">全部顯示</button>
+      <button type="button" id="expand-all">展開說明</button>
+      <button type="button" id="collapse-all">收合說明</button>
+      <button type="button" id="print-page">列印／存 PDF</button>
+      <span class="spacer"></span>
+      <input id="flow-search" type="search" placeholder="搜尋流程，例如：較短、回溯、64 組">
+    </div>
+  </div>
+
+  <main class="page">
+    <section class="notice">
+      <strong>最容易混淆的地方：</strong>
+      <p>「補齊黑白子數」勾選後，目前同時啟動兩件事：① 每一個尚未到目標步數的中間層，也可補守方棋封鎖較短 VCF；② 真正到達目標步數後，才執行最後的黑白子數補齊。回放中途看到守子，不代表最後補齊提前執行。</p>
+    </section>
+
+    <nav class="legend" aria-label="流程類別篩選">
+      <button type="button" data-filter="generation">藍：產生／延伸</button>
+      <button type="button" data-filter="validation">紫：搜尋／驗證</button>
+      <button type="button" data-filter="shorter">橘：較短 VCF</button>
+      <button type="button" data-filter="other">紅：其他 VCF</button>
+      <button type="button" data-filter="final">綠：最終處理</button>
+      <button type="button" data-filter="replay">灰：回溯／回放</button>
+    </nav>
+
+    <section class="definition-grid">
+      <h2>三種路線的正式判定</h2>
+      <div class="definitions">
+        <article class="definition"><h3>目標 VCF</h3><p><code>analysis.steps === expectedSteps</code>，而且 <code>standardBoard</code> 與本層預期完成盤面相同。手順可以不同。</p></article>
+        <article class="definition"><h3>較短 VCF</h3><p><code>analysis.steps &lt; expectedSteps</code>。在中間層與最終層都可能出現。</p></article>
+        <article class="definition"><h3>其他 VCF</h3><p>勾選「只保留目標 VCF」時，所有 <code>standardBoard</code> 不同於預期盤面的路線都屬於其他 VCF。</p></article>
+      </div>
+    </section>
+
+    <div class="flow">
+      <section class="phase" data-phase="輸入設定">
+        <div class="phase-header"><div class="phase-no">0</div><div><h2>讀取使用者設定</h2><p class="phase-intro">按下「產生 N 步 VCF」前，先決定整次產生的目標與搜尋政策。</p></div></div>
+        <div class="row">
+          <article class="node span-4" data-kind="generation"><h3>基本目標</h3><span class="tag">攻方黑／白</span><span class="tag">規則 0／1／2</span><span class="tag">目標 1–10 步</span><p>決定材料種類、禁手合法性與最終 VCF 層數。</p></article>
+          <article class="node span-4" data-kind="generation"><h3>候選排序</h3><span class="tag">沿用攻子加成</span><span class="tag">朝天元加成</span><span class="tag">依加成排序</span><p>未勾排序時使用加權隨機順序；勾選後依總權重由高至低，同權重再隨機。</p></article>
+          <article class="node span-4 warning" data-kind="shorter other final"><h3>補子政策</h3><span class="tag">補齊黑白子數</span><span class="tag">只保留目標 VCF</span><p>前者同時控制中途較短 VCF 修補與最後子數補齊；後者控制其他完成盤面的封鎖。</p></article>
+          <article class="node span-6" data-kind="validation"><h3>搜尋設定</h3><span class="tag">快速／嚴格剪枝</span><span class="tag">活四不搜後續</span><p>較短 VCF 驗證主要使用最短層＋嚴格剪枝；其他 VCF 搜尋使用多組模式與目前選擇的剪枝。</p></article>
+          <article class="node span-6" data-kind="validation"><h3>限制設定</h3><span class="tag">時間限制</span><span class="tag">節點限制</span><span class="tag">0＝不限</span><p>所有題目產生器的多組／最短搜尋，在送入 Worker 前統一套用使用者目前設定，不再以內部固定 500 萬為準。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="啟動">
+        <div class="phase-header"><div class="phase-no">1</div><div><h2>啟動一次產生工作</h2><p class="phase-intro"><code>genGenerate()</code> 初始化狀態並進入可重建的外層迴圈。</p></div></div>
+        <div class="row">
+          <article class="node span-4" data-kind="generation replay"><h3>清空前次結果</h3><p>清除目前答案、N 點顯示、詳情與回放資料，鎖定設定控制項，開放停止按鈕。</p></article>
+          <article class="node span-4" data-kind="validation"><h3>同步規則與引擎</h3><p>主頁棋型函式與 Bitboard Worker 同步使用同一規則值，完整保留規則 0／1／2。</p></article>
+          <article class="node span-4 loop" data-kind="generation replay"><h3>外層重建迴圈</h3><p>若某個基礎無法延伸到目標步數，就捨棄整個基礎並重新建立，直到成功或使用者停止。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="初始材料">
+        <div class="phase-header"><div class="phase-no">2</div><div><h2>建立初始材料與第一層候選</h2><p class="phase-intro"><code>genFindTwoStep()</code> 先選材料，再枚舉可接上的死四模板。</p></div></div>
+        <div class="row">
+          <article class="node span-4 decision" data-kind="generation"><h3>選擇材料種類</h3><ul><li>目標 1 步：只使用死四材料。</li><li>連珠白方：一般題型與抓禁題型混合。</li><li>其餘：從活三／死四材料中選擇。</li></ul></article>
+          <article class="node span-4" data-kind="generation"><h3>枚舉第一層死四</h3><p>依模板、方向、A 點、五點、N 點與禁手規則建立候選盤面，計算沿用及中心權重。</p></article>
+          <article class="node span-4" data-kind="generation"><h3>依候選順序逐一驗證</h3><p>每個候選都進入共用驗證流程；失敗就換下一個候選，全部失敗則重新選初始材料。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="共用驗證">
+        <div class="phase-header"><div class="phase-no">3</div><div><h2>每一個候選的共用 VCF 驗證</h2><p class="phase-intro">第一層及後續延伸層都會走這個核心流程。</p></div></div>
+        <div class="row">
+          <article class="node span-5" data-kind="validation"><h3>搜尋目前盤面</h3><p>呼叫 Bitboard <code>findVCF</code>，最多回傳 64 組，再以 <code>trimGroups</code> 去除等價棋集合的重複手順。</p><details><summary>搜尋模式</summary><ul><li>較短判定：最短層／嚴格剪枝／深度對應目前步數。</li><li>其他 VCF：多組模式／目前剪枝／較深搜尋。</li><li>時間、節點與活四停止設定由使用者欄位統一封裝。</li></ul></details></article>
+          <article class="node span-7" data-kind="validation shorter other"><h3>重播並分類每一組路線</h3><p>對每組 <code>moves</code> 執行 <code>genAnalyzeVCFGroup</code>，得到步數、完成盤面與標準盤面，再分成目標、較短、其他三類。</p><div class="mini-flow"><span>搜尋路線</span><b>→</b><span>重播合法性</span><b>→</b><span>計算 steps</span><b>→</b><span>比較 standardBoard</span></div></article>
+          <article class="node span-4 decision" data-kind="validation"><h3>有目標 VCF嗎？</h3><p>最終要接受這個候選，必須至少存在一組符合本層預期步數及標準完成盤面的目標 VCF。</p></article>
+          <article class="node span-4 decision" data-kind="shorter"><h3>有較短 VCF嗎？</h3><p>沒有勾「補齊黑白子數」時直接淘汰；有勾時進入中途補守 DFS。</p></article>
+          <article class="node span-4 decision" data-kind="other"><h3>有其他 VCF嗎？</h3><p>沒有勾「只保留目標 VCF」時不處理；有勾時把不同標準完成盤面的路線列為不需要路線。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="中途補守">
+        <div class="phase-header"><div class="phase-no">4</div><div><h2>中間層：封鎖較短／其他 VCF</h2><p class="phase-intro">這一步會在尚未達到使用者指定步數時發生；它不是最後的黑白子數補齊。</p></div></div>
+        <div class="row">
+          <article class="node span-6" data-kind="shorter other validation"><span class="branch-label">建立完整防點聯集</span><h3>逐路線取得防點</h3><ol><li>取得全部目標 VCF 的防點，合併成保護點。</li><li>逐組取得較短／其他 VCF 的完整防點集合。</li><li>防點必須經 Worker 實際驗證：補下後指定手順確實失效。</li></ol></article>
+          <article class="node span-6" data-kind="shorter other validation"><span class="branch-label">排除不合法點</span><h3>不可嘗試的守點</h3><ul><li>目標路線的任一防點。</li><li>已有棋、守方 N 點。</li><li>守方落下會形成四、五或雙四。</li><li>黑守方會形成長連的點。</li></ul></article>
+          <article class="node span-5" data-kind="shorter other"><h3>依覆蓋組數排序</h3><p>統計每個點同時出現在幾組不需要路線的防點中，先試覆蓋最多組的點；同數量依棋盤索引固定排序。</p></article>
+          <article class="node span-7 backtrack" data-kind="shorter other replay"><h3>DFS 補子與回溯</h3><p>補一顆守子後立即重新搜尋整盤。若仍有不需要 VCF，就在新盤面再補下一顆；若後續失敗，撤回本層守子並換下一個點。</p><div class="mini-flow"><span>試 A</span><b>→</b><span>重搜</span><b>→</b><span>再試 B</span><b>→</b><span>失敗</span><b>→</b><span>撤 B／換 C</span></div></article>
+          <article class="node span-6 decision" data-kind="shorter other validation"><h3>成功條件</h3><p>目標 VCF仍存在，而且目前政策要求封鎖的不需要路線已全部消失，才把這個盤面交給下一層延伸。</p></article>
+          <article class="node span-6 warning" data-kind="replay validation"><h3>共用狀態上限</h3><p>每一候選的補守搜尋最多探索 96 個狀態；到達上限會把這個候選視為失敗，不代表所有守點組合已完整窮舉。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="逐層延伸">
+        <div class="phase-header"><div class="phase-no">5</div><div><h2>反向新增下一層死四</h2><p class="phase-intro"><code>genExtendToTarget()</code> 遞迴建立第 2、3、4……層，直到指定步數。</p></div></div>
+        <div class="row">
+          <article class="node span-4 decision" data-kind="generation"><h3>目前步數已達目標？</h3><p>是：離開死四延伸，進入最終清理。否：建立 <code>nextStep = current.steps + 1</code>。</p></article>
+          <article class="node span-4" data-kind="generation"><h3>從目前答案建立延伸基礎</h3><p>以目前最外層的可延伸點建立新的 A 點候選，枚舉下一層死四模板並套用權重排序。</p></article>
+          <article class="node span-4" data-kind="validation shorter other"><h3>驗證新一層</h3><p>再次執行第 3、4 階段：搜尋、分類、必要時中途補守。成功才遞迴下一層。</p></article>
+          <article class="node span-12 backtrack" data-kind="generation replay"><h3>延伸失敗時的兩級回溯</h3><p>先回到同一層改試下一個死四候選；該層全部失敗後，再回到上一層改試上一層候選。整個基礎都無法達標時，回到外層重新建立初始材料。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="最終唯一清理">
+        <div class="phase-header"><div class="phase-no">6</div><div><h2>到達目標步數後：最終其他 VCF 清理</h2><p class="phase-intro">只有勾選「只保留目標 VCF」才執行。</p></div></div>
+        <div class="row">
+          <article class="node span-5" data-kind="other final validation"><h3>完整多組重新搜尋</h3><p>以最終目標盤面作為預期盤面，重新分類所有目前回傳的路線；標準完成盤面不同者全部列為其他 VCF。</p></article>
+          <article class="node span-7 backtrack" data-kind="other final replay"><h3>cleanFinalTargetBoard()</h3><p>用相同的完整防點聯集、覆蓋排序及 DFS 回溯補守，直到只剩目標標準完成盤面；新增的守子也會加入最終預期盤面。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="最終補齊">
+        <div class="phase-header"><div class="phase-no">7</div><div><h2>真正的最後一步：補齊黑白子數</h2><p class="phase-intro">只有結果已達 <code>result.steps === targetSteps</code> 時，才會進入這套補齊流程。</p></div></div>
+        <div class="row">
+          <article class="node span-4" data-kind="final"><h3>計算應補顏色與顆數</h3><p>依正常輪次目標計算黑白差：黑方進攻時目標黑白同數；白方進攻時目標黑比白多一顆。</p></article>
+          <article class="node span-4" data-kind="final validation"><h3>建立補齊候選</h3><p>只取棋盤內圈空點，排除 N 點、目標 VCF防點、禁手及會直接形成不允許四／五的點；依三型、四型及鄰近棋數加權。</p></article>
+          <article class="node span-4 backtrack" data-kind="final replay"><h3>逐顆驗證與回溯</h3><p>每補一顆都重新搜尋；必須保留目標 VCF、不得出現較短 VCF，唯一題還不得出現其他 VCF。失敗就撤回換點。</p></article>
+          <article class="node span-12 warning" data-kind="other final"><h3>同時勾選「只保留目標 VCF」時</h3><p>最終清除其他 VCF → 補齊子數 → 再清除補齊後新產生的其他 VCF。若又補了唯一題守子而破壞子數平衡，會再次補齊；最多往返 8 輪。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="成功輸出">
+        <div class="phase-header"><div class="phase-no">8</div><div><h2>成功輸出題目</h2><p class="phase-intro">最後結果通過後，更新棋盤、答案、N 點與統計。</p></div></div>
+        <div class="row">
+          <article class="node span-4" data-kind="final"><h3>保存最終結果</h3><p>記錄最終盤面、答案 moves、標準盤面、完成盤面、N 點、各層資料及新增攻守子統計。</p></article>
+          <article class="node span-4" data-kind="final"><h3>繪製與顯示</h3><p>棋盤顯示題目；使用者可切換顯示答案與 N 點。狀態列顯示目標步數及驗證候選數。</p></article>
+          <article class="node span-4" data-kind="replay final"><h3>結束忙碌狀態</h3><p>解除控制項鎖定，回放模組開始整理此次所有候選、搜尋盤面、成功及失敗分支。</p></article>
+        </div>
+      </section>
+
+      <section class="phase" data-phase="回放">
+        <div class="phase-header"><div class="phase-no">9</div><div><h2>逐步回放如何形成</h2><p class="phase-intro">回放是觀察計算歷程的工具，不等同於只顯示最後成功路徑。</p></div></div>
+        <div class="row">
+          <article class="node span-4" data-kind="replay"><h3>記錄候選盤面</h3><p>建立初始材料、每個死四候選、每次 <code>findVCF</code> 前的盤面都可能被記錄。</p></article>
+          <article class="node span-4" data-kind="replay validation"><h3>附加搜尋診斷</h3><p>顯示找到幾組、節點數、是否搜尋未完整、精簡後組數，以及是否找到目標／較短／其他完成盤面。</p></article>
+          <article class="node span-4 warning" data-kind="replay"><h3>包含失敗與撤回分支</h3><p>回放中看到的補子可能只是 DFS 嘗試，最後會標示「此補子分支未被採用」。它不一定存在於最終題目。</p></article>
+          <article class="node span-12 warning" data-kind="replay shorter other final"><h3>目前回放名稱的限制</h3><p>部分中途封鎖、最終唯一題清理與最後補齊，可能因狀態文字未完全對應而都顯示成「補守」。判斷該棋用途時，應同時看當時生成步數、前後盤面與驗證說明。</p></article>
+        </div>
+      </section>
+    </div>
+
+    <section class="limitations">
+      <h2>理解流程時必須注意的實作細節</h2>
+      <ol>
+        <li><strong>防點驗證的是具體手順：</strong><code>getBlockVCF()</code> 保證該點能讓指定的 moves 失效；補子後重新搜尋，仍可能找到另一條等價手順或相同標準完成盤面的替代路線。</li>
+        <li><strong>路線數不一定下降：</strong>舊手順被封鎖後，新手順可能補進回傳清單；前後都顯示 64 組，不代表守子完全無效。</li>
+        <li><strong>最多回傳 64 組：</strong>搜尋達組數、時間或節點限制時，回傳集合可能不完整。回放會標示「搜尋未完整」。</li>
+        <li><strong>中途補守與最後補齊不同：</strong>中途補守只從不需要 VCF 的防點中選；最後補齊可從一般合法空點中選，但每顆都要重新驗證題目。</li>
+        <li><strong>兩種回溯同時存在：</strong>補守點組合會回溯；死四層候選也會回溯。若整個基礎無法延伸，最外層還會完全重建。</li>
+      </ol>
+    </section>
+
+    <section class="source-map">
+      <h2>主要程式對照</h2>
+      <table>
+        <thead><tr><th>流程部分</th><th>主要函式／檔案</th><th>責任</th></tr></thead>
+        <tbody>
+          <tr><td>總流程與逐層延伸</td><td><code>genGenerate()</code>、<code>genFindTwoStep()</code>、<code>genExtendToTarget()</code><br>makevcf-generator-main.js</td><td>外層重建、初始材料、死四候選與遞迴延伸。</td></tr>
+          <tr><td>候選搜尋與分類</td><td><code>genFindAnalyzedGroups()</code>、<code>genAnalyzeVCFGroup()</code><br>makevcf-generator-validate.js 等</td><td>搜尋、重播、步數與標準完成盤面判定。</td></tr>
+          <tr><td>完整防點聯集</td><td><code>validateWithRankedDefense()</code>、<code>cleanFinalTargetBoard()</code><br>makevcf-generator-defense-points.js</td><td>較短／其他 VCF 防點排序、DFS 補守與回溯。</td></tr>
+          <tr><td>最後子數補齊</td><td><code>fillBalancedStones()</code>、<code>validateFillMove()</code><br>makevcf-generator-order-mode.js</td><td>計算子數差、加權選點、逐顆重新驗證。</td></tr>
+          <tr><td>Worker 搜尋與防點</td><td><code>findVCF()</code>、<code>getBlockVCF()</code><br>rapfi/vcf-bitboard-worker.js</td><td>Bitboard Wasm 搜尋、指定手順驗證與防點實測。</td></tr>
+          <tr><td>限制封裝</td><td><code>withOpenFourSetting()</code><br>makevcf-generator-open-four-stop.js</td><td>將使用者時間／節點／活四停止設定套用至多組搜尋。</td></tr>
+          <tr><td>回放</td><td>makevcf-generator-progress.js<br>makevcf-generator-replay-complete.js</td><td>記錄候選、搜尋盤面、診斷結果及失敗分支。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>此頁描述目前程式行為；後續若調整產生器邏輯，應同步更新流程圖。</footer>
+  </main>
+
+  <script>
+    "use strict";
+    const nodes = Array.from(document.querySelectorAll(".node"));
+    const phases = Array.from(document.querySelectorAll(".phase"));
+    const filterButtons = Array.from(document.querySelectorAll("[data-filter]"));
+    const showAll = document.getElementById("show-all");
+    const searchInput = document.getElementById("flow-search");
+    let activeFilter = "";
+
+    function applyView() {
+      const query = searchInput.value.trim().toLocaleLowerCase("zh-Hant");
+      nodes.forEach(node => {
+        const kinds = (node.dataset.kind || "").split(/\s+/);
+        const filterMatch = !activeFilter || kinds.includes(activeFilter);
+        const textMatch = !query || node.textContent.toLocaleLowerCase("zh-Hant").includes(query);
+        node.classList.toggle("dimmed", !filterMatch || !textMatch);
+        node.classList.toggle("matched", Boolean(query && textMatch));
+      });
+      phases.forEach(phase => {
+        const visible = Array.from(phase.querySelectorAll(".node")).some(node => !node.classList.contains("dimmed"));
+        phase.classList.toggle("dimmed", !visible);
+      });
+    }
+
+    filterButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        activeFilter = button.dataset.filter;
+        filterButtons.forEach(item => item.classList.toggle("active", item === button));
+        showAll.classList.remove("active");
+        applyView();
+      });
+    });
+
+    showAll.addEventListener("click", () => {
+      activeFilter = "";
+      filterButtons.forEach(item => item.classList.remove("active"));
+      showAll.classList.add("active");
+      applyView();
+    });
+    searchInput.addEventListener("input", applyView);
+    document.getElementById("expand-all").addEventListener("click", () => document.querySelectorAll("details").forEach(details => { details.open = true; }));
+    document.getElementById("collapse-all").addEventListener("click", () => document.querySelectorAll("details").forEach(details => { details.open = false; }));
+    document.getElementById("print-page").addEventListener("click", () => window.print());
+  </script>
+</body>
+</html>
