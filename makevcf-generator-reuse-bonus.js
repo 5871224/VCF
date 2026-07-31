@@ -156,7 +156,7 @@
   window.__openFourStopOptionScriptRequested = true;
 
   const script = document.createElement("script");
-  script.src = new URL("makevcf-open-four-stop.js", document.baseURI).href;
+  script.src = new URL("makevcf-generator-open-four-stop.js", document.baseURI).href;
   script.async = false;
   document.head.appendChild(script);
 })();
