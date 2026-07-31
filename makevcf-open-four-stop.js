@@ -13,6 +13,7 @@
   const OPEN_FOUR_FLAG = 0x40000000;
   const NODE_MASK = 0x000003ff;
   const MAX_TIME_SECONDS = 0x000fffff;
+  const LEGACY_UNLIMITED_NODES = 0xffffffff;
 
   function storedEnabled() {
     try {
@@ -84,8 +85,12 @@
     const numeric = Number(value);
     let encoded = Number.isFinite(numeric) ? Math.trunc(numeric) >>> 0 : 0;
 
-    if ((encoded & PACKED_FLAG) === 0) {
-      const unlimited = !Number.isFinite(numeric) || numeric <= 0 || encoded === 0xffffffff;
+    // 舊主橋接以 0xffffffff 表示不限節點；它的 bit 31 雖然為 1，
+    // 但不是新版封裝值，必須先正規化成只有封裝旗標的不限格式。
+    if (encoded === LEGACY_UNLIMITED_NODES) {
+      encoded = PACKED_FLAG;
+    } else if ((encoded & PACKED_FLAG) === 0) {
+      const unlimited = !Number.isFinite(numeric) || numeric <= 0;
       const nodeMillions = unlimited
         ? 0
         : Math.max(1, Math.min(NODE_MASK, Math.ceil(numeric / 1_000_000)));
