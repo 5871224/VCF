@@ -1,9 +1,9 @@
 "use strict";
 
-// Record every one-stone defender attempt without changing generator search logic.
-// The normal replay can miss private recursive blocker states because those searches
-// bypass genEngine.findVCF. This supplemental replay listens at the two actual search
-// boundaries and records the board immediately after each defender stone is placed.
+// Record every one-stone defender attempt and merge it into the existing replay
+// toolbar. No second replay card is created: the original replay count is extended
+// with the defender attempts, and the same first/previous/next/last controls browse
+// the complete sequence.
 (function installGeneratorStoneAttemptReplay() {
   if (window.__generatorStoneAttemptReplayInstalled) return;
   window.__generatorStoneAttemptReplayInstalled = true;
@@ -22,8 +22,13 @@
   let knownBoards = [];
   let pointAttempts = new Map();
   let exactAttempts = new Map();
-  let panel = null;
   let lastResultBoard = null;
+
+  let compositeInstalled = false;
+  let allowBaseControl = false;
+  let replayMode = "base";
+  let baseCount = 0;
+  let baseIndex = 0;
 
   function compactBoard(source) {
     const board = new Uint8Array(BOARD_CELLS);
@@ -86,124 +91,172 @@
     while (layer.firstChild) layer.firstChild.remove();
   }
 
-  function ensurePanel() {
-    if (panel) return panel;
-    const anchor = document.getElementById("gen-replay-combined-panel")
-      || document.getElementById("gen-replay-panel")
-      || genEl("status");
-    const parent = anchor?.parentNode;
-    if (!parent) return null;
-
-    if (!document.querySelector('style[data-stone-attempt-replay="true"]')) {
-      const style = document.createElement("style");
-      style.dataset.stoneAttemptReplay = "true";
-      style.textContent = `
-        .gen-stone-attempt-panel {
-          width: min(100%, 760px);
-          margin: 8px auto 0;
-          padding: 10px 12px;
-          border: 1px solid #b9c9dc;
-          border-radius: 8px;
-          background: #f8fbff;
-          box-shadow: 0 1px 5px rgba(0, 0, 0, 0.07);
-          font-size: 13px;
-        }
-        .gen-stone-attempt-panel[hidden] { display: none !important; }
-        .gen-stone-attempt-toolbar,
-        .gen-stone-attempt-summary {
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-        .gen-stone-attempt-summary { margin-top: 8px; text-align: center; }
-        .gen-stone-attempt-toolbar button { min-width: 68px; }
-        .gen-stone-attempt-count { min-width: 104px; text-align: center; font-weight: 700; }
-        .gen-stone-attempt-badge {
-          display: inline-flex;
-          justify-content: center;
-          align-items: center;
-          min-width: 52px;
-          padding: 2px 8px;
-          border-radius: 999px;
-          font-weight: 700;
-        }
-        .gen-stone-attempt-badge[data-status="passed"] { color: #126b2c; background: #dff4e5; }
-        .gen-stone-attempt-badge[data-status="failed"] { color: #9a2f24; background: #fbe2df; }
-        .gen-stone-attempt-badge[data-status="pending"] { color: #6b5a19; background: #fff2bf; }
-        .gen-stone-attempt-title { font-weight: 700; }
-        .gen-stone-attempt-reason { margin-top: 6px; line-height: 1.55; text-align: center; }
-      `;
-      document.head.appendChild(style);
-    }
-
-    const element = document.createElement("section");
-    element.id = "gen-stone-attempt-panel";
-    element.className = "gen-stone-attempt-panel";
-    element.hidden = true;
-    element.innerHTML = `
-      <div class="gen-stone-attempt-toolbar">
-        <button data-action="first" type="button">最前</button>
-        <button data-action="prev" type="button">上一步</button>
-        <span class="gen-stone-attempt-count">0 / 0</span>
-        <button data-action="next" type="button">下一步</button>
-        <button data-action="last" type="button">最後</button>
-      </div>
-      <div class="gen-stone-attempt-summary">
-        <span class="gen-stone-attempt-badge" data-status="pending">驗證中</span>
-        <span class="gen-stone-attempt-title">逐顆補子回放</span>
-      </div>
-      <div class="gen-stone-attempt-reason"></div>
-    `;
-    if (anchor.nextSibling) parent.insertBefore(element, anchor.nextSibling);
-    else parent.appendChild(element);
-
-    panel = {
+  function combinedUI() {
+    const element = document.getElementById("gen-replay-combined-panel");
+    if (!element) return null;
+    return {
       element,
-      first: element.querySelector('[data-action="first"]'),
-      prev: element.querySelector('[data-action="prev"]'),
-      next: element.querySelector('[data-action="next"]'),
-      last: element.querySelector('[data-action="last"]'),
-      count: element.querySelector(".gen-stone-attempt-count"),
-      badge: element.querySelector(".gen-stone-attempt-badge"),
-      title: element.querySelector(".gen-stone-attempt-title"),
-      reason: element.querySelector(".gen-stone-attempt-reason"),
+      first: element.querySelector("#gen-replay-combined-first"),
+      prev: element.querySelector("#gen-replay-combined-prev"),
+      next: element.querySelector("#gen-replay-combined-next"),
+      last: element.querySelector("#gen-replay-combined-last"),
+      count: element.querySelector("#gen-replay-combined-count"),
+      badge: element.querySelector("#gen-replay-combined-badge"),
+      title: element.querySelector("#gen-replay-combined-title"),
+      reason: element.querySelector("#gen-replay-combined-reason"),
     };
-    panel.first.addEventListener("click", () => showAttempt(0));
-    panel.prev.addEventListener("click", () => showAttempt(attemptIndex - 1));
-    panel.next.addEventListener("click", () => showAttempt(attemptIndex + 1));
-    panel.last.addEventListener("click", () => showAttempt(attempts.length - 1));
-    return panel;
+  }
+
+  function parseCount(text) {
+    const match = String(text || "").match(/(\d+)\s*\/\s*(\d+)/);
+    return match
+      ? { index: Number(match[1]), count: Number(match[2]) }
+      : { index: 0, count: 0 };
+  }
+
+  function stopBaseControl(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function totalCount() {
+    return baseCount + attempts.length;
+  }
+
+  function syncBaseView() {
+    const ui = combinedUI();
+    if (!ui || replayMode !== "base") return;
+    const parsed = parseCount(ui.count?.textContent);
+    if (parsed.index > 0 && parsed.index <= baseCount) {
+      baseIndex = parsed.index;
+    }
+    if (!baseIndex && baseCount) baseIndex = baseCount;
+
+    ui.element.hidden = baseCount <= 0;
+    if (ui.count) ui.count.textContent = `${baseIndex} / ${totalCount()}`;
+    if (ui.first) ui.first.disabled = baseIndex <= 1;
+    if (ui.prev) ui.prev.disabled = baseIndex <= 1;
+    if (ui.next) {
+      ui.next.disabled = baseIndex >= baseCount && attempts.length === 0;
+    }
+    if (ui.last) {
+      ui.last.disabled = baseIndex >= baseCount && attempts.length === 0;
+    }
+  }
+
+  function runBaseControl(button) {
+    if (!button) return;
+    allowBaseControl = true;
+    try {
+      button.click();
+    } finally {
+      allowBaseControl = false;
+    }
+    replayMode = "base";
+    queueMicrotask(syncBaseView);
+  }
+
+  function statusLabel(status) {
+    if (status === "passed") return "通過";
+    if (status === "failed") return "未通過";
+    return "驗證中";
   }
 
   function showAttempt(index) {
-    const ui = ensurePanel();
+    const ui = combinedUI();
     if (!ui || running || !attempts.length) return;
+    replayMode = "attempt";
     attemptIndex = Math.max(0, Math.min(attempts.length - 1, index));
     const attempt = attempts[attemptIndex];
-    const first = attemptIndex === 0;
-    const last = attemptIndex === attempts.length - 1;
+    const overallIndex = baseCount + attemptIndex + 1;
+    const atLast = attemptIndex >= attempts.length - 1;
+
     ui.element.hidden = false;
-    ui.count.textContent = `${attemptIndex + 1} / ${attempts.length}`;
-    ui.first.disabled = first;
-    ui.prev.disabled = first;
-    ui.next.disabled = last;
-    ui.last.disabled = last;
+    ui.count.textContent = `${overallIndex} / ${totalCount()}`;
+    ui.first.disabled = false;
+    ui.prev.disabled = false;
+    ui.next.disabled = atLast;
+    ui.last.disabled = atLast;
     ui.badge.dataset.status = attempt.status;
-    ui.badge.textContent = attempt.status === "passed"
-      ? "通過"
-      : attempt.status === "failed"
-        ? "未通過"
-        : "驗證中";
+    ui.badge.textContent = statusLabel(attempt.status);
     ui.title.textContent = attempt.title;
     ui.reason.textContent = [attempt.reason, attempt.detail]
       .filter(Boolean)
       .join("；");
+
     if (typeof window._setBoardArr === "function") {
       window._setBoardArr(expandedBoard(attempt.board), attempt.attacker);
     }
     clearNLayer();
+  }
+
+  function installCompositeControls() {
+    if (compositeInstalled) return true;
+    const ui = combinedUI();
+    if (!ui?.first || !ui.prev || !ui.next || !ui.last) return false;
+    compositeInstalled = true;
+
+    ui.first.addEventListener("click", event => {
+      if (allowBaseControl) return;
+      if (replayMode === "attempt") {
+        stopBaseControl(event);
+        runBaseControl(ui.first);
+        return;
+      }
+      queueMicrotask(syncBaseView);
+    }, true);
+
+    ui.prev.addEventListener("click", event => {
+      if (allowBaseControl) return;
+      if (replayMode === "attempt") {
+        stopBaseControl(event);
+        if (attemptIndex > 0) showAttempt(attemptIndex - 1);
+        else runBaseControl(ui.last);
+        return;
+      }
+      queueMicrotask(syncBaseView);
+    }, true);
+
+    ui.next.addEventListener("click", event => {
+      if (allowBaseControl) return;
+      if (replayMode === "attempt") {
+        stopBaseControl(event);
+        if (attemptIndex < attempts.length - 1) showAttempt(attemptIndex + 1);
+        return;
+      }
+      if (attempts.length && baseIndex >= baseCount) {
+        stopBaseControl(event);
+        showAttempt(0);
+        return;
+      }
+      queueMicrotask(syncBaseView);
+    }, true);
+
+    ui.last.addEventListener("click", event => {
+      if (allowBaseControl) return;
+      if (attempts.length) {
+        stopBaseControl(event);
+        showAttempt(attempts.length - 1);
+        return;
+      }
+      queueMicrotask(syncBaseView);
+    }, true);
+    return true;
+  }
+
+  function mergeIntoCombinedReplay() {
+    const obsoletePanel = document.getElementById("gen-stone-attempt-panel");
+    obsoletePanel?.remove();
+
+    const ui = combinedUI();
+    if (!ui) return;
+    const parsed = parseCount(ui.count?.textContent);
+    baseCount = parsed.count;
+    baseIndex = parsed.index || baseCount;
+    replayMode = "base";
+    attemptIndex = -1;
+    installCompositeControls();
+    syncBaseView();
   }
 
   function rememberBoard(board, attacker, source) {
@@ -336,7 +389,7 @@
     return originalFindVCF(board, attacker, maxVCF, options);
   };
 
-  genSetBusy = function setBusyWithStoneAttemptReplay(value) {
+  genSetBusy = function setBusyWithMergedStoneReplay(value) {
     if (value) {
       session++;
       running = true;
@@ -346,8 +399,10 @@
       pointAttempts = new Map();
       exactAttempts = new Map();
       lastResultBoard = null;
-      const ui = ensurePanel();
-      if (ui) ui.element.hidden = true;
+      replayMode = "base";
+      baseCount = 0;
+      baseIndex = 0;
+      document.getElementById("gen-stone-attempt-panel")?.remove();
     }
 
     const result = originalSetBusy(value);
@@ -355,18 +410,14 @@
       const stopped = genCancelled || currentStatus().includes("停止");
       finalizeAttempts(lastResultBoard, stopped);
       running = false;
-      const ui = ensurePanel();
-      if (ui && attempts.length) {
-        attemptIndex = attempts.length - 1;
-        showAttempt(attemptIndex);
-      } else if (ui) {
-        ui.element.hidden = true;
-      }
+      // Complete replay schedules its rebuild from originalSetBusy(false). Queue
+      // this after it, then extend that same panel with the defender attempts.
+      window.setTimeout(mergeIntoCombinedReplay, 0);
     }
     return result;
   };
 
-  genShowResult = function showResultWithStoneAttemptReplay(
+  genShowResult = function showResultWithMergedStoneReplay(
     result,
     targetSteps,
     attacker,
@@ -378,5 +429,5 @@
     return originalShowResult(result, targetSteps, attacker, counters, options);
   };
 
-  ensurePanel();
+  document.getElementById("gen-stone-attempt-panel")?.remove();
 })();
