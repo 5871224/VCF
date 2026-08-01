@@ -8,6 +8,8 @@ const houghV2Path = 'makevcf-generator-image-import-fix-v2.js';
 const loaderPath = 'makevcf-mobile.js';
 const evaluatorPath = 'eval/Evaluator.js';
 const optimizedPath = 'makevcf-optimized-search-v2.js';
+const defensePath = 'makevcf-generator-defense-points.js';
+const balancePath = 'makevcf-generator-balance.js';
 const htmlPath = 'makevcf.html';
 const specPath = '規格書.MD';
 
@@ -21,6 +23,8 @@ for (const requiredPath of [
   loaderPath,
   evaluatorPath,
   optimizedPath,
+  defensePath,
+  balancePath,
   htmlPath,
   specPath,
 ]) {
@@ -70,9 +74,224 @@ function syntaxCheck(filename, content) {
   if (result.status !== 0) fail(`${filename} JavaScript 語法檢查失敗`);
 }
 
+function replaceOnce(content, oldText, newText, label) {
+  const first = content.indexOf(oldText);
+  if (first < 0) fail(`${label}：找不到預期程式區塊`);
+  if (content.indexOf(oldText, first + oldText.length) >= 0) {
+    fail(`${label}：預期程式區塊出現超過一次`);
+  }
+  return content.replace(oldText, newText);
+}
+
 syntaxCheck('makevcf-generator-image-import-fix.js', runtime);
 syntaxCheck('makevcf-generator-image-import-fix-v2.js', houghV2);
 syntaxCheck('makevcf-mobile.js', loader);
+
+// 每次補守／唯一化／補齊開始時建立本輪共用的失敗點集合。
+// 同一輪中某座標的完整分支一旦失敗，後續盤面都不得再次補該點；
+// 下一個候選、延伸層、唯一化輪次或補齊輪次會重新建立空集合。
+let defense = fs.readFileSync(defensePath, 'utf8');
+const defenseLayerLoop = `      for (const idx of points) {
+        if (genCancelled) return null;
+        const next = addLayerDefender(candidate, idx);
+        if (!next) continue;
+        const result = await validateWithStreamingDefense(
+          next,
+          expectedSteps,
+          previousResult,
+          policy,
+          budget,
+        );
+        if (result) return result;
+      }
+`;
+const defenseLayerLoopWithGuard = `      const failedPoints =
+        budget.failedPoints instanceof Set
+          ? budget.failedPoints
+          : (budget.failedPoints = new Set());
+
+      for (const idx of points) {
+        if (genCancelled) return null;
+        if (failedPoints.has(idx)) continue;
+        const next = addLayerDefender(candidate, idx);
+        if (!next) continue;
+        const result = await validateWithStreamingDefense(
+          next,
+          expectedSteps,
+          previousResult,
+          policy,
+          budget,
+        );
+        if (result) return result;
+        if (!genCancelled) failedPoints.add(idx);
+      }
+`;
+defense = replaceOnce(
+  defense,
+  defenseLayerLoop,
+  defenseLayerLoopWithGuard,
+  '中途補守失敗點黑名單',
+);
+
+const defenseFinalLoop = `      for (const idx of points) {
+        if (genCancelled) return null;
+        const added = addFinalDefender(
+          state,
+          expectedBoard,
+          idx,
+        );
+        if (!added) continue;
+        const result = await cleanFinalTargetBoard(
+          added.state,
+          added.expectedBoard,
+          targetSteps,
+          budget,
+        );
+        if (result) return result;
+      }
+`;
+const defenseFinalLoopWithGuard = `      const failedPoints =
+        budget.failedPoints instanceof Set
+          ? budget.failedPoints
+          : (budget.failedPoints = new Set());
+
+      for (const idx of points) {
+        if (genCancelled) return null;
+        if (failedPoints.has(idx)) continue;
+        const added = addFinalDefender(
+          state,
+          expectedBoard,
+          idx,
+        );
+        if (!added) continue;
+        const result = await cleanFinalTargetBoard(
+          added.state,
+          added.expectedBoard,
+          targetSteps,
+          budget,
+        );
+        if (result) return result;
+        if (!genCancelled) failedPoints.add(idx);
+      }
+`;
+defense = replaceOnce(
+  defense,
+  defenseFinalLoop,
+  defenseFinalLoopWithGuard,
+  '最終唯一化失敗點黑名單',
+);
+
+const defenseBudgetCount = (defense.match(/\{ nodes: 0 \}/g) || []).length;
+if (defenseBudgetCount !== 4) {
+  fail(`補守輪次預期有 4 個 budget，實際為 ${defenseBudgetCount}`);
+}
+defense = defense.replaceAll(
+  '{ nodes: 0 }',
+  '{ nodes: 0, failedPoints: new Set() }',
+);
+for (const token of [
+  'if (failedPoints.has(idx)) continue;',
+  'failedPoints.add(idx);',
+  '{ nodes: 0, failedPoints: new Set() }',
+]) {
+  if (!defense.includes(token)) fail(`補守失敗點防重缺少：${token}`);
+}
+syntaxCheck('makevcf-generator-defense-points.js', defense);
+fs.writeFileSync(defensePath, defense, 'utf8');
+
+let balance = fs.readFileSync(balancePath, 'utf8');
+const autoBlockLoop = `    const ranked = await getDefenseFrequency(candidate, shorter, targets[0].moves);
+    for (const { idx } of ranked.slice(0, GEN_AUTO_BLOCK_BRANCH_LIMIT)) {
+      if (genCancelled) return null;
+      const next = addDefenderToCandidate(candidate, idx);
+      if (!next) continue;
+      const result = await validateWithAutoBlock(next, expectedSteps, previousResult, options, budget);
+      if (result) return result;
+    }
+`;
+const autoBlockLoopWithGuard = `    const ranked = await getDefenseFrequency(candidate, shorter, targets[0].moves);
+    const failedPoints =
+      budget.failedPoints instanceof Set
+        ? budget.failedPoints
+        : (budget.failedPoints = new Set());
+    const availableRanked = ranked
+      .filter(({ idx }) => !failedPoints.has(idx))
+      .slice(0, GEN_AUTO_BLOCK_BRANCH_LIMIT);
+
+    for (const { idx } of availableRanked) {
+      if (genCancelled) return null;
+      const next = addDefenderToCandidate(candidate, idx);
+      if (!next) continue;
+      const result = await validateWithAutoBlock(next, expectedSteps, previousResult, options, budget);
+      if (result) return result;
+      if (!genCancelled) failedPoints.add(idx);
+    }
+`;
+balance = replaceOnce(
+  balance,
+  autoBlockLoop,
+  autoBlockLoopWithGuard,
+  '舊較短 VCF 補守失敗點黑名單',
+);
+
+const fillLoop = `    const available = await dynamicFillCandidates(state, pool);
+    if (!available.length) return null;
+    const ordered = weightedRandomOrder(available).slice(0, GEN_FILL_BRANCH_LIMIT);
+
+    for (const item of ordered) {
+      if (genCancelled) return null;
+      const next = await validateFilledState(state, item.idx, targetSteps);
+      if (!next) continue;
+      const completed = await fillDefendersRecursive(next, pool, targetSteps, remaining - 1, budget);
+      if (completed) return completed;
+    }
+`;
+const fillLoopWithGuard = `    const failedPoints =
+      budget.failedPoints instanceof Set
+        ? budget.failedPoints
+        : (budget.failedPoints = new Set());
+    const available = (await dynamicFillCandidates(state, pool))
+      .filter(item => !failedPoints.has(item.idx));
+    if (!available.length) return null;
+    const ordered = weightedRandomOrder(available).slice(0, GEN_FILL_BRANCH_LIMIT);
+
+    for (const item of ordered) {
+      if (genCancelled) return null;
+      const next = await validateFilledState(state, item.idx, targetSteps);
+      if (!next) {
+        failedPoints.add(item.idx);
+        continue;
+      }
+      const completed = await fillDefendersRecursive(next, pool, targetSteps, remaining - 1, budget);
+      if (completed) return completed;
+      if (!genCancelled) failedPoints.add(item.idx);
+    }
+`;
+balance = replaceOnce(
+  balance,
+  fillLoop,
+  fillLoopWithGuard,
+  '補齊子數失敗點黑名單',
+);
+
+const balanceBudgetCount = (balance.match(/\{ nodes: 0 \}/g) || []).length;
+if (balanceBudgetCount !== 3) {
+  fail(`補齊輪次預期有 3 個 budget，實際為 ${balanceBudgetCount}`);
+}
+balance = balance.replaceAll(
+  '{ nodes: 0 }',
+  '{ nodes: 0, failedPoints: new Set() }',
+);
+for (const token of [
+  '.filter(({ idx }) => !failedPoints.has(idx))',
+  '.filter(item => !failedPoints.has(item.idx))',
+  'failedPoints.add(item.idx);',
+  '{ nodes: 0, failedPoints: new Set() }',
+]) {
+  if (!balance.includes(token)) fail(`補齊失敗點防重缺少：${token}`);
+}
+syntaxCheck('makevcf-generator-balance.js', balance);
+fs.writeFileSync(balancePath, balance, 'utf8');
 
 // GitHub Pages copies makevcf.html to both /index.html and /makevcf.html.
 // Turn both root-level files into the same Bitboard workbench directly, without
@@ -198,4 +417,4 @@ if (!optimized.includes(optimizedMarker)) {
   fail('舊優化搜尋仍會在根網址啟動');
 }
 
-console.log('圖片匯入修正與根網址 Bitboard 工作台已通過正式建置驗證。');
+console.log('圖片匯入、根網址 Bitboard 工作台與每輪失敗點防重已通過正式建置驗證。');
