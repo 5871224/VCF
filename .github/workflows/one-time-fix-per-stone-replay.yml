@@ -1,0 +1,230 @@
+name: One-time fix per-stone generator replay
+
+on:
+  push:
+    paths:
+      - .github/workflows/one-time-fix-per-stone-replay.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Integrate each added stone into the main replay
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one match, found {count}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          progress = "makevcf-generator-progress.js"
+          replace_once(
+              progress,
+              '''    function updateReplayStep(index, updates) {
+      const step = replaySteps[index];
+      if (!step) return;
+      Object.assign(step, updates);
+    }
+
+    function findStepByBoard(scopeId, signature) {
+''',
+              '''    function updateReplayStep(index, updates) {
+      const step = replaySteps[index];
+      if (!step) return;
+      Object.assign(step, updates);
+    }
+
+    // Allow later generator policies to add an actual one-stone attempt directly
+    // to this replay array. Complete replay harvests this array, so the same main
+    // card now advances one placed stone at a time instead of appending a second
+    // replay section after all normal validation steps.
+    window.__generatorReplayStoneAttempt = function generatorReplayStoneAttempt({
+      board,
+      attacker,
+      idx,
+      kind = "defense",
+      phase = "mid",
+      title = "",
+      detail = "",
+    } = {}) {
+      const point = Math.trunc(Number(idx));
+      if (!board || point < 0 || point >= 225) return null;
+
+      const scopeId = searchScope();
+      const color = board[point];
+      const label = kind === "balance"
+        ? "補齊子數"
+        : phase === "final"
+          ? "封鎖其他 VCF"
+          : "補守";
+      const index = addReplayStep({
+        board,
+        attacker: attacker || currentContext?.attacker || GEN_BLACK,
+        scopeId,
+        kind: `stone-${kind}`,
+        title: title || `${label}：補上${colorName(color)} ${pointName(point)}`,
+        status: "pending",
+        reason: "已放下這一顆，正在重新驗證",
+        detail,
+        forceNew: true,
+      });
+      if (
+        currentContext &&
+        index >= 0 &&
+        !currentContext.stepIndexes.includes(index)
+      ) {
+        currentContext.stepIndexes.push(index);
+      }
+      return { session: replaySession, index };
+    };
+
+    window.__generatorReplayStoneResult = function generatorReplayStoneResult(
+      handle,
+      passed,
+      reason,
+    ) {
+      if (!handle || handle.session !== replaySession) return;
+      updateReplayStep(handle.index, {
+        status: passed ? "passed" : "failed",
+        reason: reason || (
+          passed
+            ? "此補子分支已採用"
+            : "此補子分支驗證失敗，已回溯"
+        ),
+      });
+    };
+
+    function findStepByBoard(scopeId, signature) {
+''',
+          )
+
+          attempts = "makevcf-generator-replay-stone-attempts.js"
+          replace_once(
+              attempts,
+              '''    attempts.push({
+      session,
+      board,
+      attacker,
+      idx,
+      kind,
+      phase,
+      status: "pending",
+      title: `${label}：補上${colorName(board[idx])} ${pointName(idx)}`,
+      reason: "已放下這一顆，正在重新驗證",
+      detail: detail.join("；"),
+    });
+''',
+              '''    const attempt = {
+      session,
+      board,
+      attacker,
+      idx,
+      kind,
+      phase,
+      status: "pending",
+      title: `${label}：補上${colorName(board[idx])} ${pointName(idx)}`,
+      reason: "已放下這一顆，正在重新驗證",
+      detail: detail.join("；"),
+      replayHandle: null,
+    };
+    attempt.replayHandle = window.__generatorReplayStoneAttempt?.({
+      board: attempt.board,
+      attacker: attempt.attacker,
+      idx: attempt.idx,
+      kind: attempt.kind,
+      phase: attempt.phase,
+      title: attempt.title,
+      detail: attempt.detail,
+    }) || null;
+    attempts.push(attempt);
+''',
+          )
+
+          replace_once(
+              attempts,
+              '''  function finalizeAttempts(resultBoard, stopped = false) {
+    const finalBoard = resultBoard ? compactBoard(resultBoard) : null;
+    for (const attempt of attempts) {
+      if (attempt.status !== "pending") continue;
+      if (finalBoard && boardIsSubset(attempt.board, finalBoard)) {
+        attempt.status = "passed";
+        attempt.reason = "此補子位於最後採用的路徑";
+      } else {
+        attempt.status = "failed";
+        attempt.reason = stopped
+          ? "產生已停止，此補子分支未完成"
+          : "此補子分支驗證失敗，已撤銷並回溯";
+      }
+    }
+  }
+''',
+              '''  function finalizeAttempts(resultBoard, stopped = false) {
+    const finalBoard = resultBoard ? compactBoard(resultBoard) : null;
+    for (const attempt of attempts) {
+      if (attempt.status !== "pending") continue;
+      if (finalBoard && boardIsSubset(attempt.board, finalBoard)) {
+        attempt.status = "passed";
+        attempt.reason = "此補子位於最後採用的路徑";
+      } else {
+        attempt.status = "failed";
+        attempt.reason = stopped
+          ? "產生已停止，此補子分支未完成"
+          : "此補子分支驗證失敗，已撤銷並回溯";
+      }
+      window.__generatorReplayStoneResult?.(
+        attempt.replayHandle,
+        attempt.status === "passed",
+        attempt.reason,
+      );
+    }
+  }
+''',
+          )
+
+          replace_once(
+              attempts,
+              '''      // Complete replay schedules its rebuild from originalSetBusy(false). Queue
+      // this after it, then extend that same panel with the defender attempts.
+      window.setTimeout(mergeIntoCombinedReplay, 0);
+''',
+              '''      // New builds have already inserted every attempt into the original replay
+      // array, which complete replay harvests into the one shared card. Keep the old
+      // DOM-merging fallback only for pages where that native replay API is absent.
+      if (typeof window.__generatorReplayStoneAttempt !== "function") {
+        window.setTimeout(mergeIntoCombinedReplay, 0);
+      }
+''',
+          )
+          PY
+
+          node --check makevcf-generator-progress.js
+          node --check makevcf-generator-replay-stone-attempts.js
+
+          grep -q '__generatorReplayStoneAttempt' makevcf-generator-progress.js
+          grep -q 'attempt.replayHandle' makevcf-generator-replay-stone-attempts.js
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf-generator-progress.js makevcf-generator-replay-stone-attempts.js
+          git commit -m "restore per-stone generator replay"
+          git push origin HEAD:main
