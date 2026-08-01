@@ -9,8 +9,8 @@
   const SHAPE_MASK = 0x0f;
   const THREE_NOFREE = 6;
   const THREE_FREE = 7;
-  const FILL_BRANCH_LIMIT = 8;
-  const FILL_STATE_LIMIT = 48;
+  const FILL_BRANCH_LIMIT = 6;
+  const FILL_STATE_LIMIT = 32;
   const FILL_TIME_LIMIT_MS = 12000;
   const FILL_ROUND_LIMIT = 6;
   const SHORTEST_MAX_NODE = 800000;
@@ -281,7 +281,6 @@
       standardBoard: target.analysis.standardBoard,
       nodeCount: target.info.nodeCount || 0,
       groupCount: target.groupCount,
-      finalBalanceAdded: Number(state.finalBalanceAdded || 0) + 1,
       balanceComplete: false,
     };
     if (color === state.attacker) {
@@ -344,7 +343,13 @@
     return null;
   }
 
-  async function fillRequiredColor(state, targetSteps, options, requirement) {
+  async function fillRequiredColor(
+    state,
+    targetSteps,
+    options,
+    requirement,
+    deadline,
+  ) {
     if (!requirement.count) return state;
     const pool = await buildFillPool(state, requirement.color, options);
     if (!pool.length) return null;
@@ -357,7 +362,7 @@
       {
         states: 0,
         visited: new Set(),
-        deadline: performance.now() + FILL_TIME_LIMIT_MS,
+        deadline,
       },
     );
   }
@@ -436,7 +441,9 @@
         return result;
       }
 
+      const balanceDeadline = performance.now() + FILL_TIME_LIMIT_MS;
       for (let round = 0; round < FILL_ROUND_LIMIT; round++) {
+        if (performance.now() >= balanceDeadline) return null;
         const requirement = requiredFinalFill(result.board, result.attacker);
         if (!requirement.count) {
           return { ...result, balanceComplete: true };
@@ -452,6 +459,7 @@
           targetSteps,
           options,
           requirement,
+          balanceDeadline,
         );
         if (!result || genCancelled) return null;
 
