@@ -4,6 +4,7 @@
 // 1. 每層驗證固定處理較短 VCF。
 // 2. 同步數其他 VCF 只依「只保留目標 VCF」設定處理。
 // 3. 黑白子數只在指定步數完成後補齊，且只由盤面差額決定補黑或補白。
+//    補入攻方棋時，必須確認攻方目標 VCF 仍存在，且沒有新增其他攻方 VCF。
 (function installGeneratorValidationAndBalanceFix(global) {
   const INSTALL_FLAG = "__generatorValidationAndBalanceFixInstalled";
   const SHAPE_MASK = 0x0f;
@@ -41,8 +42,6 @@
     const originalBalance = balanceInput?.checked;
     if (balanceInput) balanceInput.checked = true;
     try {
-      // defense-points 會同步讀取此值，只用來進入串流式較短 VCF 驗證。
-      // block-other-vcf 不做任何改動，所以其他 VCF 仍由原選項獨立控制。
       return callback();
     } finally {
       if (balanceInput) balanceInput.checked = originalBalance;
@@ -187,15 +186,26 @@
     return `${remaining}:${Array.from(board).slice(0, 225).join("")}`;
   }
 
+  function isExpectedTarget(analysis, targetSteps, expectedBoard) {
+    return Boolean(
+      analysis?.valid &&
+      analysis.steps === targetSteps &&
+      genBoardsEqual(analysis.standardBoard, expectedBoard)
+    );
+  }
+
   async function findTargetAfterFill(
     board,
     attacker,
+    fillColor,
     targetSteps,
     expectedBoard,
     budget,
   ) {
     const maxDepth = genTargetSearchPly(targetSteps);
+    const filledAttackerStone = fillColor === attacker;
     if (performance.now() >= budget.deadline) return null;
+
     const shortestInfo = await genEngine.findVCF(board, attacker, 1, {
       mode: "shortest",
       maxDepth,
@@ -206,15 +216,19 @@
     const shortestMoves = Array.from(shortestInfo.winMoves[0] || []);
     const shortestAnalysis = genAnalyzeVCFGroup(board, shortestMoves, attacker);
     if (!shortestAnalysis.valid || shortestAnalysis.steps < targetSteps) return null;
-    if (
-      shortestAnalysis.steps === targetSteps &&
-      genBoardsEqual(shortestAnalysis.standardBoard, expectedBoard)
-    ) {
+
+    const shortestIsTarget = isExpectedTarget(
+      shortestAnalysis,
+      targetSteps,
+      expectedBoard,
+    );
+    if (!filledAttackerStone && shortestIsTarget) {
       return {
         info: shortestInfo,
         moves: shortestMoves,
         analysis: shortestAnalysis,
         groupCount: 1,
+        searchLimited: Boolean(shortestInfo.aborted),
       };
     }
 
@@ -229,25 +243,33 @@
     const groups = await genEngine.trimGroups(board, raw, attacker);
     if (genCancelled || !groups.length) return null;
 
-    let target = null;
+    let target = shortestIsTarget
+      ? { moves: shortestMoves, analysis: shortestAnalysis }
+      : null;
+
     for (const moves of groups) {
       const analysis = genAnalyzeVCFGroup(board, moves, attacker);
       if (!analysis.valid) continue;
       if (analysis.steps < targetSteps) return null;
-      if (
-        !target &&
-        analysis.steps === targetSteps &&
-        genBoardsEqual(analysis.standardBoard, expectedBoard)
-      ) {
-        target = { moves: Array.from(moves), analysis };
+
+      if (isExpectedTarget(analysis, targetSteps, expectedBoard)) {
+        if (!target) target = { moves: Array.from(moves), analysis };
+        continue;
+      }
+
+      if (filledAttackerStone && analysis.steps === targetSteps) {
+        return null;
       }
     }
+
     if (!target) return null;
     return {
       info,
       moves: target.moves,
       analysis: target.analysis,
       groupCount: groups.length,
+      searchLimited:
+        Boolean(info.aborted) || raw.length >= TARGET_MAX_GROUPS,
     };
   }
 
@@ -266,6 +288,7 @@
     const target = await findTargetAfterFill(
       board,
       state.attacker,
+      color,
       targetSteps,
       expectedBoard,
       budget,
@@ -283,6 +306,11 @@
       groupCount: target.groupCount,
       balanceComplete: false,
     };
+    if (target.searchLimited) {
+      next.balanceVCFSearchLimited = true;
+      next.balanceVCFSearchLimitWarnings =
+        Number(state.balanceVCFSearchLimitWarnings || 0) + 1;
+    }
     if (color === state.attacker) {
       next.totalAddedAttackers = Number(state.totalAddedAttackers || 0) + 1;
     } else {
@@ -322,6 +350,17 @@
       if (pointCreatesForbiddenResult(state, idx, color)) continue;
       tried++;
 
+      const replayBoard = genCloneBoard(state.board);
+      replayBoard[idx] = color;
+      const replayAttempt = window.genReplayBeginDefenderAttempt?.({
+        phase: "balance",
+        board: replayBoard,
+        nMask: state.nMask,
+        attacker: state.attacker,
+        color,
+        idx,
+      });
+
       const next = await validateFilledState(
         state,
         idx,
@@ -329,7 +368,17 @@
         targetSteps,
         budget,
       );
-      if (!next) continue;
+      if (!next) {
+        window.genReplayEndDefenderAttempt?.(
+          replayAttempt,
+          false,
+          color === state.attacker
+            ? "補入攻方棋後，目標 VCF 消失、出現較短 VCF，或新增其他攻方 VCF，已撤銷"
+            : "補入守方棋後未能保留原攻方目標 VCF，已撤銷",
+        );
+        continue;
+      }
+
       const completed = await fillColorRecursive(
         next,
         pool,
@@ -338,7 +387,21 @@
         remaining - 1,
         budget,
       );
-      if (completed) return completed;
+      if (completed) {
+        window.genReplayEndDefenderAttempt?.(
+          replayAttempt,
+          true,
+          color === state.attacker
+            ? "攻方目標 VCF 仍存在，且未找到新增的其他攻方 VCF"
+            : "原攻方目標 VCF 仍存在",
+        );
+        return completed;
+      }
+      window.genReplayEndDefenderAttempt?.(
+        replayAttempt,
+        false,
+        "後續補齊分支失敗，已撤銷並回溯",
+      );
     }
     return null;
   }
@@ -450,8 +513,9 @@
         }
 
         const colorName = requirement.color === GEN_BLACK ? "黑" : "白";
+        const roleName = requirement.color === result.attacker ? "攻方" : "守方";
         genSetStatus(
-          `VCF 已完成，最後補齊${colorName}子 ${requirement.count} 顆……` +
+          `VCF 已完成，最後補齊${roleName}${colorName}子 ${requirement.count} 顆……` +
             `已驗證 ${counters.attempts} 個候選`,
         );
         result = await fillRequiredColor(
@@ -463,8 +527,7 @@
         );
         if (!result || genCancelled) return null;
 
-        // 最後補子可能新產生同步數其他 VCF；只有勾選唯一題時才再清理。
-        if (options?.blockOtherVCF) {
+        if (options?.blockOtherVCF && requirement.color !== result.attacker) {
           result = await previousExtendToTarget.call(
             this,
             result,
