@@ -10,6 +10,7 @@ const evaluatorPath = 'eval/Evaluator.js';
 const optimizedPath = 'makevcf-optimized-search-v2.js';
 const defensePath = 'makevcf-generator-defense-points.js';
 const balancePath = 'makevcf-generator-balance.js';
+const finalBalancePath = 'makevcf-generator-extension-other-vcf-fix.js';
 const htmlPath = 'makevcf.html';
 const specPath = '規格書.MD';
 
@@ -25,10 +26,32 @@ for (const requiredPath of [
   optimizedPath,
   defensePath,
   balancePath,
+  finalBalancePath,
   htmlPath,
   specPath,
 ]) {
   if (!fs.existsSync(requiredPath)) fail(`缺少必要檔案：${requiredPath}`);
+}
+
+function syntaxCheck(filename, content) {
+  const temporaryPath = path.join(os.tmpdir(), filename);
+  fs.writeFileSync(temporaryPath, content, 'utf8');
+  const result = spawnSync(process.execPath, ['--check', temporaryPath], {
+    encoding: 'utf8',
+    stdio: 'pipe',
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.status !== 0) fail(`${filename} JavaScript 語法檢查失敗`);
+}
+
+function replaceOnce(content, oldText, newText, label) {
+  const first = content.indexOf(oldText);
+  if (first < 0) fail(`${label}：找不到預期程式區塊`);
+  if (content.indexOf(oldText, first + oldText.length) >= 0) {
+    fail(`${label}：預期程式區塊出現超過一次`);
+  }
+  return content.replace(oldText, newText);
 }
 
 const runtime = fs.readFileSync(runtimePath, 'utf8');
@@ -57,41 +80,21 @@ for (const token of [
 for (const token of [
   'makevcf-generator-image-import-fix.js',
   'makevcf-generator-image-import-fix-v2.js',
+  'makevcf-generator-extension-other-vcf-fix.js',
   'loadImageImportRuntimeFixes',
 ]) {
   if (!loader.includes(token)) fail(`載入入口缺少：${token}`);
-}
-
-function syntaxCheck(filename, content) {
-  const temporaryPath = path.join(os.tmpdir(), filename);
-  fs.writeFileSync(temporaryPath, content, 'utf8');
-  const result = spawnSync(process.execPath, ['--check', temporaryPath], {
-    encoding: 'utf8',
-    stdio: 'pipe',
-  });
-  if (result.stdout) process.stdout.write(result.stdout);
-  if (result.stderr) process.stderr.write(result.stderr);
-  if (result.status !== 0) fail(`${filename} JavaScript 語法檢查失敗`);
-}
-
-function replaceOnce(content, oldText, newText, label) {
-  const first = content.indexOf(oldText);
-  if (first < 0) fail(`${label}：找不到預期程式區塊`);
-  if (content.indexOf(oldText, first + oldText.length) >= 0) {
-    fail(`${label}：預期程式區塊出現超過一次`);
-  }
-  return content.replace(oldText, newText);
 }
 
 syntaxCheck('makevcf-generator-image-import-fix.js', runtime);
 syntaxCheck('makevcf-generator-image-import-fix-v2.js', houghV2);
 syntaxCheck('makevcf-mobile.js', loader);
 
-// 每次補守／唯一化／補齊開始時建立本輪共用的失敗狀態集合。
-// 只有「相同前置盤面＋相同座標」的完整分支失敗後才禁止重試；
-// 同一座標在不同前置盤面仍可能有效，必須允許再次嘗試。
+// 串流補守的同一座標只有在「相同前置盤面」完整失敗後才封鎖。
+// 正式建置在乾淨 checkout 上補入防重；已補入時則只做驗證，保持可重跑。
 let defense = fs.readFileSync(defensePath, 'utf8');
-const defenseLayerLoop = `      for (const idx of points) {
+if (!defense.includes('budget.failedPoints instanceof Set')) {
+  const defenseLayerLoop = `      for (const idx of points) {
         if (genCancelled) return null;
         const next = addLayerDefender(candidate, idx);
         if (!next) continue;
@@ -105,7 +108,7 @@ const defenseLayerLoop = `      for (const idx of points) {
         if (result) return result;
       }
 `;
-const defenseLayerLoopWithGuard = `      const failedPoints =
+  const defenseLayerLoopWithGuard = `      const failedPoints =
         budget.failedPoints instanceof Set
           ? budget.failedPoints
           : (budget.failedPoints = new Set());
@@ -128,14 +131,14 @@ const defenseLayerLoopWithGuard = `      const failedPoints =
         if (!genCancelled) failedPoints.add(failedKey);
       }
 `;
-defense = replaceOnce(
-  defense,
-  defenseLayerLoop,
-  defenseLayerLoopWithGuard,
-  '中途補守失敗點黑名單',
-);
+  defense = replaceOnce(
+    defense,
+    defenseLayerLoop,
+    defenseLayerLoopWithGuard,
+    '中途補守失敗點防重',
+  );
 
-const defenseFinalLoop = `      for (const idx of points) {
+  const defenseFinalLoop = `      for (const idx of points) {
         if (genCancelled) return null;
         const added = addFinalDefender(
           state,
@@ -152,7 +155,7 @@ const defenseFinalLoop = `      for (const idx of points) {
         if (result) return result;
       }
 `;
-const defenseFinalLoopWithGuard = `      const failedPoints =
+  const defenseFinalLoopWithGuard = `      const failedPoints =
         budget.failedPoints instanceof Set
           ? budget.failedPoints
           : (budget.failedPoints = new Set());
@@ -178,141 +181,76 @@ const defenseFinalLoopWithGuard = `      const failedPoints =
         if (!genCancelled) failedPoints.add(failedKey);
       }
 `;
-defense = replaceOnce(
-  defense,
-  defenseFinalLoop,
-  defenseFinalLoopWithGuard,
-  '最終唯一化失敗點黑名單',
-);
+  defense = replaceOnce(
+    defense,
+    defenseFinalLoop,
+    defenseFinalLoopWithGuard,
+    '最終唯一化失敗點防重',
+  );
 
-const defenseBudgetCount = (defense.match(/\{ nodes: 0 \}/g) || []).length;
-if (defenseBudgetCount !== 4) {
-  fail(`補守輪次預期有 4 個 budget，實際為 ${defenseBudgetCount}`);
+  const defenseBudgetCount = (defense.match(/\{ nodes: 0 \}/g) || []).length;
+  if (defenseBudgetCount !== 4) {
+    fail(`補守輪次預期有 4 個 budget，實際為 ${defenseBudgetCount}`);
+  }
+  defense = defense.replaceAll(
+    '{ nodes: 0 }',
+    '{ nodes: 0, failedPoints: new Set() }',
+  );
+  fs.writeFileSync(defensePath, defense, 'utf8');
 }
-defense = defense.replaceAll(
-  '{ nodes: 0 }',
-  '{ nodes: 0, failedPoints: new Set() }',
-);
-for (const token of [
-  'if (failedPoints.has(failedKey)) continue;',
-  'failedPoints.add(failedKey);',
-  '{ nodes: 0, failedPoints: new Set() }',
-]) {
-  if (!defense.includes(token)) fail(`補守失敗點防重缺少：${token}`);
-}
-syntaxCheck('makevcf-generator-defense-points.js', defense);
-fs.writeFileSync(defensePath, defense, 'utf8');
 
-let balance = fs.readFileSync(balancePath, 'utf8');
-const autoBlockLoop = `    const ranked = await getDefenseFrequency(candidate, shorter, targets[0].moves);
-    for (const { idx } of ranked.slice(0, GEN_AUTO_BLOCK_BRANCH_LIMIT)) {
-      if (genCancelled) return null;
-      const next = addDefenderToCandidate(candidate, idx);
-      if (!next) continue;
-      const result = await validateWithAutoBlock(next, expectedSteps, previousResult, options, budget);
-      if (result) return result;
-    }
-`;
-const autoBlockLoopWithGuard = `    const ranked = await getDefenseFrequency(candidate, shorter, targets[0].moves);
-    const failedPoints =
-      budget.failedPoints instanceof Set
-        ? budget.failedPoints
-        : (budget.failedPoints = new Set());
-    const availableRanked = ranked
-      .filter(({ idx }) => {
-        const failedKey =
-          String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
-        return !failedPoints.has(failedKey);
-      })
-      .slice(0, GEN_AUTO_BLOCK_BRANCH_LIMIT);
-
-    for (const { idx } of availableRanked) {
-      if (genCancelled) return null;
-      const failedKey =
-        String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
-      const next = addDefenderToCandidate(candidate, idx);
-      if (!next) continue;
-      const result = await validateWithAutoBlock(next, expectedSteps, previousResult, options, budget);
-      if (result) return result;
-      if (!genCancelled) failedPoints.add(failedKey);
-    }
-`;
-balance = replaceOnce(
-  balance,
-  autoBlockLoop,
-  autoBlockLoopWithGuard,
-  '舊較短 VCF 補守失敗點黑名單',
-);
-
-const fillLoop = `    const available = await dynamicFillCandidates(state, pool);
-    if (!available.length) return null;
-    const ordered = weightedRandomOrder(available).slice(0, GEN_FILL_BRANCH_LIMIT);
-
-    for (const item of ordered) {
-      if (genCancelled) return null;
-      const next = await validateFilledState(state, item.idx, targetSteps);
-      if (!next) continue;
-      const completed = await fillDefendersRecursive(next, pool, targetSteps, remaining - 1, budget);
-      if (completed) return completed;
-    }
-`;
-const fillLoopWithGuard = `    const failedPoints =
-      budget.failedPoints instanceof Set
-        ? budget.failedPoints
-        : (budget.failedPoints = new Set());
-    const available = (await dynamicFillCandidates(state, pool))
-      .filter(item => {
-        const failedKey =
-          String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");
-        return !failedPoints.has(failedKey);
-      });
-    if (!available.length) return null;
-    const ordered = weightedRandomOrder(available).slice(0, GEN_FILL_BRANCH_LIMIT);
-
-    for (const item of ordered) {
-      if (genCancelled) return null;
-      const failedKey =
-        String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");
-      const next = await validateFilledState(state, item.idx, targetSteps);
-      if (!next) {
-        failedPoints.add(failedKey);
-        continue;
-      }
-      const completed = await fillDefendersRecursive(next, pool, targetSteps, remaining - 1, budget);
-      if (completed) return completed;
-      if (!genCancelled) failedPoints.add(failedKey);
-    }
-`;
-balance = replaceOnce(
-  balance,
-  fillLoop,
-  fillLoopWithGuard,
-  '補齊子數失敗點黑名單',
-);
-
-const balanceBudgetCount = (balance.match(/\{ nodes: 0 \}/g) || []).length;
-if (balanceBudgetCount !== 3) {
-  fail(`補齊輪次預期有 3 個 budget，實際為 ${balanceBudgetCount}`);
-}
-balance = balance.replaceAll(
-  '{ nodes: 0 }',
-  '{ nodes: 0, failedPoints: new Set() }',
-);
 for (const token of [
   'Array.from(candidate.board).slice(0, 225).join("")',
   'Array.from(state.board).slice(0, 225).join("")',
   'failedPoints.add(failedKey);',
   '{ nodes: 0, failedPoints: new Set() }',
 ]) {
-  if (!balance.includes(token)) fail(`補齊失敗點防重缺少：${token}`);
+  if (!defense.includes(token)) fail(`補守失敗點防重缺少：${token}`);
+}
+syntaxCheck('makevcf-generator-defense-points.js', defense);
+
+// 黑白子數補齊已與 VCF 補守完全分離；建置只驗證新結構，不再注入舊遞迴。
+const balance = fs.readFileSync(balancePath, 'utf8');
+const finalBalance = fs.readFileSync(finalBalancePath, 'utf8');
+for (const token of [
+  'generatorOptionsWithFinalBalance',
+  '黑白子數已補齊',
+]) {
+  if (!balance.includes(token)) fail(`最終補齊控制缺少：${token}`);
+}
+for (const removedToken of [
+  'validateWithAutoBlock',
+  'fillDefenderStones',
+  'balanceFillDefenders',
+]) {
+  if (balance.includes(removedToken)) {
+    fail(`balance.js 仍殘留舊混合邏輯：${removedToken}`);
+  }
+}
+for (const token of [
+  'requiredFinalFill',
+  'boardKey(board, remaining)',
+  'FILL_TIME_LIMIT_MS',
+  'cancelGeneratorImmediately',
+  'mode: "shortest"',
+]) {
+  if (!finalBalance.includes(token)) fail(`最終補齊驗證缺少：${token}`);
+}
+for (const removedToken of [
+  'balanceFillBlack',
+  'balanceFillWhite',
+  'balanceFillAttackers',
+  'balanceFillDefenders',
+  'balanceFillStones',
+]) {
+  if (finalBalance.includes(removedToken)) {
+    fail(`最終補齊仍重複保存分類清單：${removedToken}`);
+  }
 }
 syntaxCheck('makevcf-generator-balance.js', balance);
-fs.writeFileSync(balancePath, balance, 'utf8');
+syntaxCheck('makevcf-generator-extension-other-vcf-fix.js', finalBalance);
 
 // GitHub Pages copies makevcf.html to both /index.html and /makevcf.html.
-// Turn both root-level files into the same Bitboard workbench directly, without
-// redirecting to /rapfi/. The nested /rapfi/ page keeps using the existing Pages
-// injection and therefore ignores these root-only loaders.
 let html = fs.readFileSync(htmlPath, 'utf8');
 const firstScriptMarker = '<script>\n"use strict";';
 const bodyEndMarker = '</body>';
@@ -377,9 +315,6 @@ if (!html.includes('__vcfRootBitboardWorkbench')) {
   fs.writeFileSync(htmlPath, html, 'utf8');
 }
 
-// The root Pages script list still loads the old Evaluator files before
-// makevcf-generator-core.js. Re-apply the Bitboard compatibility layer at the
-// end of Evaluator.js so it is the last definition seen by the generator core.
 let evaluator = fs.readFileSync(evaluatorPath, 'utf8');
 const evaluatorCompatMarker = '__vcfRootGeneratorCompatAfterEvaluator';
 const evaluatorCompat = String.raw`
@@ -402,9 +337,6 @@ if (!evaluator.includes(evaluatorCompatMarker)) {
 }
 syntaxCheck('Evaluator.js', evaluator);
 
-// The old root script list also appends an experimental eval/worker.js benchmark.
-// Keep the file for non-Bitboard experiments, but make it a no-op on the official
-// root workbench so no second search engine or duplicate controls are created.
 let optimized = fs.readFileSync(optimizedPath, 'utf8');
 const optimizedMarker = 'if (window.__vcfRootBitboardWorkbench) return;';
 if (!optimized.includes(optimizedMarker)) {
@@ -433,4 +365,4 @@ if (!optimized.includes(optimizedMarker)) {
   fail('舊優化搜尋仍會在根網址啟動');
 }
 
-console.log('圖片匯入、根網址 Bitboard 工作台與盤面分層失敗點防重已通過正式建置驗證。');
+console.log('圖片匯入、根網址 Bitboard 工作台、VCF 補守防重與最終黑白子數分離已通過正式建置驗證。');
