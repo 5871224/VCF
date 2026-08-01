@@ -148,6 +148,77 @@
   document.head.appendChild(script);
 })();
 
+// The unified interface only needs one layout pass. Suppress the one global
+// document.body child-list observer created by that interface, while leaving all
+// feature-specific observers (button disabled state, rule state, settings, etc.) intact.
+(function installUnifiedInterfaceObserverGuard() {
+  if (window.__vcfUnifiedInterfaceObserverGuard || typeof window.MutationObserver !== "function") return;
+  window.__vcfUnifiedInterfaceObserverGuard = true;
+
+  const NativeMutationObserver = window.MutationObserver;
+  let globalLayoutObserverSuppressed = false;
+
+  function GuardedMutationObserver(callback) {
+    const observer = new NativeMutationObserver(callback);
+    const nativeObserve = observer.observe.bind(observer);
+
+    observer.observe = function observeWithUnifiedInterfaceGuard(target, options) {
+      const isGlobalLayoutObserver =
+        !globalLayoutObserverSuppressed &&
+        window.__compactVCFInterfaceLoaded &&
+        target === document.body &&
+        options?.childList === true &&
+        options?.subtree === true &&
+        options?.attributes !== true &&
+        options?.characterData !== true;
+
+      if (isGlobalLayoutObserver) {
+        globalLayoutObserverSuppressed = true;
+        window.MutationObserver = NativeMutationObserver;
+        return;
+      }
+      return nativeObserve(target, options);
+    };
+
+    return observer;
+  }
+
+  GuardedMutationObserver.prototype = NativeMutationObserver.prototype;
+  Object.setPrototypeOf(GuardedMutationObserver, NativeMutationObserver);
+  window.MutationObserver = GuardedMutationObserver;
+})();
+
+function stabilizeUnifiedInterfaceSelectors() {
+  const style = document.getElementById("vcf-unified-interface-style");
+  if (style && style.dataset.tabStability !== "1") {
+    style.textContent = style.textContent
+      .replace(
+        ".vcf-setting-toggle:has(#vcf-show-calculation-settings){order:3}",
+        ".vcf-setting-toggle.vcf-calculation-toggle{order:3}",
+      )
+      .replace(
+        ".vcf-setting-toggle:has(#vcf-show-multi-settings){order:4}",
+        ".vcf-setting-toggle.vcf-multi-toggle{order:4}",
+      )
+      .replace(
+        ".vcf-setting-toggle:has(input:checked){border-color:#7798b9;background:#e8f0f8;color:#294f78}",
+        ".vcf-setting-toggle.vcf-setting-toggle-active{border-color:#7798b9;background:#e8f0f8;color:#294f78}",
+      );
+    style.dataset.tabStability = "1";
+  }
+
+  const calculation = document.getElementById("vcf-show-calculation-settings");
+  const multi = document.getElementById("vcf-show-multi-settings");
+  const sync = (input, className) => {
+    const label = input?.closest("label");
+    if (!label) return false;
+    label.classList.add(className);
+    label.classList.toggle("vcf-setting-toggle-active", Boolean(input.checked));
+    return true;
+  };
+  return sync(calculation, "vcf-calculation-toggle") && sync(multi, "vcf-multi-toggle");
+}
+
 // The card layout is created later in the build-injected script list. Load the
 // compact interface policy now; it waits until that layout is available.
 (function loadCompactVCFInterface() {
@@ -157,6 +228,25 @@
   const script = document.createElement("script");
   script.src = new URL("makevcf-generator-ui-compact.js", document.baseURI).href;
   script.async = false;
+  script.addEventListener("load", () => {
+    stabilizeUnifiedInterfaceSelectors();
+    let attempts = 0;
+    const timer = window.setInterval(() => {
+      attempts++;
+      if (stabilizeUnifiedInterfaceSelectors() || attempts >= 120) {
+        window.clearInterval(timer);
+      }
+    }, 50);
+  });
+  document.addEventListener("change", event => {
+    const input = event.target;
+    if (
+      input instanceof HTMLInputElement &&
+      (input.id === "vcf-show-calculation-settings" || input.id === "vcf-show-multi-settings")
+    ) {
+      stabilizeUnifiedInterfaceSelectors();
+    }
+  }, true);
   document.head.appendChild(script);
 })();
 
