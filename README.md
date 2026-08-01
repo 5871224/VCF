@@ -2,9 +2,9 @@
 
 15×15 連珠／五子棋 VCF 局面分析、題庫與題目產生工具。
 
-正式網站：<https://5871224.github.io/VCF/>
+唯一正式網站：<https://5871224.github.io/VCF/>
 
-對外只使用上述根網址；`/VCF/`、`/VCF/index.html` 與 `/VCF/makevcf.html` 都會轉往唯一正式工作台 `/VCF/rapfi/`。舊版根頁不再作為獨立介面維護。
+根網址會直接載入新版 Bitboard 工作台，不進行轉址。`/rapfi/` 僅作為引擎、Worker、介面模組及實驗室資源目錄，不再列為正式使用網址。
 
 ## 目前功能
 
@@ -37,16 +37,17 @@ Markdown 只描述正式規格。功能、參數、預設值、執行路徑或�
 
 ## 正式執行架構
 
-對外入口與唯一工作台：
+唯一對外入口：
 
 ```text
-/VCF/、/VCF/index.html、/VCF/makevcf.html
-  → 轉址 /VCF/rapfi/
-  → makevcf.html（建置來源）
+https://5871224.github.io/VCF/
+  → /index.html（由 makevcf.html 建置）
+  → rapfi/engine/vcf-bitboard-engine.js / .wasm
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
-  → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
+
+根頁直接注入 Bitboard 引擎與新版工作台功能，不經由 `/rapfi/` 頁面轉址。`makevcf.html` 是建置來源，不是第二套需要獨立維護的正式介面。
 
 題目產生器使用獨立 Worker，不共用或中止主分析 Worker：
 
@@ -56,15 +57,14 @@ makevcf-generator-core.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
 
-GitHub Pages 建置由 `.github/workflows/pages.yml` 執行，正式輸出包含：
+GitHub Pages 建置由 `.github/workflows/pages.yml` 執行，正式輸出重點：
 
-- `/index.html`：轉往 `/rapfi/` 的舊入口相容頁。
-- `/makevcf.html`：轉往 `/rapfi/` 的舊入口相容頁。
-- `/rapfi/index.html`：唯一正式工作台。
-- `/rapfi/lab.html`：實驗室頁。
+- `/index.html`：唯一正式工作台，直接使用新版 Bitboard 引擎。
+- `/makevcf.html`：同一建置來源的相容檔案，不作為對外網址宣傳，也不是另一套介面。
+- `/rapfi/`：引擎、Worker、UI 模組及實驗室資源。
 - Bitboard 及棋型 WebAssembly 檔案。
 
-根頁與 `makevcf.html` 只負責轉址，不得新增或維護另一套介面功能；所有正式介面修改只以 `/rapfi/` 為準。
+所有正式介面修改以同一份 `makevcf.html` 建置來源及共用腳本為準，不得另外維護舊版根頁。
 
 ## 規則
 
