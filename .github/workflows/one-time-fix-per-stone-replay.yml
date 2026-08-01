@@ -228,3 +228,5 @@ jobs:
           git add makevcf-generator-progress.js makevcf-generator-replay-stone-attempts.js
           git commit -m "restore per-stone generator replay"
           git push origin HEAD:main
+
+# trigger: 2
