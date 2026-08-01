@@ -1,9 +1,9 @@
 "use strict";
 
-// Record every one-stone defender attempt and merge it into the existing replay
-// toolbar. No second replay card is created: the original replay count is extended
-// with the defender attempts, and the same first/previous/next/last controls browse
-// the complete sequence.
+// Record every one-stone defender attempt and integrate it into the same replay card.
+// The complete replay keeps owning its normal records; after generation finishes this
+// layer harvests those records, inserts every actual one-stone attempt, and takes over
+// the existing first/previous/next/last controls without creating a second card.
 (function installGeneratorStoneAttemptReplay() {
   if (window.__generatorStoneAttemptReplayInstalled) return;
   window.__generatorStoneAttemptReplayInstalled = true;
@@ -18,17 +18,19 @@
   let session = 0;
   let running = false;
   let attempts = [];
-  let attemptIndex = -1;
   let knownBoards = [];
   let pointAttempts = new Map();
   let exactAttempts = new Map();
   let lastResultBoard = null;
 
-  let compositeInstalled = false;
+  let capturedBoard = null;
+  let capturedAttacker = GEN_BLACK;
+  let replaySteps = [];
+  let replayIndex = -1;
+  let unifiedActive = false;
   let allowBaseControl = false;
-  let replayMode = "base";
-  let baseCount = 0;
-  let baseIndex = 0;
+  let controlsInstalled = false;
+  let rebuildToken = 0;
 
   function compactBoard(source) {
     const board = new Uint8Array(BOARD_CELLS);
@@ -64,12 +66,20 @@
   }
 
   function boardIsSubset(subset, superset) {
+    if (!subset || !superset) return false;
     for (let idx = 0; idx < BOARD_CELLS; idx++) {
-      if (subset[idx] !== GEN_EMPTY && subset[idx] !== superset[idx]) {
-        return false;
-      }
+      if (subset[idx] !== GEN_EMPTY && subset[idx] !== superset[idx]) return false;
     }
     return true;
+  }
+
+  function addedPoints(parent, child) {
+    const result = [];
+    if (!parent || !child) return result;
+    for (let idx = 0; idx < BOARD_CELLS; idx++) {
+      if (parent[idx] === GEN_EMPTY && child[idx] !== GEN_EMPTY) result.push(idx);
+    }
+    return result;
   }
 
   function pointName(idx) {
@@ -83,12 +93,6 @@
 
   function currentStatus() {
     return genEl("status")?.textContent || "";
-  }
-
-  function clearNLayer() {
-    const layer = document.getElementById("generator-n-layer");
-    if (!layer) return;
-    while (layer.firstChild) layer.firstChild.remove();
   }
 
   function combinedUI() {
@@ -107,164 +111,249 @@
     };
   }
 
-  function parseCount(text) {
-    const match = String(text || "").match(/(\d+)\s*\/\s*(\d+)/);
-    return match
-      ? { index: Number(match[1]), count: Number(match[2]) }
-      : { index: 0, count: 0 };
+  function nLayerHTML() {
+    return document.getElementById("generator-n-layer")?.innerHTML || "";
   }
 
-  function stopBaseControl(event) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
+  function restoreNLayer(html) {
+    const layer = document.getElementById("generator-n-layer");
+    if (layer) layer.innerHTML = html || "";
   }
 
-  function totalCount() {
-    return baseCount + attempts.length;
-  }
+  function installBoardCapture() {
+    const current = window._setBoardArr;
+    if (typeof current !== "function" || current.__stoneAttemptReplayCapture) return;
 
-  function syncBaseView() {
-    const ui = combinedUI();
-    if (!ui || replayMode !== "base") return;
-    const parsed = parseCount(ui.count?.textContent);
-    if (parsed.index > 0 && parsed.index <= baseCount) {
-      baseIndex = parsed.index;
+    function capturedSetBoardArr(board, attacker) {
+      capturedBoard = compactBoard(board);
+      capturedAttacker = attacker || GEN_BLACK;
+      return current.apply(this, arguments);
     }
-    if (!baseIndex && baseCount) baseIndex = baseCount;
-
-    ui.element.hidden = baseCount <= 0;
-    if (ui.count) ui.count.textContent = `${baseIndex} / ${totalCount()}`;
-    if (ui.first) ui.first.disabled = baseIndex <= 1;
-    if (ui.prev) ui.prev.disabled = baseIndex <= 1;
-    if (ui.next) {
-      ui.next.disabled = baseIndex >= baseCount && attempts.length === 0;
-    }
-    if (ui.last) {
-      ui.last.disabled = baseIndex >= baseCount && attempts.length === 0;
-    }
-  }
-
-  function runBaseControl(button) {
-    if (!button) return;
-    // The combined toolbar may currently mark this control disabled because the
-    // attempt view is at its boundary. Temporarily enable it so the original
-    // complete-replay listener can restore the requested base step.
-    button.disabled = false;
-    allowBaseControl = true;
-    try {
-      button.click();
-    } finally {
-      allowBaseControl = false;
-    }
-    replayMode = "base";
-    queueMicrotask(syncBaseView);
+    capturedSetBoardArr.__stoneAttemptReplayCapture = true;
+    window._setBoardArr = capturedSetBoardArr;
   }
 
   function statusLabel(status) {
     if (status === "passed") return "通過";
     if (status === "failed") return "未通過";
-    return "驗證中";
+    if (status === "pending") return "驗證中";
+    return "紀錄";
   }
 
-  function showAttempt(index) {
+  function stopOriginalControl(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+  }
+
+  function showReplayStep(index) {
     const ui = combinedUI();
-    if (!ui || running || !attempts.length) return;
-    replayMode = "attempt";
-    attemptIndex = Math.max(0, Math.min(attempts.length - 1, index));
-    const attempt = attempts[attemptIndex];
-    const overallIndex = baseCount + attemptIndex + 1;
-    const atLast = attemptIndex >= attempts.length - 1;
+    if (!ui || running || !replaySteps.length) return;
+    replayIndex = Math.max(0, Math.min(replaySteps.length - 1, index));
+    const step = replaySteps[replayIndex];
+    const atFirst = replayIndex <= 0;
+    const atLast = replayIndex >= replaySteps.length - 1;
 
     ui.element.hidden = false;
-    ui.count.textContent = `${overallIndex} / ${totalCount()}`;
-    ui.first.disabled = false;
-    ui.prev.disabled = false;
+    ui.count.textContent = `${replayIndex + 1} / ${replaySteps.length}`;
+    ui.first.disabled = atFirst;
+    ui.prev.disabled = atFirst;
     ui.next.disabled = atLast;
     ui.last.disabled = atLast;
-    ui.badge.dataset.status = attempt.status;
-    ui.badge.textContent = statusLabel(attempt.status);
-    ui.title.textContent = attempt.title;
-    ui.reason.textContent = [attempt.reason, attempt.detail]
-      .filter(Boolean)
-      .join("；");
+    ui.badge.dataset.status = step.status || "info";
+    ui.badge.textContent = statusLabel(step.status);
+    ui.title.textContent = step.title || "盤面紀錄";
+    ui.reason.textContent = [step.reason, step.detail].filter(Boolean).join("；");
 
+    installBoardCapture();
     if (typeof window._setBoardArr === "function") {
-      window._setBoardArr(expandedBoard(attempt.board), attempt.attacker);
+      window._setBoardArr(expandedBoard(step.board), step.attacker || GEN_BLACK);
     }
-    clearNLayer();
+    restoreNLayer(step.nLayerHTML);
   }
 
-  function installCompositeControls() {
-    if (compositeInstalled) return true;
+  function installUnifiedControls() {
+    if (controlsInstalled) return true;
     const ui = combinedUI();
     if (!ui?.first || !ui.prev || !ui.next || !ui.last) return false;
-    compositeInstalled = true;
+    controlsInstalled = true;
 
     ui.first.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (replayMode === "attempt") {
-        stopBaseControl(event);
-        runBaseControl(ui.first);
-        return;
-      }
-      queueMicrotask(syncBaseView);
+      if (allowBaseControl || !unifiedActive) return;
+      stopOriginalControl(event);
+      showReplayStep(0);
     }, true);
-
     ui.prev.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (replayMode === "attempt") {
-        stopBaseControl(event);
-        if (attemptIndex > 0) showAttempt(attemptIndex - 1);
-        else runBaseControl(ui.last);
-        return;
-      }
-      queueMicrotask(syncBaseView);
+      if (allowBaseControl || !unifiedActive) return;
+      stopOriginalControl(event);
+      showReplayStep(replayIndex - 1);
     }, true);
-
     ui.next.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (replayMode === "attempt") {
-        stopBaseControl(event);
-        if (attemptIndex < attempts.length - 1) showAttempt(attemptIndex + 1);
-        return;
-      }
-      if (attempts.length && baseIndex >= baseCount) {
-        stopBaseControl(event);
-        showAttempt(0);
-        return;
-      }
-      queueMicrotask(syncBaseView);
+      if (allowBaseControl || !unifiedActive) return;
+      stopOriginalControl(event);
+      showReplayStep(replayIndex + 1);
     }, true);
-
     ui.last.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (attempts.length) {
-        stopBaseControl(event);
-        showAttempt(attempts.length - 1);
-        return;
-      }
-      queueMicrotask(syncBaseView);
+      if (allowBaseControl || !unifiedActive) return;
+      stopOriginalControl(event);
+      showReplayStep(replaySteps.length - 1);
     }, true);
     return true;
   }
 
-  function mergeIntoCombinedReplay() {
-    const obsoletePanel = document.getElementById("gen-stone-attempt-panel");
-    obsoletePanel?.remove();
+  function captureCombinedStep(ui) {
+    if (!capturedBoard) return null;
+    return {
+      board: compactBoard(capturedBoard),
+      attacker: capturedAttacker || GEN_BLACK,
+      status: ui.badge?.dataset?.status || "info",
+      title: ui.title?.textContent || "盤面紀錄",
+      reason: ui.reason?.textContent || "",
+      detail: "",
+      nLayerHTML: nLayerHTML(),
+      signature: boardSignature(capturedBoard),
+      source: "base",
+    };
+  }
 
+  function harvestBaseReplay() {
     const ui = combinedUI();
-    if (!ui) return;
-    const parsed = parseCount(ui.count?.textContent);
-    baseCount = parsed.count;
-    baseIndex = parsed.index || baseCount;
-    replayMode = "base";
-    attemptIndex = -1;
-    installCompositeControls();
-    if (baseCount <= 0 && attempts.length) {
-      showAttempt(attempts.length - 1);
+    if (!ui?.first || !ui.next) return [];
+    installBoardCapture();
+
+    allowBaseControl = true;
+    try {
+      ui.first.disabled = false;
+      ui.first.click();
+      const records = [];
+      let guard = 0;
+      while (guard++ < 100000) {
+        const record = captureCombinedStep(ui);
+        if (record) records.push(record);
+        if (ui.next.disabled) break;
+        ui.next.click();
+      }
+      return records;
+    } finally {
+      allowBaseControl = false;
+    }
+  }
+
+  function makeAttemptStep(attempt) {
+    return {
+      board: compactBoard(attempt.board),
+      attacker: attempt.attacker,
+      status: attempt.status,
+      title: attempt.title,
+      reason: attempt.reason,
+      detail: attempt.detail,
+      nLayerHTML: "",
+      signature: boardSignature(attempt.board),
+      source: "attempt",
+    };
+  }
+
+  function makeSingleStoneStep(parentBoard, targetBoard, idx, baseStep, ordinal, total) {
+    const board = compactBoard(parentBoard);
+    board[idx] = targetBoard[idx];
+    return {
+      board,
+      attacker: baseStep.attacker,
+      status: "pending",
+      title: `補守：補上${colorName(board[idx])} ${pointName(idx)}`,
+      reason: total > 1
+        ? `原回放一次加入 ${total} 顆，已拆成第 ${ordinal} 顆逐步顯示`
+        : "已放下這一顆，正在重新驗證",
+      detail: "",
+      nLayerHTML: "",
+      signature: boardSignature(board),
+      source: "synthetic-attempt",
+    };
+  }
+
+  function isAggregatedBaseStep(step) {
+    return /補上\s*\d+\s*顆棋子後驗證/.test(step?.title || "");
+  }
+
+  function mergeReplaySteps(baseRecords) {
+    const output = [];
+    const usedAttempts = new Set();
+    let previousBoard = null;
+
+    for (const base of baseRecords) {
+      const inserted = [];
+      for (let index = 0; index < attempts.length; index++) {
+        if (usedAttempts.has(index)) continue;
+        const attempt = attempts[index];
+        if (!boardIsSubset(attempt.board, base.board)) continue;
+        if (previousBoard && !boardIsSubset(previousBoard, attempt.board)) continue;
+        inserted.push({ index, step: makeAttemptStep(attempt) });
+      }
+
+      for (const item of inserted) {
+        usedAttempts.add(item.index);
+        output.push(item.step);
+        previousBoard = item.step.board;
+      }
+
+      if (previousBoard && boardIsSubset(previousBoard, base.board)) {
+        const additions = addedPoints(previousBoard, base.board);
+        if (additions.length > 1 && isAggregatedBaseStep(base)) {
+          let bridge = compactBoard(previousBoard);
+          additions.forEach((idx, index) => {
+            const step = makeSingleStoneStep(
+              bridge,
+              base.board,
+              idx,
+              base,
+              index + 1,
+              additions.length,
+            );
+            output.push(step);
+            bridge = compactBoard(step.board);
+          });
+          previousBoard = bridge;
+        }
+      }
+
+      const duplicateAttemptBoard =
+        output.length &&
+        output[output.length - 1].signature === base.signature &&
+        isAggregatedBaseStep(base);
+      if (!duplicateAttemptBoard) {
+        output.push(base);
+        previousBoard = base.board;
+      }
+    }
+
+    for (let index = 0; index < attempts.length; index++) {
+      if (usedAttempts.has(index)) continue;
+      output.push(makeAttemptStep(attempts[index]));
+    }
+
+    return output;
+  }
+
+  function rebuildUnifiedReplay(token, retries = 0) {
+    if (token !== rebuildToken || running) return;
+    const ui = combinedUI();
+    if (!ui) {
+      if (retries < 20) window.setTimeout(() => rebuildUnifiedReplay(token, retries + 1), 0);
       return;
     }
-    syncBaseView();
+
+    installUnifiedControls();
+    const baseRecords = harvestBaseReplay();
+    if (!baseRecords.length && !attempts.length) {
+      if (retries < 20) window.setTimeout(() => rebuildUnifiedReplay(token, retries + 1), 0);
+      else ui.element.hidden = true;
+      return;
+    }
+
+    replaySteps = mergeReplaySteps(baseRecords);
+    unifiedActive = replaySteps.length > 0;
+    replayIndex = replaySteps.length - 1;
+    if (unifiedActive) showReplayStep(replayIndex);
+    else ui.element.hidden = true;
   }
 
   function rememberBoard(board, attacker, source) {
@@ -295,9 +384,7 @@
           if (count > 1) break;
         }
       }
-      if (count === 1 && board[added] === defender) {
-        return { parent, idx: added };
-      }
+      if (count === 1 && board[added] === defender) return { parent, idx: added };
     }
     return null;
   }
@@ -397,19 +484,19 @@
     return originalFindVCF(board, attacker, maxVCF, options);
   };
 
-  genSetBusy = function setBusyWithMergedStoneReplay(value) {
+  genSetBusy = function setBusyWithUnifiedStoneReplay(value) {
     if (value) {
       session++;
       running = true;
       attempts = [];
-      attemptIndex = -1;
       knownBoards = [];
       pointAttempts = new Map();
       exactAttempts = new Map();
       lastResultBoard = null;
-      replayMode = "base";
-      baseCount = 0;
-      baseIndex = 0;
+      replaySteps = [];
+      replayIndex = -1;
+      unifiedActive = false;
+      rebuildToken++;
       document.getElementById("gen-stone-attempt-panel")?.remove();
     }
 
@@ -418,14 +505,13 @@
       const stopped = genCancelled || currentStatus().includes("停止");
       finalizeAttempts(lastResultBoard, stopped);
       running = false;
-      // Complete replay schedules its rebuild from originalSetBusy(false). Queue
-      // this after it, then extend that same panel with the defender attempts.
-      window.setTimeout(mergeIntoCombinedReplay, 0);
+      const token = ++rebuildToken;
+      window.setTimeout(() => rebuildUnifiedReplay(token), 0);
     }
     return result;
   };
 
-  genShowResult = function showResultWithMergedStoneReplay(
+  genShowResult = function showResultWithUnifiedStoneReplay(
     result,
     targetSteps,
     attacker,
@@ -437,5 +523,7 @@
     return originalShowResult(result, targetSteps, attacker, counters, options);
   };
 
+  installBoardCapture();
+  installUnifiedControls();
   document.getElementById("gen-stone-attempt-panel")?.remove();
 })();
