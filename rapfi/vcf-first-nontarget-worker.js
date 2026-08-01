@@ -9,6 +9,7 @@ const MAX_ROUTE_PLY = 224;
 const OUTPUT_ROUTES = 2;
 const STATS_BYTES = 16;
 const MODE_FIRST_NON_TARGET = 3;
+const ENGINE_CACHE_VERSION = "first-nontarget-v2";
 
 let ptr = {};
 let api = {};
@@ -117,13 +118,21 @@ function findFirstNonTarget(param) {
 async function init(moduleURL) {
   if (readyPromise) return readyPromise;
   readyPromise = (async () => {
-    const base = new URL("./", moduleURL).href;
-    self.importScripts(moduleURL);
+    const source = new URL(moduleURL);
+    source.searchParams.set("_engine", ENGINE_CACHE_VERSION);
+    const base = new URL("./", source).href;
+    const cacheQuery = source.search;
+
+    self.importScripts(source.href);
     if (typeof self.VCFBitboardModule !== "function") {
       throw new Error("找不到 VCFBitboardModule");
     }
     moduleInstance = await self.VCFBitboardModule({
-      locateFile: file => new URL(file, base).href,
+      locateFile: file => {
+        const url = new URL(file, base);
+        url.search = cacheQuery;
+        return url.href;
+      },
     });
     api = {
       findModeV3: moduleInstance.cwrap(
