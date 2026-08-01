@@ -2,7 +2,9 @@
 
 15×15 連珠／五子棋 VCF 局面分析、題庫與題目產生工具。
 
-正式網站：<https://5871224.github.io/VCF/rapfi/>
+正式網站：<https://5871224.github.io/VCF/>
+
+對外只使用上述根網址；`/VCF/`、`/VCF/index.html` 與 `/VCF/makevcf.html` 都會轉往唯一正式工作台 `/VCF/rapfi/`。舊版根頁不再作為獨立介面維護。
 
 ## 目前功能
 
@@ -35,10 +37,12 @@ Markdown 只描述正式規格。功能、參數、預設值、執行路徑或�
 
 ## 正式執行架構
 
-`/rapfi/` 使用 Bitboard C++ WebAssembly：
+對外入口與唯一工作台：
 
 ```text
-makevcf.html
+/VCF/、/VCF/index.html、/VCF/makevcf.html
+  → 轉址 /VCF/rapfi/
+  → makevcf.html（建置來源）
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
@@ -54,11 +58,13 @@ makevcf-generator-core.js
 
 GitHub Pages 建置由 `.github/workflows/pages.yml` 執行，正式輸出包含：
 
-- `/index.html`
-- `/makevcf.html`
-- `/rapfi/index.html`
-- `/rapfi/lab.html`
-- Bitboard 及棋型 WebAssembly 檔案
+- `/index.html`：轉往 `/rapfi/` 的舊入口相容頁。
+- `/makevcf.html`：轉往 `/rapfi/` 的舊入口相容頁。
+- `/rapfi/index.html`：唯一正式工作台。
+- `/rapfi/lab.html`：實驗室頁。
+- Bitboard 及棋型 WebAssembly 檔案。
+
+根頁與 `makevcf.html` 只負責轉址，不得新增或維護另一套介面功能；所有正式介面修改只以 `/rapfi/` 為準。
 
 ## 規則
 
