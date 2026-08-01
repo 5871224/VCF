@@ -146,6 +146,10 @@
 
   function runBaseControl(button) {
     if (!button) return;
+    // The combined toolbar may currently mark this control disabled because the
+    // attempt view is at its boundary. Temporarily enable it so the original
+    // complete-replay listener can restore the requested base step.
+    button.disabled = false;
     allowBaseControl = true;
     try {
       button.click();
@@ -256,6 +260,10 @@
     replayMode = "base";
     attemptIndex = -1;
     installCompositeControls();
+    if (baseCount <= 0 && attempts.length) {
+      showAttempt(attempts.length - 1);
+      return;
+    }
     syncBaseView();
   }
 
