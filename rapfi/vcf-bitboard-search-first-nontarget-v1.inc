@@ -9,7 +9,6 @@
 namespace {
 
 constexpr int MODE_FIRST_NON_TARGET_V1 = 3;
-constexpr int FIRST_NON_TARGET_OUTPUT_ROUTES_V1 = 2;
 constexpr int LEGACY_FIVE_LEVEL_V1 = 10;
 constexpr int LEGACY_FREE_FOUR_LEVEL_V1 = 9;
 constexpr int LEGACY_DOUBLE_FOUR_FLAGS_V1 = 0x60;
@@ -303,34 +302,21 @@ int findFirstNonTargetModeV1(const uint8_t *board,
     runner.transTable = &transTable;
     runner.candidatesByDepth.resize(size_t(ctx.maxDepth / 2 + 2));
 
-    const std::vector<uint8_t> immediate = scanWinningMovesAll(
-        position, attacker, rule, BOARD_CELLS
-    );
-    if (!immediate.empty()) {
-        rootCandidates = int(immediate.size());
-        ctx.nodes = uint32_t(immediate.size());
-        ctx.maxPlySeen = 1;
-        for (uint8_t move : immediate) {
-            runner.addRoute({move});
-            if (runner.done())
-                break;
-        }
-    }
-    else {
-        std::vector<uint8_t> route;
-        route.reserve(size_t(ctx.maxDepth) + 1);
-        runner.dfs(position, 0, -1, CENTER, route);
-        rootCandidates = runner.rootCandidates;
-    }
+    // 即使已有一手立即勝，也必須繼續同一棵 DFS 尋找目標路線；
+    // 否則只會得到較短 VCF，無法計算「較短防點－目標防點」。
+    std::vector<uint8_t> route;
+    route.reserve(size_t(ctx.maxDepth) + 1);
+    runner.dfs(position, 0, -1, CENTER, route);
+    rootCandidates = runner.rootCandidates;
 
     int written = 0;
-    const auto writeRoute = [&](int slot, const std::vector<uint8_t> &route) {
-        if (route.empty())
+    const auto writeRoute = [&](int slot, const std::vector<uint8_t> &routeToWrite) {
+        if (routeToWrite.empty())
             return;
-        const int length = std::min<int>(route.size(), maxMovesPerRoute);
+        const int length = std::min<int>(routeToWrite.size(), maxMovesPerRoute);
         outLengths[slot] = uint16_t(length);
         std::copy_n(
-            route.begin(),
+            routeToWrite.begin(),
             length,
             outMoves + slot * maxMovesPerRoute
         );
