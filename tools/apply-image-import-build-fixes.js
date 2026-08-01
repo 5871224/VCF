@@ -87,9 +87,9 @@ syntaxCheck('makevcf-generator-image-import-fix.js', runtime);
 syntaxCheck('makevcf-generator-image-import-fix-v2.js', houghV2);
 syntaxCheck('makevcf-mobile.js', loader);
 
-// 每次補守／唯一化／補齊開始時建立本輪共用的失敗點集合。
-// 同一輪中某座標的完整分支一旦失敗，後續盤面都不得再次補該點；
-// 下一個候選、延伸層、唯一化輪次或補齊輪次會重新建立空集合。
+// 每次補守／唯一化／補齊開始時建立本輪共用的失敗狀態集合。
+// 只有「相同前置盤面＋相同座標」的完整分支失敗後才禁止重試；
+// 同一座標在不同前置盤面仍可能有效，必須允許再次嘗試。
 let defense = fs.readFileSync(defensePath, 'utf8');
 const defenseLayerLoop = `      for (const idx of points) {
         if (genCancelled) return null;
@@ -112,7 +112,9 @@ const defenseLayerLoopWithGuard = `      const failedPoints =
 
       for (const idx of points) {
         if (genCancelled) return null;
-        if (failedPoints.has(idx)) continue;
+        const failedKey =
+          String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
+        if (failedPoints.has(failedKey)) continue;
         const next = addLayerDefender(candidate, idx);
         if (!next) continue;
         const result = await validateWithStreamingDefense(
@@ -123,7 +125,7 @@ const defenseLayerLoopWithGuard = `      const failedPoints =
           budget,
         );
         if (result) return result;
-        if (!genCancelled) failedPoints.add(idx);
+        if (!genCancelled) failedPoints.add(failedKey);
       }
 `;
 defense = replaceOnce(
@@ -157,7 +159,9 @@ const defenseFinalLoopWithGuard = `      const failedPoints =
 
       for (const idx of points) {
         if (genCancelled) return null;
-        if (failedPoints.has(idx)) continue;
+        const failedKey =
+          String(idx) + ":" + Array.from(state.board).slice(0, 225).join("");
+        if (failedPoints.has(failedKey)) continue;
         const added = addFinalDefender(
           state,
           expectedBoard,
@@ -171,7 +175,7 @@ const defenseFinalLoopWithGuard = `      const failedPoints =
           budget,
         );
         if (result) return result;
-        if (!genCancelled) failedPoints.add(idx);
+        if (!genCancelled) failedPoints.add(failedKey);
       }
 `;
 defense = replaceOnce(
@@ -190,8 +194,8 @@ defense = defense.replaceAll(
   '{ nodes: 0, failedPoints: new Set() }',
 );
 for (const token of [
-  'if (failedPoints.has(idx)) continue;',
-  'failedPoints.add(idx);',
+  'if (failedPoints.has(failedKey)) continue;',
+  'failedPoints.add(failedKey);',
   '{ nodes: 0, failedPoints: new Set() }',
 ]) {
   if (!defense.includes(token)) fail(`補守失敗點防重缺少：${token}`);
@@ -215,16 +219,22 @@ const autoBlockLoopWithGuard = `    const ranked = await getDefenseFrequency(can
         ? budget.failedPoints
         : (budget.failedPoints = new Set());
     const availableRanked = ranked
-      .filter(({ idx }) => !failedPoints.has(idx))
+      .filter(({ idx }) => {
+        const failedKey =
+          String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
+        return !failedPoints.has(failedKey);
+      })
       .slice(0, GEN_AUTO_BLOCK_BRANCH_LIMIT);
 
     for (const { idx } of availableRanked) {
       if (genCancelled) return null;
+      const failedKey =
+        String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
       const next = addDefenderToCandidate(candidate, idx);
       if (!next) continue;
       const result = await validateWithAutoBlock(next, expectedSteps, previousResult, options, budget);
       if (result) return result;
-      if (!genCancelled) failedPoints.add(idx);
+      if (!genCancelled) failedPoints.add(failedKey);
     }
 `;
 balance = replaceOnce(
@@ -251,20 +261,26 @@ const fillLoopWithGuard = `    const failedPoints =
         ? budget.failedPoints
         : (budget.failedPoints = new Set());
     const available = (await dynamicFillCandidates(state, pool))
-      .filter(item => !failedPoints.has(item.idx));
+      .filter(item => {
+        const failedKey =
+          String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");
+        return !failedPoints.has(failedKey);
+      });
     if (!available.length) return null;
     const ordered = weightedRandomOrder(available).slice(0, GEN_FILL_BRANCH_LIMIT);
 
     for (const item of ordered) {
       if (genCancelled) return null;
+      const failedKey =
+        String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");
       const next = await validateFilledState(state, item.idx, targetSteps);
       if (!next) {
-        failedPoints.add(item.idx);
+        failedPoints.add(failedKey);
         continue;
       }
       const completed = await fillDefendersRecursive(next, pool, targetSteps, remaining - 1, budget);
       if (completed) return completed;
-      if (!genCancelled) failedPoints.add(item.idx);
+      if (!genCancelled) failedPoints.add(failedKey);
     }
 `;
 balance = replaceOnce(
@@ -283,9 +299,9 @@ balance = balance.replaceAll(
   '{ nodes: 0, failedPoints: new Set() }',
 );
 for (const token of [
-  '.filter(({ idx }) => !failedPoints.has(idx))',
-  '.filter(item => !failedPoints.has(item.idx))',
-  'failedPoints.add(item.idx);',
+  'Array.from(candidate.board).slice(0, 225).join("")',
+  'Array.from(state.board).slice(0, 225).join("")',
+  'failedPoints.add(failedKey);',
   '{ nodes: 0, failedPoints: new Set() }',
 ]) {
   if (!balance.includes(token)) fail(`補齊失敗點防重缺少：${token}`);
@@ -417,4 +433,4 @@ if (!optimized.includes(optimizedMarker)) {
   fail('舊優化搜尋仍會在根網址啟動');
 }
 
-console.log('圖片匯入、根網址 Bitboard 工作台與每輪失敗點防重已通過正式建置驗證。');
+console.log('圖片匯入、根網址 Bitboard 工作台與盤面分層失敗點防重已通過正式建置驗證。');
