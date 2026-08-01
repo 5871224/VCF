@@ -1,0 +1,100 @@
+name: Test dead-four retry fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - dead-four-retry-fix.trigger
+      - tools/apply-image-import-build-fixes.js
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply embedded fix when needed
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          target = Path('tools/apply-image-import-build-fixes.js')
+          current = target.read_text(encoding='utf-8')
+          marker = 'Array.from(candidate.board).slice(0, 225).join("")'
+          if marker in current:
+              print('Fix already present')
+              raise SystemExit(0)
+
+          source = Path('.github/workflows/one-time-fix-failed-point-scope.yml').read_text(encoding='utf-8')
+          start_marker = "          python3 <<'PY'\n"
+          end_marker = "\n          PY\n\n      - name: Build generated scripts"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          code = '\n'.join(
+              line[10:] if line.startswith('          ') else line
+              for line in source[start:end].splitlines()
+          )
+          exec(compile(code, 'embedded-dead-four-fix.py', 'exec'))
+          PY
+
+      - name: Generate deployed code and test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tools/apply-image-import-build-fixes.js
+          node --check makevcf-generator-defense-points.js
+          node --check makevcf-generator-balance.js
+
+          grep -q 'Array.from(candidate.board).slice(0, 225).join("")' makevcf-generator-defense-points.js
+          grep -q 'Array.from(state.board).slice(0, 225).join("")' makevcf-generator-defense-points.js
+          grep -q 'Array.from(candidate.board).slice(0, 225).join("")' makevcf-generator-balance.js
+          grep -q 'Array.from(state.board).slice(0, 225).join("")' makevcf-generator-balance.js
+          ! grep -q 'failedPoints.has(idx)' makevcf-generator-defense-points.js
+          ! grep -q 'failedPoints.add(idx)' makevcf-generator-defense-points.js
+
+          node <<'NODE'
+          function key(board, idx) {
+            return String(idx) + ':' + Array.from(board).slice(0, 225).join('');
+          }
+          const first = new Uint8Array(225);
+          const same = first.slice();
+          const changed = first.slice();
+          changed[17] = 2;
+          if (key(first, 88) !== key(same, 88)) {
+            throw new Error('same board and point must share one failed state');
+          }
+          if (key(first, 88) === key(changed, 88)) {
+            throw new Error('same point on a changed board must remain retryable');
+          }
+          if (key(first, 88) === key(first, 89)) {
+            throw new Error('different points must not share one failed state');
+          }
+          console.log('dead-four extension failed-state regression: passed');
+          NODE
+
+          git checkout -- \
+            makevcf-generator-defense-points.js \
+            makevcf-generator-balance.js \
+            makevcf.html \
+            eval/Evaluator.js \
+            makevcf-optimized-search-v2.js
+
+      - name: Commit tested fix to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet -- tools/apply-image-import-build-fixes.js; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/apply-image-import-build-fixes.js
+          git commit -m 'fix dead-four extension retry scope'
+          git push origin HEAD:${{ github.head_ref }}
