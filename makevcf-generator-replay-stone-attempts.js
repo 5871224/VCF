@@ -1,8 +1,8 @@
 "use strict";
 
-// Defender replay receives explicit events from the actual placement branches.
-// It never intercepts Worker requests or guesses parent boards, attacker colors,
-// defender colors, or added coordinates from unrelated search states.
+// 補子回放只接收實際補子分支送出的明確事件。
+// 中途／最終補守只允許守方棋；補齊黑白子數則可補攻方或守方，
+// 但事件必須明確附帶實際補入顏色，不能由回放自行猜測。
 (function installGeneratorStoneAttemptReplay() {
   if (window.__generatorStoneAttemptReplayInstalled) return;
   window.__generatorStoneAttemptReplayInstalled = true;
@@ -23,8 +23,9 @@
   let baseCount = 0;
   let baseIndex = 0;
 
-  function normalizeColor(color) {
-    return Number(color) === GEN_WHITE ? GEN_WHITE : GEN_BLACK;
+  function parseColor(color) {
+    const value = Number(color);
+    return value === GEN_BLACK || value === GEN_WHITE ? value : null;
   }
 
   function compactBoard(source) {
@@ -259,45 +260,60 @@
   function beginDefenderAttempt(payload) {
     if (!running || !payload?.board) return null;
 
-    const attacker = normalizeColor(payload.attacker);
-    const defender = normalizeColor(payload.defender);
-    const expectedDefender = genOther(attacker);
+    const attacker = parseColor(payload.attacker);
+    const placedColor = parseColor(payload.color ?? payload.defender);
+    const phase = payload.phase || "mid";
+    const expectedDefender = attacker == null ? null : genOther(attacker);
     const idx = Number(payload.idx);
     const board = compactBoard(payload.board);
+    const isBalance = phase === "balance";
+    const role = placedColor === attacker
+      ? "attacker"
+      : placedColor === expectedDefender
+        ? "defender"
+        : "invalid";
 
     if (
+      attacker == null ||
+      placedColor == null ||
       !Number.isInteger(idx) ||
       idx < 0 ||
       idx >= BOARD_CELLS ||
-      defender !== expectedDefender ||
-      board[idx] !== defender
+      role === "invalid" ||
+      (!isBalance && role !== "defender") ||
+      board[idx] !== placedColor
     ) {
-      console.error("補守回放事件的攻守色或落子盤面不一致", {
+      console.error("補子回放事件的攻守色或落子盤面不一致", {
         attacker,
-        defender,
+        placedColor,
         expectedDefender,
+        role,
         idx,
         boardValue: Number.isInteger(idx) ? board[idx] : null,
-        phase: payload.phase,
+        phase,
       });
       return null;
     }
 
     const id = nextAttemptId++;
-    const label = phaseLabel(payload.phase);
+    const label = phaseLabel(phase);
+    const roleText = role === "attacker" ? "攻方" : "守方";
     const attempt = {
       id,
       session,
       board,
       nMask: cloneNMask(payload.nMask),
       attacker,
-      defender,
+      color: placedColor,
+      role,
       idx,
-      phase: payload.phase || "mid",
+      phase,
       status: "pending",
-      title: `${label}：補上${colorName(defender)} ${pointName(idx)}`,
+      title: `${label}：補上${colorName(placedColor)} ${pointName(idx)}`,
       reason: "已由實際補子分支放下這一顆，正在重新驗證",
-      detail: `攻方 ${sideName(attacker)}；守方 ${sideName(defender)}`,
+      detail: isBalance
+        ? `本次補入${roleText}；攻方 ${sideName(attacker)}；守方 ${sideName(expectedDefender)}`
+        : `攻方 ${sideName(attacker)}；守方 ${sideName(expectedDefender)}`,
     };
     attempts.push(attempt);
     pendingAttempts.set(id, attempt);
