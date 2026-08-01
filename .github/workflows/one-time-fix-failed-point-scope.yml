@@ -1,0 +1,302 @@
+name: One-time fix dead-four extension retries
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-failed-point-scope.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scope failed-point cache to board state
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('tools/apply-image-import-build-fixes.js')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old, new, label):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              '''// 每次補守／唯一化／補齊開始時建立本輪共用的失敗點集合。
+// 同一輪中某座標的完整分支一旦失敗，後續盤面都不得再次補該點；
+// 下一個候選、延伸層、唯一化輪次或補齊輪次會重新建立空集合。''',
+              '''// 每次補守／唯一化／補齊開始時建立本輪共用的失敗狀態集合。
+// 只有「相同前置盤面＋相同座標」的完整分支失敗後才禁止重試；
+// 同一座標在不同前置盤面仍可能有效，必須允許再次嘗試。''',
+              'policy comment',
+          )
+
+          replace_once(
+              '''      for (const idx of points) {
+        if (genCancelled) return null;
+        if (failedPoints.has(idx)) continue;
+        const next = addLayerDefender(candidate, idx);
+        if (!next) continue;
+        const result = await validateWithStreamingDefense(
+          next,
+          expectedSteps,
+          previousResult,
+          policy,
+          budget,
+        );
+        if (result) return result;
+        if (!genCancelled) failedPoints.add(idx);
+      }
+''',
+              '''      for (const idx of points) {
+        if (genCancelled) return null;
+        const failedKey =
+          String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
+        if (failedPoints.has(failedKey)) continue;
+        const next = addLayerDefender(candidate, idx);
+        if (!next) continue;
+        const result = await validateWithStreamingDefense(
+          next,
+          expectedSteps,
+          previousResult,
+          policy,
+          budget,
+        );
+        if (result) return result;
+        if (!genCancelled) failedPoints.add(failedKey);
+      }
+''',
+              'mid defense state key',
+          )
+
+          replace_once(
+              '''      for (const idx of points) {
+        if (genCancelled) return null;
+        if (failedPoints.has(idx)) continue;
+        const added = addFinalDefender(
+          state,
+          expectedBoard,
+          idx,
+        );
+        if (!added) continue;
+        const result = await cleanFinalTargetBoard(
+          added.state,
+          added.expectedBoard,
+          targetSteps,
+          budget,
+        );
+        if (result) return result;
+        if (!genCancelled) failedPoints.add(idx);
+      }
+''',
+              '''      for (const idx of points) {
+        if (genCancelled) return null;
+        const failedKey =
+          String(idx) + ":" + Array.from(state.board).slice(0, 225).join("");
+        if (failedPoints.has(failedKey)) continue;
+        const added = addFinalDefender(
+          state,
+          expectedBoard,
+          idx,
+        );
+        if (!added) continue;
+        const result = await cleanFinalTargetBoard(
+          added.state,
+          added.expectedBoard,
+          targetSteps,
+          budget,
+        );
+        if (result) return result;
+        if (!genCancelled) failedPoints.add(failedKey);
+      }
+''',
+              'final defense state key',
+          )
+
+          replace_once(
+              '''for (const token of [
+  'if (failedPoints.has(idx)) continue;',
+  'failedPoints.add(idx);',
+  '{ nodes: 0, failedPoints: new Set() }',
+]) {''',
+              '''for (const token of [
+  'Array.from(candidate.board).slice(0, 225).join("")',
+  'Array.from(state.board).slice(0, 225).join("")',
+  'if (failedPoints.has(failedKey)) continue;',
+  'failedPoints.add(failedKey);',
+  '{ nodes: 0, failedPoints: new Set() }',
+]) {''',
+              'defense verification tokens',
+          )
+
+          replace_once(
+              '''    const availableRanked = ranked
+      .filter(({ idx }) => !failedPoints.has(idx))
+      .slice(0, GEN_AUTO_BLOCK_BRANCH_LIMIT);
+
+    for (const { idx } of availableRanked) {
+      if (genCancelled) return null;
+      const next = addDefenderToCandidate(candidate, idx);
+      if (!next) continue;
+      const result = await validateWithAutoBlock(next, expectedSteps, previousResult, options, budget);
+      if (result) return result;
+      if (!genCancelled) failedPoints.add(idx);
+    }
+''',
+              '''    const availableRanked = ranked
+      .filter(({ idx }) => {
+        const failedKey =
+          String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
+        return !failedPoints.has(failedKey);
+      })
+      .slice(0, GEN_AUTO_BLOCK_BRANCH_LIMIT);
+
+    for (const { idx } of availableRanked) {
+      if (genCancelled) return null;
+      const failedKey =
+        String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");
+      const next = addDefenderToCandidate(candidate, idx);
+      if (!next) continue;
+      const result = await validateWithAutoBlock(next, expectedSteps, previousResult, options, budget);
+      if (result) return result;
+      if (!genCancelled) failedPoints.add(failedKey);
+    }
+''',
+              'legacy auto-block state key',
+          )
+
+          replace_once(
+              '''    const available = (await dynamicFillCandidates(state, pool))
+      .filter(item => !failedPoints.has(item.idx));
+    if (!available.length) return null;
+    const ordered = weightedRandomOrder(available).slice(0, GEN_FILL_BRANCH_LIMIT);
+
+    for (const item of ordered) {
+      if (genCancelled) return null;
+      const next = await validateFilledState(state, item.idx, targetSteps);
+      if (!next) {
+        failedPoints.add(item.idx);
+        continue;
+      }
+      const completed = await fillDefendersRecursive(next, pool, targetSteps, remaining - 1, budget);
+      if (completed) return completed;
+      if (!genCancelled) failedPoints.add(item.idx);
+    }
+''',
+              '''    const available = (await dynamicFillCandidates(state, pool))
+      .filter(item => {
+        const failedKey =
+          String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");
+        return !failedPoints.has(failedKey);
+      });
+    if (!available.length) return null;
+    const ordered = weightedRandomOrder(available).slice(0, GEN_FILL_BRANCH_LIMIT);
+
+    for (const item of ordered) {
+      if (genCancelled) return null;
+      const failedKey =
+        String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");
+      const next = await validateFilledState(state, item.idx, targetSteps);
+      if (!next) {
+        failedPoints.add(failedKey);
+        continue;
+      }
+      const completed = await fillDefendersRecursive(next, pool, targetSteps, remaining - 1, budget);
+      if (completed) return completed;
+      if (!genCancelled) failedPoints.add(failedKey);
+    }
+''',
+              'balance fill state key',
+          )
+
+          replace_once(
+              '''for (const token of [
+  '.filter(({ idx }) => !failedPoints.has(idx))',
+  '.filter(item => !failedPoints.has(item.idx))',
+  'failedPoints.add(item.idx);',
+  '{ nodes: 0, failedPoints: new Set() }',
+]) {''',
+              '''for (const token of [
+  'Array.from(candidate.board).slice(0, 225).join("")',
+  'Array.from(state.board).slice(0, 225).join("")',
+  'failedPoints.add(failedKey);',
+  '{ nodes: 0, failedPoints: new Set() }',
+]) {''',
+              'balance verification tokens',
+          )
+
+          replace_once(
+              "console.log('圖片匯入、根網址 Bitboard 工作台與每輪失敗點防重已通過正式建置驗證。');",
+              "console.log('圖片匯入、根網址 Bitboard 工作台與盤面分層失敗點防重已通過正式建置驗證。');",
+              'build summary',
+          )
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Build generated scripts and run regression checks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tools/apply-image-import-build-fixes.js
+          node --check makevcf-generator-defense-points.js
+          node --check makevcf-generator-balance.js
+
+          grep -q 'Array.from(candidate.board).slice(0, 225).join("")' makevcf-generator-defense-points.js
+          grep -q 'Array.from(state.board).slice(0, 225).join("")' makevcf-generator-defense-points.js
+          grep -q 'Array.from(candidate.board).slice(0, 225).join("")' makevcf-generator-balance.js
+          grep -q 'Array.from(state.board).slice(0, 225).join("")' makevcf-generator-balance.js
+          ! grep -q 'failedPoints.has(idx)' makevcf-generator-defense-points.js
+          ! grep -q 'failedPoints.add(idx)' makevcf-generator-defense-points.js
+
+          node <<'NODE'
+          function key(board, idx) {
+            return String(idx) + ':' + Array.from(board).slice(0, 225).join('');
+          }
+          const first = new Uint8Array(225);
+          const same = first.slice();
+          const changed = first.slice();
+          changed[17] = 2;
+          if (key(first, 88) !== key(same, 88)) {
+            throw new Error('相同盤面與座標必須視為相同失敗狀態');
+          }
+          if (key(first, 88) === key(changed, 88)) {
+            throw new Error('不同前置盤面的相同座標不得被整輪封鎖');
+          }
+          if (key(first, 88) === key(first, 89)) {
+            throw new Error('不同座標不得共用失敗狀態');
+          }
+          console.log('dead-four extension failed-state regression: passed');
+          NODE
+
+          git checkout -- \
+            makevcf-generator-defense-points.js \
+            makevcf-generator-balance.js \
+            makevcf.html \
+            eval/Evaluator.js \
+            makevcf-optimized-search-v2.js
+
+      - name: Commit corrected build policy
+        shell: bash
+        run: |
+          if git diff --quiet -- tools/apply-image-import-build-fixes.js; then
+            echo 'No changes'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/apply-image-import-build-fixes.js
+          git commit -m 'fix dead-four extension retry scope'
+          git push origin HEAD:main
