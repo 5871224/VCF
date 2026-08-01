@@ -1,0 +1,227 @@
+name: Test dead-four retry fix v2
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - dead-four-retry-fix-v2.trigger
+      - tools/apply-image-import-build-fixes.js
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Patch build templates by name
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('tools/apply-image-import-build-fixes.js')
+          text = path.read_text(encoding='utf-8')
+          marker = 'Array.from(candidate.board).slice(0, 225).join("")'
+          if marker in text:
+              print('Fix already present')
+              raise SystemExit(0)
+
+          old_comment = '''// 每次補守／唯一化／補齊開始時建立本輪共用的失敗點集合。
+// 同一輪中某座標的完整分支一旦失敗，後續盤面都不得再次補該點；
+// 下一個候選、延伸層、唯一化輪次或補齊輪次會重新建立空集合。'''
+          new_comment = '''// 每次補守／唯一化／補齊開始時建立本輪共用的失敗狀態集合。
+// 只有「相同前置盤面＋相同座標」的完整分支失敗後才禁止重試；
+// 同一座標在不同前置盤面仍可能有效，必須允許再次嘗試。'''
+          if old_comment not in text:
+              raise SystemExit('policy comment not found')
+          text = text.replace(old_comment, new_comment, 1)
+
+          def edit_template(name, editor):
+              global text
+              pattern = re.compile(r'(const ' + re.escape(name) + r' = `)(.*?)(`;)', re.S)
+              match = pattern.search(text)
+              if not match:
+                  raise SystemExit(f'template not found: {name}')
+              body = editor(match.group(2))
+              text = text[:match.start()] + match.group(1) + body + match.group(3) + text[match.end():]
+
+          def replace_one(body, old, new, label):
+              count = body.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one match, found {count}')
+              return body.replace(old, new, 1)
+
+          def edit_mid(body):
+              body = replace_one(
+                  body,
+                  '        if (failedPoints.has(idx)) continue;\n',
+                  '        const failedKey =\n'
+                  '          String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");\n'
+                  '        if (failedPoints.has(failedKey)) continue;\n',
+                  'mid lookup',
+              )
+              return replace_one(
+                  body,
+                  '        if (!genCancelled) failedPoints.add(idx);\n',
+                  '        if (!genCancelled) failedPoints.add(failedKey);\n',
+                  'mid add',
+              )
+
+          def edit_final(body):
+              body = replace_one(
+                  body,
+                  '        if (failedPoints.has(idx)) continue;\n',
+                  '        const failedKey =\n'
+                  '          String(idx) + ":" + Array.from(state.board).slice(0, 225).join("");\n'
+                  '        if (failedPoints.has(failedKey)) continue;\n',
+                  'final lookup',
+              )
+              return replace_one(
+                  body,
+                  '        if (!genCancelled) failedPoints.add(idx);\n',
+                  '        if (!genCancelled) failedPoints.add(failedKey);\n',
+                  'final add',
+              )
+
+          def edit_auto(body):
+              body = replace_one(
+                  body,
+                  '      .filter(({ idx }) => !failedPoints.has(idx))\n',
+                  '      .filter(({ idx }) => {\n'
+                  '        const failedKey =\n'
+                  '          String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");\n'
+                  '        return !failedPoints.has(failedKey);\n'
+                  '      })\n',
+                  'auto filter',
+              )
+              body = replace_one(
+                  body,
+                  '      if (genCancelled) return null;\n      const next = addDefenderToCandidate(candidate, idx);\n',
+                  '      if (genCancelled) return null;\n'
+                  '      const failedKey =\n'
+                  '        String(idx) + ":" + Array.from(candidate.board).slice(0, 225).join("");\n'
+                  '      const next = addDefenderToCandidate(candidate, idx);\n',
+                  'auto loop key',
+              )
+              return replace_one(
+                  body,
+                  '      if (!genCancelled) failedPoints.add(idx);\n',
+                  '      if (!genCancelled) failedPoints.add(failedKey);\n',
+                  'auto add',
+              )
+
+          def edit_fill(body):
+              body = replace_one(
+                  body,
+                  '      .filter(item => !failedPoints.has(item.idx));\n',
+                  '      .filter(item => {\n'
+                  '        const failedKey =\n'
+                  '          String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");\n'
+                  '        return !failedPoints.has(failedKey);\n'
+                  '      });\n',
+                  'fill filter',
+              )
+              body = replace_one(
+                  body,
+                  '      if (genCancelled) return null;\n      const next = await validateFilledState(state, item.idx, targetSteps);\n',
+                  '      if (genCancelled) return null;\n'
+                  '      const failedKey =\n'
+                  '        String(item.idx) + ":" + Array.from(state.board).slice(0, 225).join("");\n'
+                  '      const next = await validateFilledState(state, item.idx, targetSteps);\n',
+                  'fill loop key',
+              )
+              body = body.replace('        failedPoints.add(item.idx);', '        failedPoints.add(failedKey);')
+              body = body.replace('      if (!genCancelled) failedPoints.add(item.idx);', '      if (!genCancelled) failedPoints.add(failedKey);')
+              if 'failedPoints.add(item.idx)' in body:
+                  raise SystemExit('fill old point-only add remains')
+              return body
+
+          edit_template('defenseLayerLoopWithGuard', edit_mid)
+          edit_template('defenseFinalLoopWithGuard', edit_final)
+          edit_template('autoBlockLoopWithGuard', edit_auto)
+          edit_template('fillLoopWithGuard', edit_fill)
+
+          text = text.replace(
+              "  'if (failedPoints.has(idx)) continue;',\n  'failedPoints.add(idx);',",
+              "  'if (failedPoints.has(failedKey)) continue;',\n  'failedPoints.add(failedKey);',",
+              1,
+          )
+          text = text.replace(
+              "  '.filter(({ idx }) => !failedPoints.has(idx))',\n  '.filter(item => !failedPoints.has(item.idx))',\n  'failedPoints.add(item.idx);',",
+              "  'Array.from(candidate.board).slice(0, 225).join(\"\")',\n  'Array.from(state.board).slice(0, 225).join(\"\")',\n  'failedPoints.add(failedKey);',",
+              1,
+          )
+          text = text.replace(
+              "console.log('圖片匯入、根網址 Bitboard 工作台與每輪失敗點防重已通過正式建置驗證。');",
+              "console.log('圖片匯入、根網址 Bitboard 工作台與盤面分層失敗點防重已通過正式建置驗證。');",
+              1,
+          )
+
+          for forbidden in (
+              'if (failedPoints.has(idx)) continue;',
+              'failedPoints.add(idx);',
+              '.filter(({ idx }) => !failedPoints.has(idx))',
+              '.filter(item => !failedPoints.has(item.idx))',
+              'failedPoints.add(item.idx);',
+          ):
+              if forbidden in text:
+                  raise SystemExit(f'old point-only guard remains: {forbidden}')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Generate deployed code and test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tools/apply-image-import-build-fixes.js
+          node --check makevcf-generator-defense-points.js
+          node --check makevcf-generator-balance.js
+
+          grep -q 'Array.from(candidate.board).slice(0, 225).join("")' makevcf-generator-defense-points.js
+          grep -q 'Array.from(state.board).slice(0, 225).join("")' makevcf-generator-defense-points.js
+          grep -q 'Array.from(candidate.board).slice(0, 225).join("")' makevcf-generator-balance.js
+          grep -q 'Array.from(state.board).slice(0, 225).join("")' makevcf-generator-balance.js
+          ! grep -q 'failedPoints.has(idx)' makevcf-generator-defense-points.js
+          ! grep -q 'failedPoints.add(idx)' makevcf-generator-defense-points.js
+
+          node <<'NODE'
+          function key(board, idx) {
+            return String(idx) + ':' + Array.from(board).slice(0, 225).join('');
+          }
+          const first = new Uint8Array(225);
+          const same = first.slice();
+          const changed = first.slice();
+          changed[17] = 2;
+          if (key(first, 88) !== key(same, 88)) throw new Error('same state not deduplicated');
+          if (key(first, 88) === key(changed, 88)) throw new Error('changed board incorrectly blocked');
+          if (key(first, 88) === key(first, 89)) throw new Error('different point incorrectly blocked');
+          console.log('dead-four extension failed-state regression: passed');
+          NODE
+
+          git checkout -- \
+            makevcf-generator-defense-points.js \
+            makevcf-generator-balance.js \
+            makevcf.html \
+            eval/Evaluator.js \
+            makevcf-optimized-search-v2.js
+
+      - name: Commit tested fix to PR branch
+        shell: bash
+        run: |
+          if git diff --quiet -- tools/apply-image-import-build-fixes.js; then
+            echo 'No changes to commit'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/apply-image-import-build-fixes.js
+          git commit -m 'fix dead-four extension retry scope'
+          git push origin HEAD:${{ github.head_ref }}
