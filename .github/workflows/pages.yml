@@ -202,12 +202,13 @@ jobs:
           NODE
           ls -lh .cache/vcf-bitboard-engine
 
-      - name: Apply image import build fixes
+      - name: Apply image import and generator replay build fixes
         shell: bash
         run: |
           set -euxo pipefail
           node tools/apply-image-import-build-fixes.js
-          git diff --check -- makevcf.html 規格書.MD
+          node tools/apply-generator-replay-event-fixes.js
+          git diff --check -- makevcf.html 規格書.MD makevcf-generator-defense-points.js makevcf-generator-balance.js
 
       - name: Prepare static site
         shell: bash
