@@ -84,8 +84,8 @@ const rootBridge = String.raw`<script>
   if (!isRootWorkbench) return;
 
   window.__vcfRootBitboardWorkbench = true;
-  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\\/script>');
-  document.write('<script src="rapfi/vcf-bitboard-main.js"><\\/script>');
+  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js"><\/script>');
 })();
 </script>
 `;
@@ -96,7 +96,7 @@ const rootFeatures = String.raw`<script>
 
   // Generator compatibility must load before the generator scripts that Pages
   // appends immediately before </body>.
-  document.write('<script src="rapfi/vcf-bitboard-generator-compat.js"><\\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-generator-compat.js"><\/script>');
 
   async function loadScript(src) {
     await new Promise((resolve, reject) => {
@@ -104,7 +104,7 @@ const rootFeatures = String.raw`<script>
       script.src = src;
       script.async = false;
       script.addEventListener("load", resolve, { once: true });
-      script.addEventListener("error", () => reject(new Error(`載入失敗：${src}`)), { once: true });
+      script.addEventListener("error", () => reject(new Error("載入失敗：" + src)), { once: true });
       document.head.appendChild(script);
     });
   }
