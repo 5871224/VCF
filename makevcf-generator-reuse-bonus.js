@@ -102,7 +102,7 @@
 })();
 
 // Load the final target-board policy first, then the complete defense-point policy,
-// and finally both replay layers so replay records the corrected blocking process.
+// and finally all replay layers so replay records the corrected blocking process.
 (function loadGeneratorTargetBoardPolicy() {
   if (window.__generatorTargetBoardPolicyScriptRequested) return;
   window.__generatorTargetBoardPolicyScriptRequested = true;
@@ -128,6 +128,17 @@
         const completeReplayScript = document.createElement("script");
         completeReplayScript.src = new URL("makevcf-generator-replay-complete.js", document.baseURI).href;
         completeReplayScript.async = false;
+        completeReplayScript.addEventListener("load", () => {
+          if (window.__generatorStoneAttemptReplayScriptRequested) return;
+          window.__generatorStoneAttemptReplayScriptRequested = true;
+          const attemptReplayScript = document.createElement("script");
+          attemptReplayScript.src = new URL(
+            "makevcf-generator-replay-stone-attempts.js",
+            document.baseURI,
+          ).href;
+          attemptReplayScript.async = false;
+          document.head.appendChild(attemptReplayScript);
+        });
         document.head.appendChild(completeReplayScript);
       });
       document.head.appendChild(progressScript);
