@@ -10,17 +10,26 @@
 
 ## 正式入口與執行路徑
 
-正式網站入口為：
+對外正式網址為：
 
 ```text
-/makevcf.html
-/rapfi/
+https://5871224.github.io/VCF/
 ```
 
-`/rapfi/` 的正式搜尋路徑：
+唯一正式工作台為：
 
 ```text
-makevcf.html
+/VCF/rapfi/
+```
+
+`/VCF/`、`/VCF/index.html` 與 `/VCF/makevcf.html` 只作為舊網址相容入口，必須轉往 `/VCF/rapfi/`。不得在根頁或 `makevcf.html` 另外維護第二套介面、腳本組合或功能修正。
+
+正式搜尋路徑：
+
+```text
+/VCF/、/VCF/index.html、/VCF/makevcf.html
+  → 轉址 /VCF/rapfi/
+  → makevcf.html（工作台建置來源）
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
@@ -113,4 +122,5 @@ makevcf-generator-core.js
 - 時間、節點、深度、64 組上限及剪枝選擇正確傳入。
 - `0` 限制不會被固定預設值覆蓋。
 - 題目產生期間不能切換規則、攻方、步數、搜尋限制、剪枝及權重控制項。
+- 根網址與舊入口都只轉往 `/VCF/rapfi/`，不得顯示另一套工作台。
 - 手機版操作正常，相關 Markdown 已同步且沒有殘留舊規格。
