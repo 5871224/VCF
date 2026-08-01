@@ -1,7 +1,7 @@
 "use strict";
 
 // 分離題目產生器的兩種補守階段：
-// 1. 每次增加死四後，延伸驗證自行封鎖較短／別組 VCF。
+// 1. 基礎與每次增加死四後，驗證自行封鎖較短／別組 VCF。
 // 2. 「補齊黑白子數」不得參與中途驗證，只在達到指定步數後由既有最終流程執行。
 (function installGeneratorValidationStageSeparation(global) {
   const INSTALL_FLAG = "__generatorValidationStageSeparationInstalled";
@@ -54,17 +54,16 @@
       ...args
     ) {
       const balanceInput = global.genEl("balance-stones");
-      if (!balanceInput?.checked) {
-        return previousValidateCandidate.apply(this, args);
-      }
+      const blockOtherInput = global.genEl("block-other-vcf");
 
-      // 初始材料驗證不補齊棋子；只保留目標 VCF 若由使用者勾選，仍照常生效。
+      // 基礎材料與延伸層都只做路線驗證：較短／別組 VCF 必須補守，
+      // 但不得使用「補齊黑白子數」的中途自動補子流程。
       return callWithTemporaryChecks(
         () => previousValidateCandidate.apply(this, args),
         balanceInput,
         false,
-        null,
-        null,
+        blockOtherInput,
+        true,
       );
     };
 
