@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/trigger-replay-stone-patch.yml
+      - replay-stone-patch.trigger
 
 permissions:
   contents: write
