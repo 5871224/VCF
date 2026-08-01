@@ -1,5 +1,21 @@
 "use strict";
 
+// The public root and the old makevcf.html entry are aliases only. Keep one
+// deployed workbench at /rapfi/ so interface changes are maintained once.
+(function redirectLegacyVCFEntry() {
+  const path = window.location.pathname.replace(/\/+$/, "");
+  const isLegacyEntry =
+    path.endsWith("/VCF") ||
+    path.endsWith("/VCF/index.html") ||
+    path.endsWith("/VCF/makevcf.html");
+  if (!isLegacyEntry) return;
+
+  const target = new URL("./rapfi/", window.location.href);
+  target.search = window.location.search;
+  target.hash = window.location.hash;
+  window.location.replace(target.href);
+})();
+
 // Apply the reuse preference to both attack stones and existing defender stones.
 // Every newly built dead-four candidate must also reserve all of its five points
 // as N points for both sides before any validation, auto-blocking, or final fill runs.
