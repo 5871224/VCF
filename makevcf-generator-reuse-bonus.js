@@ -188,10 +188,37 @@
   window.MutationObserver = GuardedMutationObserver;
 })();
 
+const unifiedButtonLabelObservers = new WeakSet();
+
+function ensureUnifiedButtonLabel(button, text) {
+  if (!button) return false;
+
+  const restore = () => {
+    if (button.textContent.trim() !== text) button.textContent = text;
+    button.setAttribute("aria-label", text);
+    button.title ||= text;
+  };
+  restore();
+
+  if (!unifiedButtonLabelObservers.has(button)) {
+    unifiedButtonLabelObservers.add(button);
+    new MutationObserver(restore).observe(button, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  }
+  return true;
+}
+
 function stabilizeUnifiedInterfaceSelectors() {
   const style = document.getElementById("vcf-unified-interface-style");
   if (style && style.dataset.tabStability !== "1") {
     style.textContent = style.textContent
+      .replace(
+        "#bitboard-architecture-panel{display:none!important}",
+        "#bitboard-architecture-panel:not(.bb-quick-actions){display:none!important}",
+      )
       .replace(
         ".vcf-setting-toggle:has(#vcf-show-calculation-settings){order:3}",
         ".vcf-setting-toggle.vcf-calculation-toggle{order:3}",
@@ -207,6 +234,38 @@ function stabilizeUnifiedInterfaceSelectors() {
     style.dataset.tabStability = "1";
   }
 
+  let regressionStyle = document.getElementById("vcf-unified-regression-style");
+  if (!regressionStyle) {
+    regressionStyle = document.createElement("style");
+    regressionStyle.id = "vcf-unified-regression-style";
+    regressionStyle.textContent = `
+      #bitboard-architecture-panel.bb-quick-actions {
+        display: flex !important;
+        visibility: visible !important;
+        width: min(100%, 1180px) !important;
+        margin: 0 auto 8px !important;
+      }
+      #btn-fast-vcf,
+      #btn-shortest-vcf {
+        color: #fff !important;
+        -webkit-text-fill-color: #fff !important;
+        font-family: inherit !important;
+        font-size: 13px !important;
+        line-height: 1.2 !important;
+        text-indent: 0 !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+      }
+    `;
+    document.head.appendChild(regressionStyle);
+  }
+
+  const app = document.getElementById("vcf-app-shell");
+  const quickActions = document.getElementById("bitboard-architecture-panel");
+  if (app && quickActions?.classList.contains("bb-quick-actions") && quickActions.nextElementSibling !== app) {
+    document.body.insertBefore(quickActions, app);
+  }
+
   const calculation = document.getElementById("vcf-show-calculation-settings");
   const multi = document.getElementById("vcf-show-multi-settings");
   const sync = (input, className) => {
@@ -216,7 +275,22 @@ function stabilizeUnifiedInterfaceSelectors() {
     label.classList.toggle("vcf-setting-toggle-active", Boolean(input.checked));
     return true;
   };
-  return sync(calculation, "vcf-calculation-toggle") && sync(multi, "vcf-multi-toggle");
+
+  const fastButton = document.getElementById("btn-fast-vcf");
+  const shortestButton = document.getElementById("btn-shortest-vcf");
+  ensureUnifiedButtonLabel(fastButton, "速找 VCF");
+  ensureUnifiedButtonLabel(shortestButton, "最短 VCF");
+  if (fastButton?.parentElement && shortestButton && shortestButton.previousElementSibling !== fastButton) {
+    fastButton.insertAdjacentElement("afterend", shortestButton);
+  }
+
+  return Boolean(
+    sync(calculation, "vcf-calculation-toggle") &&
+    sync(multi, "vcf-multi-toggle") &&
+    quickActions?.classList.contains("bb-quick-actions") &&
+    ensureUnifiedButtonLabel(fastButton, "速找 VCF") &&
+    ensureUnifiedButtonLabel(shortestButton, "最短 VCF")
+  );
 }
 
 // The card layout is created later in the build-injected script list. Load the
@@ -233,7 +307,7 @@ function stabilizeUnifiedInterfaceSelectors() {
     let attempts = 0;
     const timer = window.setInterval(() => {
       attempts++;
-      if (stabilizeUnifiedInterfaceSelectors() || attempts >= 120) {
+      if (stabilizeUnifiedInterfaceSelectors() || attempts >= 160) {
         window.clearInterval(timer);
       }
     }, 50);
@@ -247,6 +321,7 @@ function stabilizeUnifiedInterfaceSelectors() {
       stabilizeUnifiedInterfaceSelectors();
     }
   }, true);
+  window.addEventListener("load", stabilizeUnifiedInterfaceSelectors, { once: true });
   document.head.appendChild(script);
 })();
 
