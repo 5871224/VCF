@@ -91,3 +91,20 @@
   );
   document.body.appendChild(script);
 })();
+
+// 詳細狀態模組只改寫顯示文字，會自行等待所有題目產生驗證修正安裝完成。
+(function loadGeneratorDetailedStatus() {
+  if (document.querySelector('script[data-vcf-generator-status-detail="true"]')) {
+    return;
+  }
+  const script = document.createElement("script");
+  script.src = "makevcf-generator-status-detail.js";
+  script.async = false;
+  script.dataset.vcfGeneratorStatusDetail = "true";
+  script.addEventListener(
+    "error",
+    () => console.error("題目產生詳細狀態模組載入失敗"),
+    { once: true },
+  );
+  document.body.appendChild(script);
+})();
