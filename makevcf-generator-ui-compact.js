@@ -7,6 +7,8 @@
   window.__compactVCFInterfaceLoaded = true;
 
   const RULE_SELECT_ID = "vcf-rule-select";
+  const FAST_VCF_BUTTON_ID = "btn-fast-vcf";
+  const BOARD_CONTROL_CARD_ID = "vcf-board-control-card";
   const STYLE_ID = "vcf-compact-interface-style";
   const RULE_NAMES = {
     2: "有禁",
@@ -56,11 +58,31 @@
         opacity: .58;
         cursor: default;
       }
+      #btns > [hidden] {
+        display: none !important;
+      }
+      #btns {
+        grid-template-columns: minmax(0, 1fr) !important;
+      }
+      #${FAST_VCF_BUTTON_ID} {
+        font-weight: 700;
+      }
+      #vcf-board-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      #vcf-board-actions button {
+        width: 100%;
+      }
       @media (max-width: 600px) {
         #rule-box .vcf-rule-select-label {
           min-height: 34px;
           padding: 5px 8px;
           font-size: 13px;
+        }
+        #vcf-board-actions {
+          grid-template-columns: minmax(0, 1fr);
         }
       }
     `;
@@ -197,6 +219,88 @@
     app.querySelectorAll(".vcf-app-header p, .vcf-card-heading p").forEach(element => element.remove());
   }
 
+  function selectedAnalysisColor() {
+    return Number(document.querySelector('input[name="acolor"]:checked')?.value) === 2 ? 2 : 1;
+  }
+
+  function installFastVCFButton(mainActions) {
+    const existing = document.getElementById(FAST_VCF_BUTTON_ID);
+    if (existing) return existing;
+
+    const blackButton = document.getElementById("btn-black");
+    const whiteButton = document.getElementById("btn-white");
+    if (!blackButton || !whiteButton) return null;
+
+    const fastButton = document.createElement("button");
+    fastButton.id = FAST_VCF_BUTTON_ID;
+    fastButton.type = "button";
+    fastButton.textContent = "速找 VCF";
+    fastButton.title = "依目前分析色搜尋第一組 VCF";
+    fastButton.addEventListener("click", () => {
+      const target = selectedAnalysisColor() === 2 ? whiteButton : blackButton;
+      if (!target.disabled) target.click();
+    });
+
+    blackButton.hidden = true;
+    whiteButton.hidden = true;
+    mainActions.insertBefore(fastButton, blackButton);
+
+    const syncDisabled = () => {
+      const target = selectedAnalysisColor() === 2 ? whiteButton : blackButton;
+      fastButton.disabled = target.disabled;
+    };
+    syncDisabled();
+    document.querySelectorAll('input[name="acolor"]').forEach(radio => {
+      radio.addEventListener("change", syncDisabled);
+    });
+    const observer = new MutationObserver(syncDisabled);
+    observer.observe(blackButton, { attributes: true, attributeFilter: ["disabled"] });
+    observer.observe(whiteButton, { attributes: true, attributeFilter: ["disabled"] });
+
+    return fastButton;
+  }
+
+  function createBoardControlCard(searchCard, mainActions) {
+    const existing = document.getElementById(BOARD_CONTROL_CARD_ID);
+    if (existing) return existing;
+
+    const buttonIds = ["btn-stop", "btn-continue", "btn-clear-vcf", "btn-clear"];
+    const buttons = buttonIds.map(id => document.getElementById(id));
+    if (buttons.some(button => !button)) return null;
+
+    const labels = {
+      "btn-stop": "停止",
+      "btn-continue": "繼續搜尋",
+      "btn-clear-vcf": "清除標記",
+      "btn-clear": "清空棋盤",
+    };
+
+    const card = document.createElement(searchCard.tagName.toLowerCase());
+    card.id = BOARD_CONTROL_CARD_ID;
+    card.className = Array.from(searchCard.classList)
+      .filter(className => className !== "vcf-search-card")
+      .concat("vcf-board-control-card")
+      .join(" ");
+
+    const heading = document.createElement("div");
+    heading.className = "vcf-card-heading";
+    const title = document.createElement("h2");
+    title.textContent = "棋盤操作";
+    heading.appendChild(title);
+
+    const actions = document.createElement("div");
+    actions.id = "vcf-board-actions";
+    actions.className = mainActions.className || "vcf-action-grid";
+    for (const button of buttons) {
+      button.textContent = labels[button.id];
+      actions.appendChild(button);
+    }
+
+    card.append(heading, actions);
+    searchCard.insertAdjacentElement("afterend", card);
+    return card;
+  }
+
   function mergeSearchCards(app) {
     const searchCard = app.querySelector(".vcf-search-card");
     const analysisCard = app.querySelector(".vcf-analysis-card");
@@ -218,6 +322,9 @@
     if (searchOptions) searchCard.append(searchOptions);
     searchCard.append(mainActions, analysisActions);
     if (analysisCard) analysisCard.remove();
+
+    if (!installFastVCFButton(mainActions)) return false;
+    if (!createBoardControlCard(searchCard, mainActions)) return false;
     return true;
   }
 
