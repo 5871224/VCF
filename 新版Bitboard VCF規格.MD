@@ -1,22 +1,31 @@
 # 新版 Bitboard VCF 規格
 
-> 本文件定義 `/rapfi/` 正式 Bitboard 工作台、搜尋模式、規則、限制、禁手顯示及題目產生器整合。只保留目前正式規格。
+> 本文件定義 `/rapfi/` 唯一正式 Bitboard 工作台、搜尋模式、規則、限制、禁手顯示及題目產生器整合。只保留目前正式規格。
+
+對外正式網址為 `https://5871224.github.io/VCF/`；根網址、`index.html` 與 `makevcf.html` 都必須轉往 `/VCF/rapfi/`，不得維護另一套舊版工作台。
 
 ## 1. 正式執行路徑
 
 ```text
-/rapfi/
-  → makevcf.html
+/VCF/、/VCF/index.html、/VCF/makevcf.html
+  → 轉址 /VCF/rapfi/
+  → makevcf.html（工作台建置來源）
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
 
+入口規則：
+
+- `/rapfi/index.html` 是唯一正式介面。
+- 根頁與 `makevcf.html` 只保留舊網址相容轉址，不得各自載入或維護另一套介面功能。
+- 所有正式 UI、題目產生器、搜尋選項及錯誤修正只修改 `/rapfi/` 使用的工作台來源。
+
 主要檔案：
 
 | 檔案 | 用途 |
 |---|---|
-| `makevcf.html` | 15×15 SVG 棋盤、共用按鈕、狀態列及圖片匯入 |
+| `makevcf.html` | `/rapfi/` 的 15×15 SVG 棋盤、共用按鈕、狀態列及圖片匯入建置來源；不是獨立正式入口 |
 | `rapfi/vcf-bitboard-main.js` | 同步 Wasm、主 Worker、Worker Pool 及頁面服務 |
 | `rapfi/vcf-bitboard-worker.js` | 獨立 Worker RPC 與 Bitboard Wasm 呼叫 |
 | `rapfi/rapfi-bitboard-dashboard.js` | 搜尋選項、工作台流程與補子搜尋 |
@@ -185,7 +194,7 @@ bit 10..30  ：時間上限，單位秒；0 = 不限制
 - 「VCF 防守」針對目前顯示路線取得直接防守點。
 - 單一路線防守必須使用產生目前手順時記錄的攻方顏色，不得改用當下「分析色」；白方手順若以黑方身分重播會造成全盤空點誤判。
 - 計算防點前必須先在原始盤面驗證指定路線確實成立；原路線無效或驗證中止時回傳空集合，不得進入全盤逐點防守判定。
-- 「全部 VCF 防守」先取得候選防點，再逐點放入守方棋，排除放入後仍有 VCF 的位置。
+- 「全部 VCF 防守」先取得候選防守點，再逐點放入守方棋，排除放入後仍有 VCF 的位置。
 - 固定路線驗證在攻擊後只剩一個連五點時，必須先檢查守方落在該點是否合法；有禁規則下黑棋若為長連、四四或三三禁手，該路線仍視為白棋獲勝，不要求手順包含非法防守手。
 - 抓禁路線只有在預補守方棋後使唯一防點變為合法，且完整路線不再成立時，該預補點才算防點；無關點不得因手順在攻擊手結束而被誤判為防點。
 - 長連禁手無法透過額外補黑解禁。
@@ -326,4 +335,5 @@ Worker 回傳：
 - 題目產生器不受該勾選項影響，固定保留活四手比較。
 - 禁手圖層與其他分析圖層互不清除。
 - 補子搜尋圈選最大 VCF 數字。
+- 開啟 `/VCF/`、`/VCF/index.html` 或 `/VCF/makevcf.html` 均會轉往 `/VCF/rapfi/`，且不載入另一套舊版工作台。
 - 相關 Markdown 與正式名稱、數值及流程一致。
