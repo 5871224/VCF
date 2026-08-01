@@ -74,3 +74,20 @@
     .then(() => loadScript("makevcf-generator-image-import-fix-v2.js", "hough-v2"))
     .catch(error => console.error("圖片匯入修正載入失敗", error));
 })();
+
+// 延伸層的別組 VCF 補守修正會自行等待題目產生器驗證政策安裝完成。
+(function loadExtensionOtherVCFBlockingFix() {
+  if (document.querySelector('script[data-vcf-extension-other-vcf-fix="true"]')) {
+    return;
+  }
+  const script = document.createElement("script");
+  script.src = "makevcf-generator-extension-other-vcf-fix.js";
+  script.async = false;
+  script.dataset.vcfExtensionOtherVcfFix = "true";
+  script.addEventListener(
+    "error",
+    () => console.error("延伸層別組 VCF 補守修正載入失敗"),
+    { once: true },
+  );
+  document.body.appendChild(script);
+})();
