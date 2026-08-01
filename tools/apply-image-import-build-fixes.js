@@ -6,14 +6,22 @@ const { spawnSync } = require('child_process');
 const runtimePath = 'makevcf-generator-image-import-fix.js';
 const houghV2Path = 'makevcf-generator-image-import-fix-v2.js';
 const loaderPath = 'makevcf-mobile.js';
+const evaluatorPath = 'eval/Evaluator.js';
 const htmlPath = 'makevcf.html';
 const specPath = '規格書.MD';
 
 function fail(message) {
-  throw new Error(`[圖片匯入建置驗證] ${message}`);
+  throw new Error(`[正式建置驗證] ${message}`);
 }
 
-for (const requiredPath of [runtimePath, houghV2Path, loaderPath, htmlPath, specPath]) {
+for (const requiredPath of [
+  runtimePath,
+  houghV2Path,
+  loaderPath,
+  evaluatorPath,
+  htmlPath,
+  specPath,
+]) {
   if (!fs.existsSync(requiredPath)) fail(`缺少必要檔案：${requiredPath}`);
 }
 
@@ -65,9 +73,9 @@ syntaxCheck('makevcf-generator-image-import-fix-v2.js', houghV2);
 syntaxCheck('makevcf-mobile.js', loader);
 
 // GitHub Pages copies makevcf.html to both /index.html and /makevcf.html.
-// Turn those two root-level files into the same Bitboard workbench directly;
-// do not redirect to /rapfi/. The nested /rapfi/ build keeps using the existing
-// Pages injection and therefore does not execute these root-only loaders.
+// Turn both root-level files into the same Bitboard workbench directly, without
+// redirecting to /rapfi/. The nested /rapfi/ page keeps using the existing Pages
+// injection and therefore ignores these root-only loaders.
 let html = fs.readFileSync(htmlPath, 'utf8');
 const firstScriptMarker = '<script>\n"use strict";';
 const bodyEndMarker = '</body>';
@@ -93,10 +101,6 @@ const rootBridge = String.raw`<script>
 const rootFeatures = String.raw`<script>
 (function installRootBitboardFeatures() {
   if (!window.__vcfRootBitboardWorkbench) return;
-
-  // Generator compatibility must load before the generator scripts that Pages
-  // appends immediately before </body>.
-  document.write('<script src="rapfi/vcf-bitboard-generator-compat.js"><\/script>');
 
   async function loadScript(src) {
     await new Promise((resolve, reject) => {
@@ -136,16 +140,42 @@ if (!html.includes('__vcfRootBitboardWorkbench')) {
   fs.writeFileSync(htmlPath, html, 'utf8');
 }
 
+// The root Pages script list still loads the old Evaluator files before
+// makevcf-generator-core.js. Re-apply the Bitboard compatibility layer at the
+// end of Evaluator.js so it is the last definition seen by the generator core.
+let evaluator = fs.readFileSync(evaluatorPath, 'utf8');
+const evaluatorCompatMarker = '__vcfRootGeneratorCompatAfterEvaluator';
+const evaluatorCompat = String.raw`
+
+(function loadRootGeneratorCompatibilityAfterEvaluator() {
+  const pathname = window.location.pathname.replace(/\/+$/, "");
+  const isRootWorkbench =
+    pathname.endsWith("/VCF") ||
+    pathname.endsWith("/VCF/index.html") ||
+    pathname.endsWith("/VCF/makevcf.html");
+  if (!isRootWorkbench || window.${evaluatorCompatMarker}) return;
+  window.${evaluatorCompatMarker} = true;
+  document.write('<script src="rapfi/vcf-bitboard-generator-compat.js"><\/script>');
+})();
+`;
+if (!evaluator.includes(evaluatorCompatMarker)) {
+  evaluator += evaluatorCompat;
+  fs.writeFileSync(evaluatorPath, evaluator, 'utf8');
+}
+syntaxCheck('Evaluator.js', evaluator);
+
 for (const token of [
   '__vcfRootBitboardWorkbench',
   'rapfi/engine/vcf-bitboard-engine.js',
   'rapfi/vcf-bitboard-main.js',
-  'rapfi/vcf-bitboard-generator-compat.js',
   'rapfi/rapfi-bitboard-dashboard.js',
   'rapfi/vcf-shortest-vcf-ui.js',
   'rapfi/vcf-forbidden-overlay.js',
 ]) {
   if (!html.includes(token)) fail(`根網址 Bitboard 工作台缺少：${token}`);
+}
+if (!evaluator.includes('rapfi/vcf-bitboard-generator-compat.js')) {
+  fail('Evaluator.js 未在產生器核心前重載 Bitboard 相容層');
 }
 
 console.log('圖片匯入修正與根網址 Bitboard 工作台已通過正式建置驗證。');
