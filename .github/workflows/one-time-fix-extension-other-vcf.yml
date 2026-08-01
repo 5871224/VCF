@@ -1,0 +1,148 @@
+name: One-time fix extension other-VCF blocking
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/one-time-fix-extension-other-vcf.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-and-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch extension validation policy
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          build_path = Path('tools/apply-image-import-build-fixes.js')
+          text = build_path.read_text(encoding='utf-8')
+          marker = 'blockOtherVCF: blockOtherVCF || balanceStones'
+
+          if marker not in text:
+              anchor = "syntaxCheck('makevcf-generator-defense-points.js', defense);"
+              if text.count(anchor) != 1:
+                  raise SystemExit(f'build insertion anchor count: {text.count(anchor)}')
+
+              patch = r'''// 每次增加一層死四後，只要補齊黑白子數已開啟，
+// 同一步數但標準完成盤面不同的別組 VCF 也必須補守封鎖。
+const extensionOtherVCFOld = `        return validateWithStreamingDefense(
+          cloneState(candidate),
+          targetSteps,
+          previousResult,
+          { blockOtherVCF, balanceStones },
+          { nodes: 0, failedPoints: new Set() },
+        );
+`;
+const extensionOtherVCFNew = `        return validateWithStreamingDefense(
+          cloneState(candidate),
+          targetSteps,
+          previousResult,
+          {
+            blockOtherVCF: blockOtherVCF || balanceStones,
+            balanceStones,
+          },
+          { nodes: 0, failedPoints: new Set() },
+        );
+`;
+defense = replaceOnce(
+  defense,
+  extensionOtherVCFOld,
+  extensionOtherVCFNew,
+  '延伸層別組 VCF 補守政策',
+);
+if (!defense.includes('blockOtherVCF: blockOtherVCF || balanceStones')) {
+  fail('延伸層未啟用別組 VCF 補守');
+}
+
+'''
+              text = text.replace(anchor, patch + anchor, 1)
+              build_path.write_text(text, encoding='utf-8')
+
+          spec_path = Path('題目產生器規格.MD')
+          spec = spec_path.read_text(encoding='utf-8')
+          spec_marker = '每次反向增加一層死四後，只要「補齊黑白子數」開啟'
+          if spec_marker not in spec:
+              anchor = '「補齊黑白子數」預設開啟，除了最後補齊子數，也負責封鎖比目標短的 VCF。\n'
+              if spec.count(anchor) != 1:
+                  raise SystemExit(f'spec insertion anchor count: {spec.count(anchor)}')
+              addition = (
+                  anchor + '\n' +
+                  '每次反向增加一層死四後，只要「補齊黑白子數」開啟，除了比目標短的 VCF，'
+                  '同一步數但標準完成盤面不同的別組 VCF 也必須視為需封鎖的路線；'
+                  '加入守方棋後重新驗證，直到只保留本層預期完成盤面，才可繼續增加下一層死四。\n'
+              )
+              spec = spec.replace(anchor, addition, 1)
+              spec_path.write_text(spec, encoding='utf-8')
+          PY
+
+      - name: Generate deployed scripts and test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tools/apply-image-import-build-fixes.js
+          node --check makevcf-generator-defense-points.js
+          node --check makevcf-generator-balance.js
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          text = Path('makevcf-generator-defense-points.js').read_text(encoding='utf-8')
+          start = text.index('async function validateExtensionWithStreamingDefense(')
+          end = text.index('    genExtendToTarget =', start)
+          extension = text[start:end]
+          if extension.count('blockOtherVCF: blockOtherVCF || balanceStones') != 1:
+              raise SystemExit('extension policy was not generated exactly once')
+
+          initial_start = text.index('async function validateCandidateWithStreamingDefense(')
+          initial_end = text.index('    genValidateExtensionCandidate =', initial_start)
+          initial = text[initial_start:initial_end]
+          if 'blockOtherVCF: blockOtherVCF || balanceStones' in initial:
+              raise SystemExit('base candidate validation was unintentionally changed')
+
+          spec = Path('題目產生器規格.MD').read_text(encoding='utf-8')
+          if '同一步數但標準完成盤面不同的別組 VCF 也必須視為需封鎖的路線' not in spec:
+              raise SystemExit('spec was not updated')
+          print('extension other-VCF blocking regression: passed')
+          PY
+
+          node <<'NODE'
+          function extensionBlocksOtherVCF(blockOtherVCF, balanceStones) {
+            return blockOtherVCF || balanceStones;
+          }
+          if (!extensionBlocksOtherVCF(false, true)) {
+            throw new Error('balance mode must block same-step alternate VCF groups after extension');
+          }
+          if (!extensionBlocksOtherVCF(true, false)) {
+            throw new Error('unique-target mode must continue blocking alternate VCF groups');
+          }
+          if (extensionBlocksOtherVCF(false, false)) {
+            throw new Error('fully disabled repair modes must remain unchanged');
+          }
+          console.log('extension policy truth table: passed');
+          NODE
+
+          git checkout -- \
+            makevcf-generator-defense-points.js \
+            makevcf-generator-balance.js \
+            makevcf.html \
+            eval/Evaluator.js \
+            makevcf-optimized-search-v2.js
+
+      - name: Commit tested fix and remove temporary workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/one-time-fix-extension-other-vcf.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/apply-image-import-build-fixes.js 題目產生器規格.MD
+          git commit -m 'fix alternate VCF blocking after dead-four extension'
+          git push origin HEAD:main
