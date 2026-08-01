@@ -1,31 +1,31 @@
 # 新版 Bitboard VCF 規格
 
-> 本文件定義 `/rapfi/` 唯一正式 Bitboard 工作台、搜尋模式、規則、限制、禁手顯示及題目產生器整合。只保留目前正式規格。
+> 本文件定義根網址唯一正式 Bitboard 工作台、搜尋模式、規則、限制、禁手顯示及題目產生器整合。只保留目前正式規格。
 
-對外正式網址為 `https://5871224.github.io/VCF/`；根網址、`index.html` 與 `makevcf.html` 都必須轉往 `/VCF/rapfi/`，不得維護另一套舊版工作台。
+唯一正式網址為 `https://5871224.github.io/VCF/`。根網址直接載入新版 Bitboard 工作台，不轉址到 `/rapfi/`；`/rapfi/` 只作為引擎、Worker、UI 模組及實驗室資源目錄。
 
 ## 1. 正式執行路徑
 
 ```text
-/VCF/、/VCF/index.html、/VCF/makevcf.html
-  → 轉址 /VCF/rapfi/
-  → makevcf.html（工作台建置來源）
+/VCF/index.html（由 makevcf.html 建置）
+  → rapfi/engine/vcf-bitboard-engine.js / .wasm
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
-  → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
 
 入口規則：
 
-- `/rapfi/index.html` 是唯一正式介面。
-- 根頁與 `makevcf.html` 只保留舊網址相容轉址，不得各自載入或維護另一套介面功能。
-- 所有正式 UI、題目產生器、搜尋選項及錯誤修正只修改 `/rapfi/` 使用的工作台來源。
+- `https://5871224.github.io/VCF/` 是唯一正式使用網址。
+- 根頁在同一份 HTML 中直接載入 Bitboard 引擎、題目產生器相容層與新版工作台功能，不得轉址。
+- `makevcf.html` 是根頁工作台的建置來源，不是另一套正式入口。
+- `/rapfi/` 只放置引擎、Worker、UI 模組與實驗室資源。
+- 所有正式 UI、題目產生器、搜尋選項及錯誤修正只維護同一份根工作台來源。
 
 主要檔案：
 
 | 檔案 | 用途 |
 |---|---|
-| `makevcf.html` | `/rapfi/` 的 15×15 SVG 棋盤、共用按鈕、狀態列及圖片匯入建置來源；不是獨立正式入口 |
+| `makevcf.html` | 根網址 15×15 SVG 棋盤、共用按鈕、狀態列及圖片匯入的建置來源 |
 | `rapfi/vcf-bitboard-main.js` | 同步 Wasm、主 Worker、Worker Pool 及頁面服務 |
 | `rapfi/vcf-bitboard-worker.js` | 獨立 Worker RPC 與 Bitboard Wasm 呼叫 |
 | `rapfi/rapfi-bitboard-dashboard.js` | 搜尋選項、工作台流程與補子搜尋 |
@@ -33,7 +33,7 @@
 | `rapfi/vcf-shortest-vcf-ui.js` | 「最短 VCF」按鈕與最短證明狀態 |
 | `rapfi/vcf-forbidden-overlay.js` | 黑棋禁手標示圖層 |
 | `rapfi/vcf-bitboard-generator-compat.js` | 題目產生器同步棋型、禁手及規則相容層 |
-| `rapfi/rapfi-workbench-header.js` | 精簡頁首、Rapfi 實驗室連結及重新整理 |
+| `rapfi/rapfi-workbench-header.js` | 精簡頁首、實驗室連結及重新整理 |
 | `rapfi/rapfi-question-bank.js` | Supabase 題庫 |
 | `rapfi/vcf-pattern-engine-optimized.cpp` | 棋型、長連與禁手核心 |
 | `rapfi/vcf-bitboard-search-v2.cpp` | VCF 搜尋核心 |
@@ -329,11 +329,12 @@ Worker 回傳：
 
 介面變更至少確認：
 
+- `https://5871224.github.io/VCF/` 直接載入新版 Bitboard 工作台，網址不轉址。
+- 根頁不顯示舊版介面。
 - 桌機與手機可操作。
 - 搜尋中不能切換會改變語意的控制項。
 - 「同型-活四取前一手」勾選與未勾選時，同一批活四終局路線會依不同同型 key 去重。
 - 題目產生器不受該勾選項影響，固定保留活四手比較。
 - 禁手圖層與其他分析圖層互不清除。
 - 補子搜尋圈選最大 VCF 數字。
-- 開啟 `/VCF/`、`/VCF/index.html` 或 `/VCF/makevcf.html` 均會轉往 `/VCF/rapfi/`，且不載入另一套舊版工作台。
 - 相關 Markdown 與正式名稱、數值及流程一致。
