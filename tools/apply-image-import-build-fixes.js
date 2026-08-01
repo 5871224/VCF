@@ -7,6 +7,7 @@ const runtimePath = 'makevcf-generator-image-import-fix.js';
 const houghV2Path = 'makevcf-generator-image-import-fix-v2.js';
 const loaderPath = 'makevcf-mobile.js';
 const evaluatorPath = 'eval/Evaluator.js';
+const optimizedPath = 'makevcf-optimized-search-v2.js';
 const htmlPath = 'makevcf.html';
 const specPath = '規格書.MD';
 
@@ -19,6 +20,7 @@ for (const requiredPath of [
   houghV2Path,
   loaderPath,
   evaluatorPath,
+  optimizedPath,
   htmlPath,
   specPath,
 ]) {
@@ -148,6 +150,7 @@ const evaluatorCompatMarker = '__vcfRootGeneratorCompatAfterEvaluator';
 const evaluatorCompat = String.raw`
 
 (function loadRootGeneratorCompatibilityAfterEvaluator() {
+  if (typeof window === "undefined") return;
   const pathname = window.location.pathname.replace(/\/+$/, "");
   const isRootWorkbench =
     pathname.endsWith("/VCF") ||
@@ -164,6 +167,20 @@ if (!evaluator.includes(evaluatorCompatMarker)) {
 }
 syntaxCheck('Evaluator.js', evaluator);
 
+// The old root script list also appends an experimental eval/worker.js benchmark.
+// Keep the file for non-Bitboard experiments, but make it a no-op on the official
+// root workbench so no second search engine or duplicate controls are created.
+let optimized = fs.readFileSync(optimizedPath, 'utf8');
+const optimizedMarker = 'if (window.__vcfRootBitboardWorkbench) return;';
+if (!optimized.includes(optimizedMarker)) {
+  const oldHeader = `  if (window.__iterativeVCFExperimentLoaded) return;\n  window.__iterativeVCFExperimentLoaded = true;`;
+  const newHeader = `  if (window.__iterativeVCFExperimentLoaded) return;\n  if (window.__vcfRootBitboardWorkbench) return;\n  window.__iterativeVCFExperimentLoaded = true;`;
+  if (!optimized.includes(oldHeader)) fail('找不到舊優化搜尋初始化位置');
+  optimized = optimized.replace(oldHeader, newHeader);
+  fs.writeFileSync(optimizedPath, optimized, 'utf8');
+}
+syntaxCheck('makevcf-optimized-search-v2.js', optimized);
+
 for (const token of [
   '__vcfRootBitboardWorkbench',
   'rapfi/engine/vcf-bitboard-engine.js',
@@ -176,6 +193,9 @@ for (const token of [
 }
 if (!evaluator.includes('rapfi/vcf-bitboard-generator-compat.js')) {
   fail('Evaluator.js 未在產生器核心前重載 Bitboard 相容層');
+}
+if (!optimized.includes(optimizedMarker)) {
+  fail('舊優化搜尋仍會在根網址啟動');
 }
 
 console.log('圖片匯入修正與根網址 Bitboard 工作台已通過正式建置驗證。');
