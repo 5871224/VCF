@@ -5,6 +5,7 @@ const { spawnSync } = require("child_process");
 
 const defensePath = "makevcf-generator-defense-points.js";
 const balancePath = "makevcf-generator-balance.js";
+const progressPath = "makevcf-generator-progress.js";
 const replayPath = "makevcf-generator-replay-stone-attempts.js";
 
 function fail(message) {
@@ -32,7 +33,12 @@ function syntaxCheck(filename, content) {
   if (result.status !== 0) fail(`${filename} JavaScript 語法檢查失敗`);
 }
 
-for (const requiredPath of [defensePath, balancePath, replayPath]) {
+for (const requiredPath of [
+  defensePath,
+  balancePath,
+  progressPath,
+  replayPath,
+]) {
   if (!fs.existsSync(requiredPath)) fail(`缺少必要檔案：${requiredPath}`);
 }
 
@@ -224,6 +230,68 @@ for (const token of [
 syntaxCheck("makevcf-generator-balance.js", balance);
 fs.writeFileSync(balancePath, balance, "utf8");
 
+// 舊完整回放可以保留一般搜尋盤面，但不能再由狀態文字把任何新增棋
+// 猜成「補守」。只有上面的明確補守事件可以使用補守名稱。
+let progress = fs.readFileSync(progressPath, "utf8");
+const inferredTitleFunction = `    function stageTitleForAddedStone(color, idx) {
+      const status = currentStageText();
+      if (status.includes("封鎖其他完成盤面") || status.includes("只保留目標")) {
+        return \`封鎖其他 VCF：補上\${colorName(color)} \${pointName(idx)}\`;
+      }
+      if (status.includes("補齊黑白子數") || status.includes("補齊子數")) {
+        return \`補齊子數：補上\${colorName(color)} \${pointName(idx)}\`;
+      }
+      return \`補守：補上\${colorName(color)} \${pointName(idx)}\`;
+    }`;
+const explicitSideTitleFunction = `    function stageTitleForAddedStone(color, idx, attacker) {
+      const normalizedAttacker = Number(attacker) === GEN_WHITE
+        ? GEN_WHITE
+        : GEN_BLACK;
+      if (color === normalizedAttacker) {
+        return \`攻方\${colorName(color)} \${pointName(idx)} 加入後驗證\`;
+      }
+      if (color === genOther(normalizedAttacker)) {
+        return \`守方\${colorName(color)} \${pointName(idx)} 加入後驗證\`;
+      }
+      return \`棋子 \${pointName(idx)} 加入後驗證\`;
+    }`;
+progress = replaceOnce(
+  progress,
+  inferredTitleFunction,
+  explicitSideTitleFunction,
+  "取消依狀態文字猜補守名稱",
+);
+progress = replaceOnce(
+  progress,
+  "title = stageTitleForAddedStone(board[idx], idx);",
+  "title = stageTitleForAddedStone(board[idx], idx, attacker);",
+  "一般回放傳入明確攻方",
+);
+progress = replaceOnce(
+  progress,
+  "title = `補上 ${parent.additions.length} 顆棋子後驗證`;",
+  "title = `盤面增加 ${parent.additions.length} 顆棋子後驗證`;",
+  "多棋差異使用中性名稱",
+);
+for (const forbidden of [
+  'return `補守：補上${colorName(color)} ${pointName(idx)}`;',
+  "stageTitleForAddedStone(board[idx], idx);",
+  "title = `補上 ${parent.additions.length} 顆棋子後驗證`;",
+]) {
+  if (progress.includes(forbidden)) {
+    fail(`一般回放仍殘留推測式補守名稱：${forbidden}`);
+  }
+}
+for (const required of [
+  "stageTitleForAddedStone(color, idx, attacker)",
+  "color === normalizedAttacker",
+  "color === genOther(normalizedAttacker)",
+]) {
+  if (!progress.includes(required)) fail(`一般回放攻守標示缺少：${required}`);
+}
+syntaxCheck("makevcf-generator-progress.js", progress);
+fs.writeFileSync(progressPath, progress, "utf8");
+
 const replay = fs.readFileSync(replayPath, "utf8");
 for (const forbidden of [
   "Worker.prototype.postMessage",
@@ -245,4 +313,4 @@ for (const required of [
 }
 syntaxCheck("makevcf-generator-replay-stone-attempts.js", replay);
 
-console.log("補守回放已改為由實際補子分支送出明確攻守事件。\n");
+console.log("補守回放已改為明確事件；一般回放不再把攻方新增棋猜成補守。\n");
