@@ -10,30 +10,24 @@
 
 ## 正式入口與執行路徑
 
-對外正式網址為：
+唯一對外正式網址為：
 
 ```text
 https://5871224.github.io/VCF/
 ```
 
-唯一正式工作台為：
-
-```text
-/VCF/rapfi/
-```
-
-`/VCF/`、`/VCF/index.html` 與 `/VCF/makevcf.html` 只作為舊網址相容入口，必須轉往 `/VCF/rapfi/`。不得在根頁或 `makevcf.html` 另外維護第二套介面、腳本組合或功能修正。
+根網址直接載入新版 Bitboard 工作台，不得轉址到 `/rapfi/`，也不得在根頁保留舊版引擎或另一套介面。`/rapfi/` 只作為引擎、Worker、UI 模組與實驗室資源目錄。
 
 正式搜尋路徑：
 
 ```text
-/VCF/、/VCF/index.html、/VCF/makevcf.html
-  → 轉址 /VCF/rapfi/
-  → makevcf.html（工作台建置來源）
+/VCF/index.html（由 makevcf.html 建置）
+  → rapfi/engine/vcf-bitboard-engine.js / .wasm
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
-  → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
+
+`makevcf.html` 是根頁與建置流程共用的工作台來源，不是另一套正式產品頁。正式功能、版面與腳本只維護一份來源。
 
 題目產生器使用獨立 Worker：
 
@@ -43,7 +37,7 @@ makevcf-generator-core.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
 
-修改 `/rapfi/` 或題目產生器前，必須先閱讀：
+修改根工作台、`/rapfi/` 資源或題目產生器前，必須先閱讀：
 
 - [`新版Bitboard VCF規格.MD`](新版Bitboard%20VCF規格.MD)
 - [`題目產生器規格.MD`](題目產生器規格.MD)
@@ -122,5 +116,5 @@ makevcf-generator-core.js
 - 時間、節點、深度、64 組上限及剪枝選擇正確傳入。
 - `0` 限制不會被固定預設值覆蓋。
 - 題目產生期間不能切換規則、攻方、步數、搜尋限制、剪枝及權重控制項。
-- 根網址與舊入口都只轉往 `/VCF/rapfi/`，不得顯示另一套工作台。
+- 根網址直接載入新版 Bitboard 工作台，網址不發生轉址，也不顯示舊版介面。
 - 手機版操作正常，相關 Markdown 已同步且沒有殘留舊規格。
