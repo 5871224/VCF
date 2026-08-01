@@ -1,30 +1,21 @@
 "use strict";
 
-// 分離題目產生器的三種補子來源：
-// 1. 較短 VCF：基礎與每次增加死四後都必須補守。
-// 2. 同步數別組 VCF：只在「只保留目標 VCF」開啟時補守。
-// 3. 補齊黑白子數：只在達到指定步數後執行，並依盤面缺少的顏色補黑或補白。
-(function installGeneratorValidationStageSeparation(global) {
-  const INSTALL_FLAG = "__generatorValidationStageSeparationInstalled";
-  const FILL_BRANCH_LIMIT = 10;
-  const FILL_NODE_LIMIT = 140;
-  const BALANCE_UNIQUE_ROUND_LIMIT = 8;
+// 分離題目產生器的三個階段：
+// 1. 每層驗證固定處理較短 VCF。
+// 2. 同步數其他 VCF 只依「只保留目標 VCF」設定處理。
+// 3. 黑白子數只在指定步數完成後補齊，且只由盤面差額決定補黑或補白。
+(function installGeneratorValidationAndBalanceFix(global) {
+  const INSTALL_FLAG = "__generatorValidationAndBalanceFixInstalled";
   const SHAPE_MASK = 0x0f;
   const THREE_NOFREE = 6;
   const THREE_FREE = 7;
-
-  function callWithValidationGate(callback, balanceInput) {
-    const originalBalance = balanceInput?.checked;
-    if (balanceInput) balanceInput.checked = true;
-    try {
-      // 現行 streaming 驗證會在第一個 await 前同步讀取選項。
-      // 暫時開啟只用來啟動「較短 VCF 補守」；是否封鎖別組 VCF
-      // 仍完全依照 block-other-vcf 的原始勾選狀態。
-      return callback();
-    } finally {
-      if (balanceInput) balanceInput.checked = originalBalance;
-    }
-  }
+  const FILL_BRANCH_LIMIT = 8;
+  const FILL_STATE_LIMIT = 48;
+  const FILL_TIME_LIMIT_MS = 12000;
+  const FILL_ROUND_LIMIT = 6;
+  const SHORTEST_MAX_NODE = 800000;
+  const TARGET_MAX_NODE = 1600000;
+  const TARGET_MAX_GROUPS = 16;
 
   function countStones(board) {
     let black = 0;
@@ -39,14 +30,38 @@
   function requiredFinalFill(board, attacker) {
     const { black, white } = countStones(board);
     const targetDifference = attacker === GEN_BLACK ? 0 : 1;
-    const missingDifference = targetDifference - (black - white);
-    if (missingDifference > 0) {
-      return { color: GEN_BLACK, count: missingDifference, black, white };
+    const delta = targetDifference - (black - white);
+    if (delta > 0) return { color: GEN_BLACK, count: delta };
+    if (delta < 0) return { color: GEN_WHITE, count: -delta };
+    return { color: GEN_EMPTY, count: 0 };
+  }
+
+  function callWithShorterVCFRepair(callback) {
+    const balanceInput = global.genEl("balance-stones");
+    const originalBalance = balanceInput?.checked;
+    if (balanceInput) balanceInput.checked = true;
+    try {
+      // defense-points 會同步讀取此值，只用來進入串流式較短 VCF 驗證。
+      // block-other-vcf 不做任何改動，所以其他 VCF 仍由原選項獨立控制。
+      return callback();
+    } finally {
+      if (balanceInput) balanceInput.checked = originalBalance;
     }
-    if (missingDifference < 0) {
-      return { color: GEN_WHITE, count: -missingDifference, black, white };
-    }
-    return { color: GEN_EMPTY, count: 0, black, white };
+  }
+
+  function patchImmediateCancel() {
+    if (genEngine.__immediateCancelPatched) return;
+    genEngine.__immediateCancelPatched = true;
+    genEngine.cancel = function cancelGeneratorImmediately() {
+      if (this.worker) this.worker.terminate();
+      this.worker = null;
+      this.rejectPending(new Error("題目產生器計算已中止"));
+      this.ready = this.start();
+      this.ready.catch(error => {
+        console.warn("題目產生器 Worker 重新初始化失敗", error);
+      });
+      return Promise.resolve();
+    };
   }
 
   function isInteriorPoint(idx) {
@@ -91,7 +106,8 @@
     return result;
   }
 
-  function fillPointWeight(board, idx, attacker, defender, threeMultiplier) {
+  function fillPointWeight(board, idx, attacker, options) {
+    const defender = genOther(attacker);
     let weight = 1;
     weight = multiplyLineShapeWeight(
       weight,
@@ -99,7 +115,7 @@
       idx,
       attacker,
       true,
-      threeMultiplier,
+      options.threeMultiplier,
     );
     weight = multiplyLineShapeWeight(
       weight,
@@ -107,50 +123,39 @@
       idx,
       defender,
       false,
-      threeMultiplier,
+      options.threeMultiplier,
     );
-    return weight * neighborhoodStoneCount(board, idx);
+    return weight * Math.max(1, neighborhoodStoneCount(board, idx));
   }
 
   function weightedRandomOrder(items) {
-    const positive = items.filter(item => item.weight > 0);
-    if (!positive.length) {
-      return items
-        .map(item => ({ item, key: Math.random() }))
-        .sort((a, b) => a.key - b.key)
-        .map(entry => entry.item);
-    }
-    return positive
+    return items
       .map(item => ({
         item,
         key:
-          -Math.log(Math.max(Number.MIN_VALUE, Math.random())) /
-          item.weight,
+          item.weight > 0
+            ? -Math.log(Math.max(Number.MIN_VALUE, Math.random())) / item.weight
+            : Math.random(),
       }))
       .sort((a, b) => a.key - b.key)
       .map(entry => entry.item);
   }
 
-  function pointCreatesForbiddenResult(
-    board,
-    idx,
-    color,
-    attacker,
-    rules,
-  ) {
-    if (rules === 2 && color === GEN_BLACK && isFoul(idx, board)) return true;
+  function pointCreatesForbiddenResult(state, idx, color) {
+    if (state.rules === 2 && color === GEN_BLACK && isFoul(idx, state.board)) {
+      return true;
+    }
 
-    // 最後補到守方時仍沿用原限制：守方不能藉補子形成四或連五。
-    if (color === genOther(attacker)) {
+    if (color === genOther(state.attacker)) {
       for (let direction = 0; direction < 4; direction++) {
-        const four = testLineFour(idx, direction, color, board) & SHAPE_MASK;
+        const four = testLineFour(idx, direction, color, state.board) & SHAPE_MASK;
         if (four === GEN_FOUR_NOFREE || four === GEN_FOUR_FREE) return true;
       }
     }
 
-    const next = genCloneBoard(board);
-    next[idx] = color;
-    return (getLevelPoint(idx, color, next) & SHAPE_MASK) >= GEN_FIVE;
+    const board = genCloneBoard(state.board);
+    board[idx] = color;
+    return (getLevelPoint(idx, color, board) & SHAPE_MASK) >= GEN_FIVE;
   }
 
   async function buildFillPool(state, color, options) {
@@ -162,98 +167,111 @@
         true,
       ),
     );
-    const defender = genOther(state.attacker);
-    const eligible = [];
+    if (genCancelled) return [];
 
+    const eligible = [];
     for (let idx = 0; idx < 225; idx++) {
       if (!isInteriorPoint(idx) || state.board[idx] !== GEN_EMPTY) continue;
       if (genIsNFor(state.nMask, idx, color)) continue;
       if (protectedPoints.has(idx)) continue;
-      if (
-        pointCreatesForbiddenResult(
-          state.board,
-          idx,
-          color,
-          state.attacker,
-          state.rules,
-        )
-      ) {
-        continue;
-      }
-      eligible.push(idx);
-    }
-
-    const pool = [];
-    setGameRules(1);
-    try {
-      for (const idx of eligible) {
-        pool.push({
-          idx,
-          weight: fillPointWeight(
-            state.board,
-            idx,
-            state.attacker,
-            defender,
-            options.threeMultiplier,
-          ),
-        });
-      }
-    } finally {
-      setGameRules(state.rules);
-    }
-    return pool;
-  }
-
-  async function dynamicFillCandidates(state, pool, color) {
-    const protectedPoints = new Set(
-      await genEngine.getBlockVCF(
-        state.board,
-        state.attacker,
-        state.moves,
-        true,
-      ),
-    );
-    return pool.filter(item => {
-      const idx = item.idx;
-      if (state.board[idx] !== GEN_EMPTY) return false;
-      if (genIsNFor(state.nMask, idx, color)) return false;
-      if (protectedPoints.has(idx)) return false;
-      return !pointCreatesForbiddenResult(
-        state.board,
+      if (pointCreatesForbiddenResult(state, idx, color)) continue;
+      eligible.push({
         idx,
-        color,
-        state.attacker,
-        state.rules,
-      );
-    });
+        weight: fillPointWeight(state.board, idx, state.attacker, options),
+      });
+    }
+    return weightedRandomOrder(eligible);
   }
 
-  async function validateFilledState(state, idx, color, targetSteps) {
+  function boardKey(board, remaining) {
+    return `${remaining}:${Array.from(board).slice(0, 225).join("")}`;
+  }
+
+  async function findTargetAfterFill(
+    board,
+    attacker,
+    targetSteps,
+    expectedBoard,
+    budget,
+  ) {
+    const maxDepth = genTargetSearchPly(targetSteps);
+    if (performance.now() >= budget.deadline) return null;
+    const shortestInfo = await genEngine.findVCF(board, attacker, 1, {
+      mode: "shortest",
+      maxDepth,
+      maxNode: SHORTEST_MAX_NODE,
+    });
+    if (genCancelled || !shortestInfo?.winMoves?.length) return null;
+
+    const shortestMoves = Array.from(shortestInfo.winMoves[0] || []);
+    const shortestAnalysis = genAnalyzeVCFGroup(board, shortestMoves, attacker);
+    if (!shortestAnalysis.valid || shortestAnalysis.steps < targetSteps) return null;
+    if (
+      shortestAnalysis.steps === targetSteps &&
+      genBoardsEqual(shortestAnalysis.standardBoard, expectedBoard)
+    ) {
+      return {
+        info: shortestInfo,
+        moves: shortestMoves,
+        analysis: shortestAnalysis,
+        groupCount: 1,
+      };
+    }
+
+    if (performance.now() >= budget.deadline) return null;
+    const info = await genEngine.findVCF(board, attacker, TARGET_MAX_GROUPS, {
+      mode: "multi",
+      maxDepth,
+      maxNode: TARGET_MAX_NODE,
+    });
+    if (genCancelled || !info?.winMoves?.length) return null;
+    const raw = info.winMoves.filter(moves => moves && moves.length);
+    const groups = await genEngine.trimGroups(board, raw, attacker);
+    if (genCancelled || !groups.length) return null;
+
+    let target = null;
+    for (const moves of groups) {
+      const analysis = genAnalyzeVCFGroup(board, moves, attacker);
+      if (!analysis.valid) continue;
+      if (analysis.steps < targetSteps) return null;
+      if (
+        !target &&
+        analysis.steps === targetSteps &&
+        genBoardsEqual(analysis.standardBoard, expectedBoard)
+      ) {
+        target = { moves: Array.from(moves), analysis };
+      }
+    }
+    if (!target) return null;
+    return {
+      info,
+      moves: target.moves,
+      analysis: target.analysis,
+      groupCount: groups.length,
+    };
+  }
+
+  async function validateFilledState(
+    state,
+    idx,
+    color,
+    targetSteps,
+    budget,
+  ) {
     const board = genCloneBoard(state.board);
     board[idx] = color;
     const expectedBoard = genCloneBoard(state.standardBoard);
     expectedBoard[idx] = color;
-    const candidate = { ...state, board };
-    const found = await genFindAnalyzedGroups(candidate, targetSteps);
-    if (!found) return null;
 
-    const { info, groups } = found;
-    const analyzed = groups
-      .map(moves => ({
-        moves: Array.from(moves),
-        analysis: genAnalyzeVCFGroup(board, moves, state.attacker),
-      }))
-      .filter(item => item.analysis.valid);
-
-    if (analyzed.some(item => item.analysis.steps < targetSteps)) return null;
-    const target = analyzed.find(
-      item =>
-        item.analysis.steps === targetSteps &&
-        genBoardsEqual(item.analysis.standardBoard, expectedBoard),
+    const target = await findTargetAfterFill(
+      board,
+      state.attacker,
+      targetSteps,
+      expectedBoard,
+      budget,
     );
     if (!target) return null;
 
-    const fillStone = { idx, color };
     const next = {
       ...state,
       board,
@@ -261,34 +279,15 @@
       moves: target.moves,
       completedBoard: target.analysis.completedBoard,
       standardBoard: target.analysis.standardBoard,
-      nodeCount: info.nodeCount || 0,
-      groupCount: groups.length,
-      balanceFillStones: [
-        ...Array.from(state.balanceFillStones || []),
-        fillStone,
-      ],
-      balanceFillBlack: [
-        ...Array.from(state.balanceFillBlack || []),
-        ...(color === GEN_BLACK ? [idx] : []),
-      ],
-      balanceFillWhite: [
-        ...Array.from(state.balanceFillWhite || []),
-        ...(color === GEN_WHITE ? [idx] : []),
-      ],
+      nodeCount: target.info.nodeCount || 0,
+      groupCount: target.groupCount,
+      finalBalanceAdded: Number(state.finalBalanceAdded || 0) + 1,
+      balanceComplete: false,
     };
-
     if (color === state.attacker) {
       next.totalAddedAttackers = Number(state.totalAddedAttackers || 0) + 1;
-      next.balanceFillAttackers = [
-        ...Array.from(state.balanceFillAttackers || []),
-        idx,
-      ];
     } else {
       next.totalAddedDefenders = Number(state.totalAddedDefenders || 0) + 1;
-      next.balanceFillDefenders = [
-        ...Array.from(state.balanceFillDefenders || []),
-        idx,
-      ];
     }
     return next;
   }
@@ -302,19 +301,34 @@
     budget,
   ) {
     if (remaining <= 0) return state;
-    if (genCancelled || budget.nodes++ >= FILL_NODE_LIMIT) return null;
+    if (
+      genCancelled ||
+      budget.states >= FILL_STATE_LIMIT ||
+      performance.now() >= budget.deadline
+    ) {
+      return null;
+    }
 
-    const available = await dynamicFillCandidates(state, pool, color);
-    if (!available.length) return null;
-    const ordered = weightedRandomOrder(available).slice(0, FILL_BRANCH_LIMIT);
+    const key = boardKey(state.board, remaining);
+    if (budget.visited.has(key)) return null;
+    budget.visited.add(key);
+    budget.states++;
 
-    for (const item of ordered) {
-      if (genCancelled) return null;
+    let tried = 0;
+    for (const item of pool) {
+      if (genCancelled || tried >= FILL_BRANCH_LIMIT) return null;
+      const idx = item.idx;
+      if (state.board[idx] !== GEN_EMPTY) continue;
+      if (genIsNFor(state.nMask, idx, color)) continue;
+      if (pointCreatesForbiddenResult(state, idx, color)) continue;
+      tried++;
+
       const next = await validateFilledState(
         state,
-        item.idx,
+        idx,
         color,
         targetSteps,
+        budget,
       );
       if (!next) continue;
       const completed = await fillColorRecursive(
@@ -340,7 +354,11 @@
       requirement.color,
       targetSteps,
       requirement.count,
-      { nodes: 0 },
+      {
+        states: 0,
+        visited: new Set(),
+        deadline: performance.now() + FILL_TIME_LIMIT_MS,
+      },
     );
   }
 
@@ -357,30 +375,41 @@
       return;
     }
 
+    patchImmediateCancel();
+
+    const previousSetStatus = genSetStatus;
+    genSetStatus = function normalizeCancelledGeneratorStatus(text) {
+      const message = String(text ?? "");
+      if (
+        genCancelled &&
+        message.startsWith("產生失敗：") &&
+        message.includes("中止")
+      ) {
+        return previousSetStatus("已停止產生");
+      }
+      return previousSetStatus(text);
+    };
+
     const previousValidateCandidate = global.genValidateCandidate;
     const previousValidateExtensionCandidate =
       global.genValidateExtensionCandidate;
     const previousExtendToTarget = global.genExtendToTarget;
     global[INSTALL_FLAG] = true;
 
-    global.genValidateCandidate = function validateBaseWithSeparatedRepair(
-      ...args
-    ) {
-      return callWithValidationGate(
+    global.genValidateCandidate = function validateBaseWithShorterRepair(...args) {
+      return callWithShorterVCFRepair(
         () => previousValidateCandidate.apply(this, args),
-        global.genEl("balance-stones"),
       );
     };
 
     global.genValidateExtensionCandidate =
-      function validateExtensionWithSeparatedRepair(...args) {
-        return callWithValidationGate(
+      function validateExtensionWithShorterRepair(...args) {
+        return callWithShorterVCFRepair(
           () => previousValidateExtensionCandidate.apply(this, args),
-          global.genEl("balance-stones"),
         );
       };
 
-    global.genExtendToTarget = async function extendThenBalanceByColor(
+    global.genExtendToTarget = async function extendThenBalanceByBoardCount(
       current,
       targetSteps,
       attacker,
@@ -395,26 +424,19 @@
         targetSteps,
         attacker,
         rules,
-        {
-          ...options,
-          balanceStones: false,
-        },
+        { ...options, balanceStones: false },
         counters,
       );
       if (
         !result ||
         !balanceRequested ||
-        result.balanceComplete ||
-        result.steps !== targetSteps
+        result.steps !== targetSteps ||
+        genCancelled
       ) {
         return result;
       }
 
-      for (
-        let round = 0;
-        round < BALANCE_UNIQUE_ROUND_LIMIT;
-        round++
-      ) {
+      for (let round = 0; round < FILL_ROUND_LIMIT; round++) {
         const requirement = requiredFinalFill(result.board, result.attacker);
         if (!requirement.count) {
           return { ...result, balanceComplete: true };
@@ -422,7 +444,7 @@
 
         const colorName = requirement.color === GEN_BLACK ? "黑" : "白";
         genSetStatus(
-          `VCF 已完成，正在補齊${colorName}子 ${requirement.count} 顆……` +
+          `VCF 已完成，最後補齊${colorName}子 ${requirement.count} 顆……` +
             `已驗證 ${counters.attempts} 個候選`,
         );
         result = await fillRequiredColor(
@@ -431,8 +453,9 @@
           options,
           requirement,
         );
-        if (!result) return null;
+        if (!result || genCancelled) return null;
 
+        // 最後補子可能新產生同步數其他 VCF；只有勾選唯一題時才再清理。
         if (options?.blockOtherVCF) {
           result = await previousExtendToTarget.call(
             this,
@@ -440,14 +463,10 @@
             targetSteps,
             attacker,
             rules,
-            {
-              ...options,
-              balanceStones: false,
-              blockOtherVCF: true,
-            },
+            { ...options, balanceStones: false, blockOtherVCF: true },
             counters,
           );
-          if (!result) return null;
+          if (!result || genCancelled) return null;
         }
       }
       return null;
