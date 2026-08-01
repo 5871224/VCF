@@ -336,9 +336,9 @@
     const fastButton = installFastButton(mainActions);
     if (!ruleSelect || !fastButton) return false;
 
+    const existingSearchOptions = document.getElementById("vcf-search-options");
     const workspace = document.createElement("div");
     workspace.className = "vcf-workspace";
-    oldStack.replaceWith(workspace);
 
     const calcPanel = document.createElement("section");
     calcPanel.className = "vcf-calc-panel";
@@ -395,14 +395,13 @@
 
     installTabs(workspace, { calculation: calcPanel, generator: generatorTab, import: importTab });
 
-    const searchOptions = document.getElementById("vcf-search-options") || document.createElement("div");
+    const searchOptions = existingSearchOptions || document.createElement("div");
     searchOptions.classList.add("vcf-compat-host");
-    calcPanel.append(searchOptions);
+    mainActions.classList.add("vcf-compat-host");
+    analysisActions.classList.add("vcf-compat-host");
     ruleBox.classList.add("vcf-compat-host");
-    calcPanel.append(ruleBox);
-
-    searchCard.remove();
-    analysisCard?.remove();
+    calcPanel.append(searchOptions, ruleBox, mainActions, analysisActions);
+    oldStack.replaceWith(workspace);
 
     const labels = {
       "btn-stop": "停止",
@@ -426,6 +425,11 @@
 
     const reconcile = () => {
       simplifyPruningOptions();
+      const dynamicSearchOptions = document.getElementById("vcf-search-options");
+      if (dynamicSearchOptions) {
+        dynamicSearchOptions.classList.add("vcf-compat-host");
+        move(dynamicSearchOptions, calcPanel);
+      }
       move(document.getElementById("show-forbidden")?.closest("label"), analysisRow);
       move(document.getElementById("btn-shortest-vcf"), calcRow);
       move(calcToggle, calcRow);
@@ -474,6 +478,15 @@
 
   const started = performance.now();
   const timer = window.setInterval(() => {
-    if ((readyForOnePass() || performance.now() - started >= 1800) && install()) window.clearInterval(timer);
+    const elapsed = performance.now() - started;
+    if ((readyForOnePass() || elapsed >= 1800) && install()) {
+      window.clearInterval(timer);
+      return;
+    }
+    if (elapsed >= 5000) {
+      window.clearInterval(timer);
+      document.documentElement.classList.remove(PENDING_CLASS);
+      document.documentElement.classList.add(READY_CLASS);
+    }
   }, 40);
 })();
