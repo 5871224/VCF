@@ -42,6 +42,13 @@
       .vcf-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
       .vcf-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
       .vcf-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+      #btn-fast-vcf{order:1}
+      #btn-shortest-vcf{order:2}
+      .vcf-setting-toggle:has(#vcf-show-calculation-settings){order:3}
+      #btn-multi-vcf{order:1}
+      #btn-vcf-prev{order:2}
+      #btn-vcf-next{order:3}
+      .vcf-setting-toggle:has(#vcf-show-multi-settings){order:4}
       #vcf-app-shell button{min-width:0}
       #${FAST_BUTTON_ID},#btn-shortest-vcf{color:#fff;background:var(--vcf-accent,#355f8d);border-color:var(--vcf-accent,#355f8d);font-weight:700}
       #${FAST_BUTTON_ID}:hover:not(:disabled),#btn-shortest-vcf:hover:not(:disabled){color:#fff;background:#294f78}
