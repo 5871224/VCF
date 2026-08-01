@@ -76,6 +76,9 @@ static int singleFourWayTransTableV5SelfTest()
 #undef SearchContext
 #undef LegacyTransTable
 
+// 專供題目產生器使用：略過目標完成盤面，找到第一條較短／其他 VCF 即返回。
+#include "vcf-bitboard-search-first-nontarget-v1.inc"
+
 extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbFindModeV3(const uint8_t *board,
                                                                int attacker,
                                                                int rule,
@@ -91,6 +94,22 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbFindModeV3(const uint8_t *board,
                                                                SearchStats *stats)
 {
     const uint32_t maxNodes = configureMultiLimitsV4(encodedLimits);
+    if (mode == MODE_FIRST_NON_TARGET_V1) {
+        return findFirstNonTargetModeV1(
+            board,
+            attacker,
+            rule,
+            simplify != 0,
+            pruning,
+            maxRoutes,
+            maxDepth,
+            maxNodes,
+            outMoves,
+            outLengths,
+            maxMovesPerRoute,
+            stats
+        );
+    }
     return vcfBbFindModeV3MultiInternal(board, attacker, rule, mode, simplify, pruning,
                                         maxRoutes, maxDepth, maxNodes, outMoves, outLengths,
                                         maxMovesPerRoute, stats);
@@ -127,6 +146,9 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
     const int shortestResult = shortestOneV1SelfTest();
     if (shortestResult != 0)
         return shortestResult;
+    const int firstNonTargetResult = firstNonTargetV1SelfTest();
+    if (firstNonTargetResult != 0)
+        return firstNonTargetResult;
     const int multiResult = vcfBbSearchV2SelfTestMultiV3();
     if (multiResult != 0)
         return multiResult;
