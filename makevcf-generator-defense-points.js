@@ -51,6 +51,7 @@
     const DEFAULT_TIME_SECONDS = 30;
     const DEFAULT_NODE_MILLIONS = 20;
     const PACKED_LIMIT_FLAG = 0x80000000;
+    const FIRST_NON_TARGET_CACHE_VERSION = "first-nontarget-v2";
 
     const previousValidateCandidate = genValidateCandidate;
     const previousValidateExtensionCandidate = genValidateExtensionCandidate;
@@ -67,10 +68,15 @@
       }
 
       workerURL() {
-        return new URL(
+        const url = new URL(
           "rapfi/vcf-first-nontarget-worker.js",
           document.baseURI,
-        ).href;
+        );
+        url.searchParams.set(
+          "_worker",
+          FIRST_NON_TARGET_CACHE_VERSION,
+        );
+        return url.href;
       }
 
       moduleURL() {
@@ -212,6 +218,9 @@
 
     function markLimitWarning(state, info, phase) {
       const reason = limitReason(info);
+      if (!Array.isArray(state.vcfSearchLimitReasons)) {
+        state.vcfSearchLimitReasons = [];
+      }
       state.vcfSearchLimitWarnings =
         Number(state.vcfSearchLimitWarnings || 0) + 1;
       if (!state.vcfSearchLimitReasons.includes(reason)) {
