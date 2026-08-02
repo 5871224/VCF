@@ -1,11 +1,11 @@
 "use strict";
 
-// 補子回放只接收實際補子分支送出的明確事件。
-// 中途／最終補守只允許守方棋；補齊黑白子數則可補攻方或守方，
-// 但事件必須明確附帶實際補入顏色，不能由回放自行猜測。
-(function installGeneratorStoneAttemptReplay() {
-  if (window.__generatorStoneAttemptReplayInstalled) return;
-  window.__generatorStoneAttemptReplayInstalled = true;
+// 補子回放與完整回放共用同一條時間軸。
+// 不再攔截後切換「基礎回放／補子回放」兩套索引；產生結束後先收集完整回放，
+// 再把每一顆實際補入的棋子依盤面插入同一份步驟陣列。
+(function installUnifiedGeneratorStoneReplay(global) {
+  if (global.__generatorStoneAttemptReplayInstalled) return;
+  global.__generatorStoneAttemptReplayInstalled = true;
 
   const BOARD_CELLS = 225;
   const originalSetBusy = genSetBusy;
@@ -13,15 +13,13 @@
   let session = 0;
   let running = false;
   let attempts = [];
-  let attemptIndex = -1;
-  let nextAttemptId = 1;
   let pendingAttempts = new Map();
+  let nextAttemptId = 1;
 
-  let compositeInstalled = false;
+  let unifiedSteps = [];
+  let unifiedIndex = -1;
+  let unifiedActive = false;
   let allowBaseControl = false;
-  let replayMode = "base";
-  let baseCount = 0;
-  let baseIndex = 0;
 
   function parseColor(color) {
     const value = Number(color);
@@ -55,6 +53,18 @@
     return nMask;
   }
 
+  function boardSignature(board) {
+    let signature = "";
+    for (let idx = 0; idx < BOARD_CELLS; idx++) {
+      signature += board?.[idx] === GEN_BLACK
+        ? "1"
+        : board?.[idx] === GEN_WHITE
+          ? "2"
+          : "0";
+    }
+    return signature;
+  }
+
   function pointName(idx) {
     if (typeof genName === "function") return genName(idx);
     return "ABCDEFGHJKLMNOP"[idx % 15] + (15 - Math.floor(idx / 15));
@@ -78,33 +88,96 @@
     return genEl("status")?.textContent || "";
   }
 
+  function combinedUI() {
+    const panel = document.getElementById("gen-replay-combined-panel");
+    if (!panel) return null;
+    return {
+      panel,
+      first: panel.querySelector("#gen-replay-combined-first"),
+      prev: panel.querySelector("#gen-replay-combined-prev"),
+      next: panel.querySelector("#gen-replay-combined-next"),
+      last: panel.querySelector("#gen-replay-combined-last"),
+      count: panel.querySelector("#gen-replay-combined-count"),
+      badge: panel.querySelector("#gen-replay-combined-badge"),
+      title: panel.querySelector("#gen-replay-combined-title"),
+      reason: panel.querySelector("#gen-replay-combined-reason"),
+    };
+  }
+
+  function statusLabel(status) {
+    if (status === "passed") return "通過";
+    if (status === "failed") return "未通過";
+    if (status === "pending") return "驗證中";
+    return "紀錄";
+  }
+
   function clearNLayer() {
     const layer = document.getElementById("generator-n-layer");
     if (!layer) return;
     while (layer.firstChild) layer.firstChild.remove();
   }
 
-  function combinedUI() {
-    const element = document.getElementById("gen-replay-combined-panel");
-    if (!element) return null;
-    return {
-      element,
-      first: element.querySelector("#gen-replay-combined-first"),
-      prev: element.querySelector("#gen-replay-combined-prev"),
-      next: element.querySelector("#gen-replay-combined-next"),
-      last: element.querySelector("#gen-replay-combined-last"),
-      count: element.querySelector("#gen-replay-combined-count"),
-      badge: element.querySelector("#gen-replay-combined-badge"),
-      title: element.querySelector("#gen-replay-combined-title"),
-      reason: element.querySelector("#gen-replay-combined-reason"),
-    };
+  function renderNPoints(source) {
+    clearNLayer();
+    const layer = document.getElementById("generator-n-layer");
+    if (!layer) return;
+
+    const ns = "http://www.w3.org/2000/svg";
+    const bothMask = GEN_NO_BLACK | GEN_NO_WHITE;
+    const nMask = cloneNMask(source);
+    const size = 13;
+
+    for (let idx = 0; idx < BOARD_CELLS; idx++) {
+      const mask = nMask[idx] & bothMask;
+      if (!mask) continue;
+
+      const both = mask === bothMask;
+      const cx = 22 + (idx % 15) * 34;
+      const cy = 22 + Math.floor(idx / 15) * 34;
+      const rect = document.createElementNS(ns, "rect");
+      rect.setAttribute("x", cx - size / 2);
+      rect.setAttribute("y", cy - size / 2);
+      rect.setAttribute("width", size);
+      rect.setAttribute("height", size);
+      rect.setAttribute("rx", 2);
+      rect.setAttribute("fill", both ? "#2e9f45" : (mask & GEN_NO_BLACK) ? "#222" : "#f8f8f8");
+      rect.setAttribute("stroke", both ? "#176729" : "#d02020");
+      rect.setAttribute("stroke-width", 2);
+      rect.setAttribute("opacity", .92);
+
+      const title = document.createElementNS(ns, "title");
+      title.textContent = both
+        ? "雙方 N 點"
+        : (mask & GEN_NO_BLACK)
+          ? "黑方 N 點"
+          : "白方 N 點";
+      rect.appendChild(title);
+      layer.appendChild(rect);
+    }
   }
 
-  function parseCount(text) {
-    const match = String(text || "").match(/(\d+)\s*\/\s*(\d+)/);
-    return match
-      ? { index: Number(match[1]), count: Number(match[2]) }
-      : { index: 0, count: 0 };
+  function captureRenderedNMask() {
+    const nMask = new Uint8Array(BOARD_CELLS);
+    const layer = document.getElementById("generator-n-layer");
+    if (!layer) return nMask;
+
+    const bothMask = GEN_NO_BLACK | GEN_NO_WHITE;
+    layer.querySelectorAll("rect").forEach(rect => {
+      const width = Number(rect.getAttribute("width")) || 13;
+      const height = Number(rect.getAttribute("height")) || 13;
+      const cx = Number(rect.getAttribute("x")) + width / 2;
+      const cy = Number(rect.getAttribute("y")) + height / 2;
+      const col = Math.round((cx - 22) / 34);
+      const row = Math.round((cy - 22) / 34);
+      if (col < 0 || col >= 15 || row < 0 || row >= 15) return;
+
+      const text = rect.querySelector("title")?.textContent || "";
+      const idx = row * 15 + col;
+      if (text.includes("雙方")) nMask[idx] = bothMask;
+      else if (text.includes("黑方")) nMask[idx] = GEN_NO_BLACK;
+      else if (text.includes("白方")) nMask[idx] = GEN_NO_WHITE;
+    });
+    return nMask;
   }
 
   function stopBaseControl(event) {
@@ -112,149 +185,160 @@
     event.stopImmediatePropagation();
   }
 
-  function totalCount() {
-    return baseCount + attempts.length;
-  }
-
-  function syncBaseView() {
+  function showUnifiedStep(index) {
     const ui = combinedUI();
-    if (!ui || replayMode !== "base") return;
-    const parsed = parseCount(ui.count?.textContent);
-    if (parsed.index > 0 && parsed.index <= baseCount) {
-      baseIndex = parsed.index;
-    }
-    if (!baseIndex && baseCount) baseIndex = baseCount;
+    if (!ui || running || !unifiedSteps.length) return;
 
-    ui.element.hidden = baseCount <= 0;
-    if (ui.count) ui.count.textContent = `${baseIndex} / ${totalCount()}`;
-    if (ui.first) ui.first.disabled = baseIndex <= 1;
-    if (ui.prev) ui.prev.disabled = baseIndex <= 1;
-    if (ui.next) {
-      ui.next.disabled = baseIndex >= baseCount && attempts.length === 0;
+    unifiedIndex = Math.max(0, Math.min(unifiedSteps.length - 1, index));
+    const step = unifiedSteps[unifiedIndex];
+    const atFirst = unifiedIndex <= 0;
+    const atLast = unifiedIndex >= unifiedSteps.length - 1;
+
+    ui.panel.hidden = false;
+    ui.count.textContent = `${unifiedIndex + 1} / ${unifiedSteps.length}`;
+    ui.first.disabled = atFirst;
+    ui.prev.disabled = atFirst;
+    ui.next.disabled = atLast;
+    ui.last.disabled = atLast;
+    ui.badge.dataset.status = step.status || "info";
+    ui.badge.textContent = statusLabel(step.status);
+    ui.title.textContent = step.title || "盤面紀錄";
+    ui.reason.textContent = [step.reason, step.detail].filter(Boolean).join("；");
+
+    if (typeof global._setBoardArr === "function") {
+      global._setBoardArr(expandedBoard(step.board), step.attacker || genGetAttacker());
     }
-    if (ui.last) {
-      ui.last.disabled = baseIndex >= baseCount && attempts.length === 0;
-    }
+    renderNPoints(step.nMask);
   }
 
-  function runBaseControl(button) {
-    if (!button) return;
-    button.disabled = false;
+  function installUnifiedControls() {
+    const ui = combinedUI();
+    if (!ui?.first || !ui.prev || !ui.next || !ui.last) return false;
+    if (ui.panel.dataset.unifiedStoneReplayControls === "1") return true;
+    ui.panel.dataset.unifiedStoneReplayControls = "1";
+
+    ui.first.addEventListener("click", event => {
+      if (!unifiedActive || allowBaseControl || running) return;
+      stopBaseControl(event);
+      showUnifiedStep(0);
+    }, true);
+
+    ui.prev.addEventListener("click", event => {
+      if (!unifiedActive || allowBaseControl || running) return;
+      stopBaseControl(event);
+      showUnifiedStep(unifiedIndex - 1);
+    }, true);
+
+    ui.next.addEventListener("click", event => {
+      if (!unifiedActive || allowBaseControl || running) return;
+      stopBaseControl(event);
+      showUnifiedStep(unifiedIndex + 1);
+    }, true);
+
+    ui.last.addEventListener("click", event => {
+      if (!unifiedActive || allowBaseControl || running) return;
+      stopBaseControl(event);
+      showUnifiedStep(unifiedSteps.length - 1);
+    }, true);
+
+    return true;
+  }
+
+  function runBaseClick(button) {
+    if (!button || button.disabled) return false;
     allowBaseControl = true;
     try {
       button.click();
     } finally {
       allowBaseControl = false;
     }
-    replayMode = "base";
-    queueMicrotask(syncBaseView);
-  }
-
-  function statusLabel(status) {
-    if (status === "passed") return "通過";
-    if (status === "failed") return "未通過";
-    return "驗證中";
-  }
-
-  function showAttempt(index) {
-    const ui = combinedUI();
-    if (!ui || running || !attempts.length) return;
-    replayMode = "attempt";
-    attemptIndex = Math.max(0, Math.min(attempts.length - 1, index));
-    const attempt = attempts[attemptIndex];
-    const overallIndex = baseCount + attemptIndex + 1;
-    const atLast = attemptIndex >= attempts.length - 1;
-
-    ui.element.hidden = false;
-    ui.count.textContent = `${overallIndex} / ${totalCount()}`;
-    ui.first.disabled = false;
-    ui.prev.disabled = false;
-    ui.next.disabled = atLast;
-    ui.last.disabled = atLast;
-    ui.badge.dataset.status = attempt.status;
-    ui.badge.textContent = statusLabel(attempt.status);
-    ui.title.textContent = attempt.title;
-    ui.reason.textContent = [attempt.reason, attempt.detail]
-      .filter(Boolean)
-      .join("；");
-
-    if (typeof window._setBoardArr === "function") {
-      window._setBoardArr(expandedBoard(attempt.board), attempt.attacker);
-    }
-    clearNLayer();
-  }
-
-  function installCompositeControls() {
-    if (compositeInstalled) return true;
-    const ui = combinedUI();
-    if (!ui?.first || !ui.prev || !ui.next || !ui.last) return false;
-    compositeInstalled = true;
-
-    ui.first.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (replayMode === "attempt") {
-        stopBaseControl(event);
-        runBaseControl(ui.first);
-        return;
-      }
-      queueMicrotask(syncBaseView);
-    }, true);
-
-    ui.prev.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (replayMode === "attempt") {
-        stopBaseControl(event);
-        if (attemptIndex > 0) showAttempt(attemptIndex - 1);
-        else runBaseControl(ui.last);
-        return;
-      }
-      queueMicrotask(syncBaseView);
-    }, true);
-
-    ui.next.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (replayMode === "attempt") {
-        stopBaseControl(event);
-        if (attemptIndex < attempts.length - 1) showAttempt(attemptIndex + 1);
-        return;
-      }
-      if (attempts.length && baseIndex >= baseCount) {
-        stopBaseControl(event);
-        showAttempt(0);
-        return;
-      }
-      queueMicrotask(syncBaseView);
-    }, true);
-
-    ui.last.addEventListener("click", event => {
-      if (allowBaseControl) return;
-      if (attempts.length) {
-        stopBaseControl(event);
-        showAttempt(attempts.length - 1);
-        return;
-      }
-      queueMicrotask(syncBaseView);
-    }, true);
     return true;
   }
 
-  function mergeIntoCombinedReplay() {
-    document.getElementById("gen-stone-attempt-panel")?.remove();
+  function captureBaseStep(ui) {
+    const board = typeof global._getArr === "function"
+      ? compactBoard(global._getArr())
+      : null;
+    if (!board) return null;
+
+    return {
+      board,
+      signature: boardSignature(board),
+      nMask: captureRenderedNMask(),
+      attacker: genGetAttacker(),
+      status: ui.badge?.dataset?.status || "info",
+      title: ui.title?.textContent || "盤面紀錄",
+      reason: ui.reason?.textContent || "",
+      detail: "",
+    };
+  }
+
+  function harvestBaseReplay() {
+    const ui = combinedUI();
+    if (!ui?.prev || !ui.next || ui.panel.hidden) return [];
+
+    unifiedActive = false;
+    let guard = 0;
+    while (!ui.prev.disabled && guard++ < 100000) {
+      if (!runBaseClick(ui.prev)) break;
+    }
+
+    const records = [];
+    guard = 0;
+    while (guard++ < 100000) {
+      const step = captureBaseStep(ui);
+      if (step) records.push(step);
+      if (ui.next.disabled || !runBaseClick(ui.next)) break;
+    }
+    return records;
+  }
+
+  function mergeReplay(baseSteps) {
+    const remaining = new Set(attempts.map(attempt => attempt.id));
+    const output = [];
+
+    for (const base of baseSteps) {
+      const matching = attempts.filter(attempt =>
+        remaining.has(attempt.id) && attempt.signature === base.signature
+      );
+      if (matching.length) {
+        for (const attempt of matching) {
+          output.push({ ...attempt, nMask: cloneNMask(attempt.nMask) });
+          remaining.delete(attempt.id);
+        }
+      } else {
+        output.push(base);
+      }
+    }
+
+    for (const attempt of attempts) {
+      if (!remaining.has(attempt.id)) continue;
+      output.push({ ...attempt, nMask: cloneNMask(attempt.nMask) });
+      remaining.delete(attempt.id);
+    }
+
+    return output;
+  }
+
+  function rebuildUnifiedReplay() {
+    if (running) return;
     const ui = combinedUI();
     if (!ui) return;
 
-    const parsed = parseCount(ui.count?.textContent);
-    baseCount = parsed.count;
-    baseIndex = parsed.index || baseCount;
-    replayMode = "base";
-    attemptIndex = -1;
-    installCompositeControls();
+    installUnifiedControls();
+    const baseSteps = harvestBaseReplay();
+    unifiedSteps = mergeReplay(baseSteps);
+    unifiedActive = unifiedSteps.length > 0;
+    unifiedIndex = unifiedSteps.length - 1;
 
-    if (baseCount <= 0 && attempts.length) {
-      showAttempt(attempts.length - 1);
+    document.getElementById("gen-replay-panel")?.setAttribute("hidden", "");
+    document.getElementById("gen-stone-attempt-panel")?.remove();
+
+    if (!unifiedActive) {
+      ui.panel.hidden = true;
       return;
     }
-    syncBaseView();
+    showUnifiedStep(unifiedIndex);
   }
 
   function beginDefenderAttempt(payload) {
@@ -302,6 +386,7 @@
       id,
       session,
       board,
+      signature: boardSignature(board),
       nMask: cloneNMask(payload.nMask),
       attacker,
       color: placedColor,
@@ -310,11 +395,12 @@
       phase,
       status: "pending",
       title: `${label}：補上${colorName(placedColor)} ${pointName(idx)}`,
-      reason: "已由實際補子分支放下這一顆，正在重新驗證",
+      reason: "已放下這一顆棋，正在重新驗證",
       detail: isBalance
         ? `本次補入${roleText}；攻方 ${sideName(attacker)}；守方 ${sideName(expectedDefender)}`
         : `攻方 ${sideName(attacker)}；守方 ${sideName(expectedDefender)}`,
     };
+
     attempts.push(attempt);
     pendingAttempts.set(id, attempt);
     return id;
@@ -332,24 +418,24 @@
     pendingAttempts.delete(id);
   }
 
-  window.genReplayBeginDefenderAttempt = beginDefenderAttempt;
-  window.genReplayEndDefenderAttempt = endDefenderAttempt;
+  global.genReplayBeginDefenderAttempt = beginDefenderAttempt;
+  global.genReplayEndDefenderAttempt = endDefenderAttempt;
 
-  genSetBusy = function setBusyWithExplicitDefenderReplay(value) {
+  genSetBusy = function setBusyWithUnifiedStoneReplay(value) {
     if (value) {
       session++;
       running = true;
       attempts = [];
-      attemptIndex = -1;
-      nextAttemptId = 1;
       pendingAttempts = new Map();
-      replayMode = "base";
-      baseCount = 0;
-      baseIndex = 0;
+      nextAttemptId = 1;
+      unifiedSteps = [];
+      unifiedIndex = -1;
+      unifiedActive = false;
       document.getElementById("gen-stone-attempt-panel")?.remove();
     }
 
     const result = originalSetBusy(value);
+
     if (!value) {
       const stopped = genCancelled || currentStatus().includes("停止");
       for (const attempt of pendingAttempts.values()) {
@@ -360,10 +446,15 @@
       }
       pendingAttempts.clear();
       running = false;
-      window.setTimeout(mergeIntoCombinedReplay, 0);
+
+      // 完整回放會在自己的 setTimeout(0) 中重建；再延後一輪收集它，
+      // 最後只由這一條統一時間軸控制畫面與步驟數。
+      global.setTimeout(() => {
+        global.setTimeout(rebuildUnifiedReplay, 0);
+      }, 0);
     }
     return result;
   };
 
   document.getElementById("gen-stone-attempt-panel")?.remove();
-})();
+})(window);
