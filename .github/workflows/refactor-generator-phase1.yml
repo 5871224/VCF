@@ -30,6 +30,8 @@ jobs:
         run: |
           node tools/refactor-generator-phase1-hotfix.js
           node tools/refactor-generator-phase1-once.js
+          # GitHub Actions token不能修改 workflow；Pages workflow 由 GitHub App 另行更新。
+          git checkout -- .github/workflows/pages.yml
 
       - name: Check generator JavaScript syntax
         shell: bash
@@ -56,7 +58,6 @@ jobs:
           set -euxo pipefail
           rm tools/refactor-generator-phase1-once.js
           rm tools/refactor-generator-phase1-hotfix.js
-          rm .github/workflows/refactor-generator-phase1.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
