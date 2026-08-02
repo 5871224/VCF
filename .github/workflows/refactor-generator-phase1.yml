@@ -30,8 +30,8 @@ jobs:
         run: |
           node tools/refactor-generator-phase1-hotfix.js
           node tools/refactor-generator-phase1-once.js
-          # GitHub Actions token不能修改 workflow；Pages workflow 由 GitHub App 另行更新。
-          git checkout -- .github/workflows/pages.yml
+          # GitHub Actions token不能修改 workflow；兩支正式 workflow 由 GitHub App 另行更新。
+          git checkout -- .github/workflows/pages.yml .github/workflows/vcf-generator-ci.yml
 
       - name: Check generator JavaScript syntax
         shell: bash
