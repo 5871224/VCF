@@ -7,9 +7,10 @@ on:
       - 'makevcf-generator-*.js'
       - 'rapfi/vcf-bitboard-generator-compat.js'
       - 'rapfi/vcf-bitboard-worker.js'
+      - 'README.md'
       - 'AGENTS.md'
-      - '新版Bitboard VCF規格.MD'
-      - '題目產生器規格.MD'
+      - '規格書.MD'
+      - '禁手判斷規格.MD'
       - '.github/workflows/vcf-generator-ci.yml'
   workflow_dispatch:
 
