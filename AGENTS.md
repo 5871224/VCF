@@ -40,6 +40,7 @@ makevcf-generator-core.js
 - `makevcf.html` 是根頁建置來源，不得複製為公開 `/VCF/makevcf.html`。
 - `/rapfi/` 只作為引擎、Worker、UI 模組及明確命名的實驗室資源，不得建立另一份工作台 `index.html`。
 - 題目產生器不得共用或中止主分析 Worker。
+- 專案只維護瀏覽器版；不得重新加入 `app/`、`cpp/`、Electron、WebView2、Native executable 或桌面打包流程。
 
 ## 3. 規則值
 
@@ -54,6 +55,8 @@ makevcf-generator-core.js
 ## 4. 變更原則
 
 - 優先修改正式來源，不以額外修補層長期保留兩套互相覆蓋的邏輯。
+- 工作台跨模組行為統一使用 `rapfi/vcf-bitboard-generator-compat.js` 提供的具名 Registry／事件：`vcfSetRules`、`vcf-board-changed`、`vcfRegisterBusyHook`、`vcfRegisterStatusFormatter`、`vcfRegisterTrimGroupsProvider`、`vcfRegisterSearchHandler`。
+- 功能模組不得重新指派 `setBusy`、`setStatus`、`doSearch`、`doAddVCF`、`engine.findVCF`、`engine.trimVCFGroups`、`pool.getLevelPoints`、`_setBoardArr` 或 `_clearBoard`；只有工作台 runtime 可建立一次正式 dispatcher。
 - 題目產生器一次執行共用單一 `GenerationContext`；新增設定或控制項鎖定行為應使用具名提供者／Hook，不得覆寫 `genOptions` 或核心 `genSetBusy`。
 - 題目產生器回放只可訂閱核心具名事件；不得覆寫驗證、搜尋、結果或忙碌函式，也不得操作舊回放按鈕、讀取已渲染盤面或用延遲排程合併時間軸。
 - 題目產生器的搜尋驗證只有 `makevcf-generator-search-policy.js` 一套正式政策，最終唯一化與補齊只有 `makevcf-generator-finalize.js` 一套流程；不得再新增平行版本或包裝舊函式。
@@ -62,6 +65,7 @@ makevcf-generator-core.js
 - 建置腳本不得注入已淘汰的舊流程；程式重構後同步更新建置驗證。
 - `makevcf.html` 必須明確列出正式腳本順序；`makevcf-mobile.js`、加成、相容、狀態或回放模組不得動態載入其他正式功能檔。
 - Pages 與 CI 建置驗證不得使用 `writeFileSync`、字串替換或其他方式改寫 Git 追蹤來源。
+- Pages artifact 必須使用明確 allowlist 組裝，不得以 `cp -R` 將整個相容、原型、測試或 C++ 來源目錄部署到公開網站。
 - 搜尋限制、中止與部分結果必須可區分；不得把未完整結果描述為已證明。
 - C++、Wasm、Worker、主執行緒與題目產生器若共用資料格式或 ABI，必須在同一批變更更新並驗證。
 - 介面名稱、按鈕文字、選單值與文件用語必須一致。
@@ -81,12 +85,12 @@ makevcf-generator-core.js
 - 所有 `makevcf-generator-*.js` 語法檢查。
 - 專用 Worker、規則傳遞、搜尋限制與剪枝選擇測試。
 - 一般題、白方抓禁題、較短／其他 VCF 補守、最終補齊與回放測試。
-- 桌機與手機版面檢查。
+- 桌機與手機瀏覽器版面檢查。
 - `規格書.MD` 同步更新。
 
 部署變更後：
 
-- 確認 Pages artifact 只有根工作台入口，沒有 `makevcf.html`、`rapfi/index.html` 或已刪除的獨立工具頁。
+- 確認 Pages artifact 只有 allowlist 內的正式網頁資源，沒有 `makevcf.html`、`rapfi/index.html`、桌面版、C++ 原始碼、測試原型或已刪除工具頁。
 - 確認 GitHub Pages `build` 與 `deploy` 都成功。
 - 若由 `GITHUB_TOKEN` 產生的提交不會再次觸發 workflow，使用一般 `main` 提交或 `workflow_dispatch` 觸發。
 
