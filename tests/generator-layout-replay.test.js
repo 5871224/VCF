@@ -17,86 +17,105 @@ for (const token of [
   }
 }
 
-class MockEvent {
-  constructor() {
-    this.stopped = false;
+const replaySource = fs.readFileSync("makevcf-generator-progress.js", "utf8");
+for (const obsolete of [
+  "genSetBusy =",
+  "genValidateCandidate =",
+  "genValidateExtensionCandidate =",
+  "genShowResult =",
+  "genEngine.findVCF =",
+  "genEngine.trimGroups =",
+  "harvestOldReplay",
+  "captureOldStep",
+  "setTimeout",
+]) {
+  if (replaySource.includes(obsolete)) {
+    throw new Error(`event replay still contains wrapper/harvest logic: ${obsolete}`);
   }
-  preventDefault() {}
-  stopImmediatePropagation() {
-    this.stopped = true;
+}
+for (const required of [
+  'genOnGeneratorEvent("generation:start"',
+  'genOnGeneratorEvent("validation:start"',
+  'genOnGeneratorEvent("stone:start"',
+  'genOnGeneratorEvent("search:end"',
+  'genOnGeneratorEvent("generation:end"',
+]) {
+  if (!replaySource.includes(required)) {
+    throw new Error(`missing event replay subscription: ${required}`);
   }
 }
 
 class MockElement {
-  constructor(id = "") {
+  constructor(id = "", tag = "div") {
     this.id = id;
+    this.tag = tag;
     this.dataset = {};
     this.hidden = false;
     this.disabled = false;
     this.textContent = "";
-    this.attrs = {};
-    this.capture = [];
-    this.bubble = [];
     this.children = [];
     this.parentNode = null;
+    this.listeners = new Map();
+    this.attrs = {};
   }
-
-  addEventListener(type, listener, options) {
-    if (type !== "click") return;
-    (options === true ? this.capture : this.bubble).push(listener);
-  }
-
-  click() {
-    if (this.disabled) return;
-    const event = new MockEvent();
-    for (const listener of [...this.capture]) {
-      listener(event);
-      if (event.stopped) return;
-    }
-    for (const listener of [...this.bubble]) {
-      listener(event);
-      if (event.stopped) return;
-    }
-  }
-
-  querySelector(selector) {
-    if (selector === "title") {
-      return this.children.find(child => child.id === "title") || null;
-    }
-    return elements[selector.replace(/^#/, "")] || null;
-  }
-
-  querySelectorAll(selector) {
-    return selector === "rect"
-      ? this.children.filter(child => child.tag === "rect")
-      : [];
-  }
-
   appendChild(child) {
     this.children.push(child);
     child.parentNode = this;
     return child;
   }
-
-  remove() {
-    if (this.parentNode) {
-      this.parentNode.children = this.parentNode.children.filter(child => child !== this);
-    }
+  insertBefore(child, before) {
+    const index = this.children.indexOf(before);
+    if (index < 0) return this.appendChild(child);
+    this.children.splice(index, 0, child);
+    child.parentNode = this;
+    return child;
   }
-
+  remove() {
+    if (!this.parentNode) return;
+    this.parentNode.children = this.parentNode.children.filter(child => child !== this);
+    this.parentNode = null;
+  }
+  get firstChild() {
+    return this.children[0] || null;
+  }
+  get nextSibling() {
+    if (!this.parentNode) return null;
+    const index = this.parentNode.children.indexOf(this);
+    return this.parentNode.children[index + 1] || null;
+  }
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) || [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+  click() {
+    if (this.disabled) return;
+    for (const listener of this.listeners.get("click") || []) listener({});
+  }
+  querySelector(selector) {
+    if (selector === "title") return this.children.find(child => child.tag === "title") || null;
+    return elements[selector.replace(/^#/, "")] || null;
+  }
+  querySelectorAll(selector) {
+    return selector === "rect" ? this.children.filter(child => child.tag === "rect") : [];
+  }
   setAttribute(name, value) {
     this.attrs[name] = String(value);
-    if (name === "hidden") this.hidden = true;
   }
-
   getAttribute(name) {
     return this.attrs[name] ?? null;
   }
 }
 
 const elements = {};
+const parent = new MockElement("parent");
+const status = new MockElement("status");
+parent.appendChild(status);
+elements.status = status;
+
+const panel = new MockElement("gen-replay-combined-panel", "section");
+parent.appendChild(panel);
 for (const id of [
-  "gen-replay-combined-panel",
   "gen-replay-combined-first",
   "gen-replay-combined-prev",
   "gen-replay-combined-next",
@@ -105,158 +124,195 @@ for (const id of [
   "gen-replay-combined-badge",
   "gen-replay-combined-title",
   "gen-replay-combined-reason",
-  "generator-n-layer",
-  "gen-replay-panel",
 ]) {
-  elements[id] = new MockElement(id);
+  elements[id] = new MockElement(id, id.includes("button") ? "button" : "span");
+  panel.appendChild(elements[id]);
+}
+elements[panel.id] = panel;
+const nLayer = new MockElement("generator-n-layer", "g");
+elements[nLayer.id] = nLayer;
+
+const listeners = new Map();
+function on(type, name, listener) {
+  const entries = listeners.get(type) || [];
+  const index = entries.findIndex(entry => entry.name === name);
+  if (index >= 0) entries[index] = { name, listener };
+  else entries.push({ name, listener });
+  listeners.set(type, entries);
+}
+function emit(type, detail = {}) {
+  const event = { type, ...detail };
+  for (const entry of listeners.get(type) || []) entry.listener(event);
 }
 
-const panel = elements["gen-replay-combined-panel"];
-panel.querySelector = selector => elements[selector.replace(/^#/, "")] || null;
-
-let currentBoard = new Array(226).fill(0);
-currentBoard[225] = -1;
-const makeBoard = (...points) => {
+const makeBoard = (...stones) => {
   const board = new Array(226).fill(0);
   board[225] = -1;
-  for (const [idx, color] of points) board[idx] = color;
+  for (const [idx, color] of stones) board[idx] = color;
   return board;
 };
+const materialBoard = makeBoard([0, 1]);
+const candidateBoard = makeBoard([0, 1], [1, 1]);
+const stoneBoard = makeBoard([0, 1], [1, 1], [10, 2]);
+const nMask = new Uint8Array(225);
+nMask[10] = 3;
+let renderedBoard = null;
 
-const baseSteps = [
-  { board: makeBoard(), title: "初始", status: "info" },
-  { board: makeBoard([10, 2]), title: "舊版補守", status: "passed" },
-  { board: makeBoard([10, 2], [20, 2]), title: "舊版補守 2", status: "passed" },
-];
-let baseIndex = baseSteps.length - 1;
-
-function renderBase() {
-  const step = baseSteps[baseIndex];
-  currentBoard = step.board.slice();
-  elements["gen-replay-combined-count"].textContent = `${baseIndex + 1} / ${baseSteps.length}`;
-  elements["gen-replay-combined-title"].textContent = step.title;
-  elements["gen-replay-combined-reason"].textContent = "base";
-  elements["gen-replay-combined-badge"].dataset.status = step.status;
-  elements["gen-replay-combined-prev"].disabled = baseIndex === 0;
-  elements["gen-replay-combined-first"].disabled = baseIndex === 0;
-  elements["gen-replay-combined-next"].disabled = baseIndex === baseSteps.length - 1;
-  elements["gen-replay-combined-last"].disabled = baseIndex === baseSteps.length - 1;
-  panel.hidden = false;
-}
-
-elements["gen-replay-combined-first"].addEventListener("click", () => {
-  baseIndex = 0;
-  renderBase();
-});
-elements["gen-replay-combined-prev"].addEventListener("click", () => {
-  baseIndex = Math.max(0, baseIndex - 1);
-  renderBase();
-});
-elements["gen-replay-combined-next"].addEventListener("click", () => {
-  baseIndex = Math.min(baseSteps.length - 1, baseIndex + 1);
-  renderBase();
-});
-elements["gen-replay-combined-last"].addEventListener("click", () => {
-  baseIndex = baseSteps.length - 1;
-  renderBase();
-});
-renderBase();
-
-const timers = [];
 const context = {
   console,
+  window: null,
+  document: {
+    head: new MockElement("head", "head"),
+    getElementById(id) { return elements[id] || null; },
+    querySelector() { return null; },
+    createElement(tag) { return new MockElement("", tag); },
+    createElementNS(_ns, tag) { return new MockElement("", tag); },
+  },
+  GEN_NO_BLACK: 1,
+  GEN_NO_WHITE: 2,
+  GEN_EMPTY: 0,
+  GEN_BLACK: 1,
+  GEN_WHITE: 2,
+  genEl: id => elements[id] || null,
+  genName: idx => `P${idx}`,
+  genOther: color => 3 - color,
+  genCloneBoard: board => Array.from(board),
+  genBoardsEqual: (a, b) => a.every((value, index) => value === b[index]),
+  genBuildExpectedBaseBoard: state => {
+    const board = Array.from(state.board);
+    board[2] = 1;
+    return board;
+  },
+  genBuildExpectedExtendedBoard: (_previous, state) => {
+    const board = Array.from(state.board);
+    board[2] = 1;
+    return board;
+  },
+  genAnalyzeVCFGroup: (board, _moves, attacker) => {
+    const standardBoard = Array.from(board);
+    standardBoard[2] = attacker;
+    return { valid: true, steps: 1, standardBoard };
+  },
+  genOnGeneratorEvent: on,
+  _setBoardArr: board => { renderedBoard = Array.from(board); },
   Uint8Array,
   Array,
   Map,
   Set,
   Number,
   Math,
-  GEN_BLACK: 1,
-  GEN_WHITE: 2,
-  GEN_EMPTY: 0,
-  GEN_NO_BLACK: 1,
-  GEN_NO_WHITE: 2,
-  genCancelled: false,
-  genOther: color => 3 - color,
-  genName: idx => `P${idx}`,
-  genGetAttacker: () => 1,
-  genEl: id => id === "status" ? { textContent: "" } : null,
-  document: {
-    getElementById: id => elements[id] || null,
-    createElementNS(_namespace, tag) {
-      const element = new MockElement();
-      element.tag = tag;
-      return element;
-    },
-  },
-  window: null,
-  _getArr: () => currentBoard.slice(),
-  _setBoardArr: board => {
-    currentBoard = Array.from(board);
-  },
-  setTimeout(callback) {
-    timers.push(callback);
-    return timers.length;
-  },
+  Date,
 };
 context.window = context;
-context.genSetBusy = value => {
-  if (value) panel.hidden = true;
-  else context.setTimeout(() => {
-    baseIndex = baseSteps.length - 1;
-    renderBase();
-  });
+context.globalThis = context;
+vm.createContext(context);
+vm.runInContext(replaySource, context, { filename: "makevcf-generator-progress.js" });
+
+const generation = { id: 1, attacker: 1, defender: 2, options: { blockOtherVCF: false } };
+const validation = { id: 11, type: "validation" };
+const stone = { id: 12, type: "stone" };
+const search = { id: 13, type: "search" };
+const candidate = {
+  board: candidateBoard,
+  nMask: new Uint8Array(225),
+  attacker: 1,
+  addedAttackers: [],
+  addedDefenders: [],
+  autoBlockDefenders: [],
+  layers: [{ anchor: 1, fivePoint: 2, templateId: 3 }],
+};
+const result = {
+  board: stoneBoard,
+  nMask,
+  attacker: 1,
+  groupCount: 1,
 };
 
-vm.createContext(context);
-const replaySource = fs.readFileSync("makevcf-generator-progress.js", "utf8");
-const stoneReplayMarker = "// 逐顆補子事件與完整回放共用同一時間軸；必須最後安裝。";
-const stoneReplayStart = replaySource.indexOf(stoneReplayMarker);
-if (stoneReplayStart < 0) throw new Error("missing unified stone replay section");
-vm.runInContext(
-  replaySource.slice(stoneReplayStart),
-  context,
-  { filename: "makevcf-generator-progress.js#stone-replay" },
-);
-
-context.genSetBusy(true);
-const firstAttempt = context.genReplayBeginDefenderAttempt({
-  board: makeBoard([10, 2]),
+emit("generation:start", { context: generation });
+emit("material:selected", {
+  board: materialBoard,
+  nMask: new Uint8Array(225),
+  attacker: 1,
+  title: "建立初始活三",
+  reason: "初始材料",
+});
+emit("validation:start", {
+  operation: validation,
+  candidate,
+  expectedSteps: 1,
+  previousResult: null,
+  phase: "base",
+});
+emit("stone:start", {
+  operation: stone,
+  validationOperationId: validation.id,
+  board: stoneBoard,
+  nMask,
   attacker: 1,
   defender: 2,
   idx: 10,
   phase: "mid",
 });
-context.genReplayEndDefenderAttempt(firstAttempt, true, "第一顆通過");
-const secondAttempt = context.genReplayBeginDefenderAttempt({
-  board: makeBoard([10, 2], [20, 2]),
+emit("search:end", {
+  operation: search,
+  board: stoneBoard,
   attacker: 1,
-  defender: 2,
-  idx: 20,
-  phase: "mid",
+  maxVCF: 64,
+  validationOperationId: validation.id,
+  stoneOperationId: stone.id,
+  result: { winMoves: [[2]], nodeCount: 2, aborted: false },
 });
-context.genReplayEndDefenderAttempt(secondAttempt, true, "第二顆通過");
-context.genSetBusy(false);
-while (timers.length) timers.shift()();
+emit("search:trimmed", {
+  board: stoneBoard,
+  attacker: 1,
+  validationOperationId: validation.id,
+  stoneOperationId: stone.id,
+  result: [[2]],
+});
+emit("stone:end", { operation: stone, passed: true, reason: "補守通過" });
+emit("validation:end", {
+  operation: validation,
+  candidate,
+  expectedSteps: 1,
+  passed: true,
+  result,
+});
+emit("generation:result", {
+  context: generation,
+  result,
+  targetSteps: 1,
+  attacker: 1,
+  counters: { attempts: 1 },
+});
+emit("generation:end", { context: generation, outcome: "success", stopped: false });
 
-if (elements["gen-replay-combined-count"].textContent !== "3 / 3") {
-  throw new Error(`unexpected unified replay count: ${elements["gen-replay-combined-count"].textContent}`);
+if (elements["gen-replay-combined-count"].textContent !== "5 / 5") {
+  throw new Error(`unexpected replay count: ${elements["gen-replay-combined-count"].textContent}`);
 }
-if (elements["gen-replay-combined-title"].textContent !== "補守：補上白子 P20") {
-  throw new Error("last supplemented stone was not replayed explicitly");
+if (elements["gen-replay-combined-title"].textContent !== "最終題目：1 步 VCF") {
+  throw new Error("final replay step was not shown");
+}
+if (!renderedBoard || renderedBoard[10] !== 2) {
+  throw new Error("final replay board was not rendered");
+}
+if (nLayer.children.length !== 1) {
+  throw new Error(`N point was not rendered: ${nLayer.children.length}`);
 }
 
 elements["gen-replay-combined-prev"].click();
-if (elements["gen-replay-combined-count"].textContent !== "2 / 3") {
-  throw new Error("previous moved more than one unified replay step");
+if (elements["gen-replay-combined-count"].textContent !== "4 / 5") {
+  throw new Error("previous did not move exactly one replay step");
 }
+elements["gen-replay-combined-prev"].click();
 if (elements["gen-replay-combined-title"].textContent !== "補守：補上白子 P10") {
-  throw new Error("first supplemented stone was not replayed explicitly");
+  throw new Error(`stone step missing from unified timeline: ${elements["gen-replay-combined-title"].textContent}`);
+}
+if (elements["gen-replay-combined-badge"].dataset.status !== "passed") {
+  throw new Error("stone validation result was not preserved");
+}
+elements["gen-replay-combined-first"].click();
+if (elements["gen-replay-combined-title"].textContent !== "建立初始活三") {
+  throw new Error("initial material was not the first replay step");
 }
 
-elements["gen-replay-combined-next"].click();
-if (elements["gen-replay-combined-count"].textContent !== "3 / 3") {
-  throw new Error("next moved more than one unified replay step");
-}
-
-console.log("Generator layout and unified replay tests passed");
+console.log("Generator layout and event replay tests passed");

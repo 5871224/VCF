@@ -138,16 +138,56 @@ class GeneratorVCFEngine {
 
   async findVCF(arr, color, maxVCF = 64, options = {}) {
     const mode = options.mode === "shortest" ? "shortest" : options.mode === "single" ? "single" : "multi";
-    return (await this.post("findVCF", {
-      arr: arr.slice(),
-      color,
-      maxVCF,
+    const board = genCloneBoard(arr);
+    const normalizedOptions = {
+      ...options,
       mode,
-      simplify: mode !== "single",
-      pruning: genSelectedPruning(),
       maxDepth: Math.max(1, Number(options.maxDepth) || 200),
       maxNode: Math.max(1, Number(options.maxNode) || 5000000),
-    })) || { winMoves: [], nodeCount: 0 };
+    };
+    const validationOperation = genFindGeneratorOperation("validation");
+    const stoneOperation = genFindGeneratorOperation("stone");
+    const operation = genBeginGeneratorOperation("search", {
+      board,
+      attacker: color,
+      maxVCF,
+      options: normalizedOptions,
+      validationOperationId: validationOperation?.id || null,
+      stoneOperationId: stoneOperation?.id || null,
+    });
+    try {
+      const result = (await this.post("findVCF", {
+        arr: board.slice(),
+        color,
+        maxVCF,
+        mode,
+        simplify: mode !== "single",
+        pruning: genSelectedPruning(),
+        maxDepth: normalizedOptions.maxDepth,
+        maxNode: normalizedOptions.maxNode,
+      })) || { winMoves: [], nodeCount: 0 };
+      genEndGeneratorOperation(operation, {
+        board,
+        attacker: color,
+        maxVCF,
+        options: normalizedOptions,
+        validationOperationId: validationOperation?.id || null,
+        stoneOperationId: stoneOperation?.id || null,
+        result,
+      });
+      return result;
+    } catch (error) {
+      genEndGeneratorOperation(operation, {
+        board,
+        attacker: color,
+        maxVCF,
+        options: normalizedOptions,
+        validationOperationId: validationOperation?.id || null,
+        stoneOperationId: stoneOperation?.id || null,
+        error,
+      });
+      throw error;
+    }
   }
 
   async trimGroups(arr, groups, color) {
@@ -200,6 +240,16 @@ class GeneratorVCFEngine {
     }
 
     processed.sort((a, b) => a.length - b.length);
+    const validationOperation = genFindGeneratorOperation("validation");
+    const stoneOperation = genFindGeneratorOperation("stone");
+    genEmitGeneratorEvent("search:trimmed", {
+      board: genCloneBoard(arr),
+      attacker,
+      groups: Array.from(groups || []),
+      result: processed,
+      validationOperationId: validationOperation?.id || null,
+      stoneOperationId: stoneOperation?.id || null,
+    });
     return processed;
   }
 
@@ -274,8 +324,12 @@ function genGetTargetSteps() {
 
 const genOptionProviders = [];
 const genBusyHooks = [];
+const genEventListeners = new Map();
+const genOperationStack = [];
 let genGenerationContext = null;
 let genGenerationSerial = 0;
+let genEventSerial = 0;
+let genOperationSerial = 0;
 
 function genRegisterOptionProvider(name, provider) {
   if (!name || typeof provider !== "function") {
@@ -307,6 +361,127 @@ function genRegisterBusyHook(name, hook) {
   const index = genBusyHooks.findIndex(item => item.name === entry.name);
   if (index >= 0) genBusyHooks[index] = entry;
   else genBusyHooks.push(entry);
+}
+
+
+function genOnGeneratorEvent(type, name, listener) {
+  if (!type || !name || typeof listener !== "function") {
+    throw new TypeError("題目產生器事件監聽器需要事件、名稱與函式");
+  }
+  const eventType = String(type);
+  const entry = { name: String(name), listener };
+  const listeners = genEventListeners.get(eventType) || [];
+  const index = listeners.findIndex(item => item.name === entry.name);
+  if (index >= 0) listeners[index] = entry;
+  else listeners.push(entry);
+  genEventListeners.set(eventType, listeners);
+  return () => {
+    const current = genEventListeners.get(eventType) || [];
+    const next = current.filter(item => item.name !== entry.name);
+    if (next.length) genEventListeners.set(eventType, next);
+    else genEventListeners.delete(eventType);
+  };
+}
+
+function genEmitGeneratorEvent(type, detail = {}) {
+  const event = Object.freeze({
+    type: String(type),
+    sequence: ++genEventSerial,
+    generationId: genGenerationContext?.id || null,
+    timestamp: Date.now(),
+    ...detail,
+  });
+  for (const entry of Array.from(genEventListeners.get(event.type) || [])) {
+    try {
+      entry.listener(event);
+    } catch (error) {
+      console.error(`題目產生器事件監聽器 ${entry.name} 執行失敗`, error);
+    }
+  }
+  return event;
+}
+
+function genFindGeneratorOperation(type) {
+  for (let index = genOperationStack.length - 1; index >= 0; index--) {
+    if (genOperationStack[index].type === type) return genOperationStack[index];
+  }
+  return null;
+}
+
+function genBeginGeneratorOperation(type, detail = {}) {
+  const parent = genOperationStack[genOperationStack.length - 1] || null;
+  const operation = Object.freeze({
+    id: ++genOperationSerial,
+    type: String(type),
+    parentId: parent?.id || null,
+    generationId: genGenerationContext?.id || null,
+  });
+  genOperationStack.push(operation);
+  genEmitGeneratorEvent(`${operation.type}:start`, {
+    ...detail,
+    operation,
+    parentOperation: parent,
+  });
+  return operation;
+}
+
+function genEndGeneratorOperation(operation, detail = {}) {
+  if (!operation) return null;
+  const index = genOperationStack.lastIndexOf(operation);
+  if (index >= 0) genOperationStack.splice(index, 1);
+  return genEmitGeneratorEvent(`${operation.type}:end`, {
+    ...detail,
+    operation,
+  });
+}
+
+async function genRunValidationOperation(
+  { candidate, expectedSteps, previousResult = null, phase = "candidate" },
+  validate,
+) {
+  const operation = genBeginGeneratorOperation("validation", {
+    candidate,
+    expectedSteps,
+    previousResult,
+    phase,
+  });
+  try {
+    const result = await validate();
+    genEndGeneratorOperation(operation, {
+      candidate,
+      expectedSteps,
+      previousResult,
+      phase,
+      passed: Boolean(result),
+      result,
+    });
+    return result;
+  } catch (error) {
+    genEndGeneratorOperation(operation, {
+      candidate,
+      expectedSteps,
+      previousResult,
+      phase,
+      passed: false,
+      error,
+    });
+    throw error;
+  }
+}
+
+function genBeginStoneAttempt(detail) {
+  const validationOperation = genFindGeneratorOperation("validation");
+  return genBeginGeneratorOperation("stone", {
+    ...detail,
+    validationOperationId: validationOperation?.id || null,
+  });
+}
+
+function genEndStoneAttempt(operation, passed, reason = "") {
+  return genEndGeneratorOperation(operation, {
+    passed: Boolean(passed),
+    reason,
+  });
 }
 
 function genFreezeOptions(options) {
@@ -343,7 +518,10 @@ function genGetActiveOptions() {
 }
 
 function genEndGenerationContext(context) {
-  if (!context || context === genGenerationContext) genGenerationContext = null;
+  if (!context || context === genGenerationContext) {
+    genGenerationContext = null;
+    genOperationStack.length = 0;
+  }
 }
 
 function genSetBusy(value) {
