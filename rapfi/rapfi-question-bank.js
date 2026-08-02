@@ -242,18 +242,25 @@
     };
 
     const clearResultLayers = () => {
-      if (typeof window._clearVCF === "function") window._clearVCF();
-      if (typeof window._clearAnalysis === "function") window._clearAnalysis();
+      if (typeof window.vcfInvalidateAnalysis === "function") {
+        window.vcfInvalidateAnalysis("已切換題庫題目；舊分析結果已清除");
+        return;
+      }
+      window._clearVCF?.();
+      window._clearAnalysis?.();
       if (typeof resetVcfGroups === "function") resetVcfGroups();
-      if (typeof hideGeneratedOverlays === "function") hideGeneratedOverlays();
-      if (typeof invalidateGeneratedResult === "function") invalidateGeneratedResult();
     };
 
     const loadQuestion = index => {
       if (index < 0 || index >= bank.length || isBusy()) return;
       currentIndex = index;
       clearResultLayers();
-      window._setBoardArr(bank[index].board, bank[index].attacker);
+      const applyBoard = () => window._setBoardArr(bank[index].board, bank[index].attacker);
+      if (typeof window.vcfWithBoardChangeSource === "function") {
+        window.vcfWithBoardChangeSource("question-bank", applyBoard);
+      } else {
+        applyBoard();
+      }
       updateControls();
       if (typeof setStatus === "function") setStatus(`已載入題庫第 ${index + 1} 題，共 ${bank.length} 題`);
     };
@@ -348,40 +355,22 @@
       }
     });
 
-    const boardSvg = document.getElementById("board-svg");
-    if (boardSvg) {
-      boardSvg.addEventListener("click", () => queueMicrotask(() => {
-        trackedAttacker = inferAttacker(currentBoard());
-        syncIndexToBoard();
-      }));
-    }
+    window.addEventListener("vcf-board-changed", event => {
+      const source = event.detail?.source || "";
+      const attacker = Number(event.detail?.attacker);
+      trackedAttacker = attacker === 1 || attacker === 2
+        ? attacker
+        : inferAttacker(currentBoard());
+      if (source === "clear-board") currentIndex = -1;
+      else syncIndexToBoard();
+      updateControls();
+    });
 
-    const originalSetBoardArr = window._setBoardArr;
-    window._setBoardArr = function(...args) {
-      trackedAttacker = args[1] === 2 ? 2 : 1;
-      const result = originalSetBoardArr.apply(this, args);
-      queueMicrotask(syncIndexToBoard);
-      return result;
-    };
-
-    if (typeof window._clearBoard === "function") {
-      const originalClearBoard = window._clearBoard;
-      window._clearBoard = function(...args) {
-        const result = originalClearBoard.apply(this, args);
-        trackedAttacker = 1;
-        currentIndex = -1;
-        updateControls();
-        return result;
-      };
-    }
-
-    if (typeof setBusy === "function") {
-      const originalSetBusy = setBusy;
-      setBusy = function(value) {
-        originalSetBusy(value);
+    if (typeof window.vcfRegisterBusyHook === "function") {
+      window.vcfRegisterBusyHook("question-bank", value => {
         searchBusy = Boolean(value);
         updateControls();
-      };
+      });
     }
 
     const initialize = async () => {
