@@ -190,7 +190,12 @@
     window._clearAnalysis();
     if (!result) return;
 
-    window._setBoardArr(result.board, result.attacker);
+    const applyBoard = () => window._setBoardArr(result.board, result.attacker);
+    if (typeof window.vcfWithBoardChangeSource === "function") {
+      window.vcfWithBoardChangeSource("generator", applyBoard);
+    } else {
+      applyBoard();
+    }
     resetMainAnalysisState(result);
     if (genShowNPoints) showNPoints(result.nMask);
     if (genShowAnswer) window._showVCF(result.moves, result.attacker);
@@ -214,27 +219,23 @@
     document.getElementById("btn-stop").disabled = true;
     svg.classList.toggle("gen-locked", value);
 
-    if (!value && typeof setBusy === "function") setBusy(false);
   };
 
-  const originalMainSetBusy = window.setBusy;
-  if (typeof originalMainSetBusy === "function") {
-    const wrappedMainSetBusy = function wrappedMainSetBusy(value) {
-      originalMainSetBusy(value);
+  if (typeof window.vcfRegisterBusyHook === "function") {
+    window.vcfRegisterBusyHook("generator-controls", value => {
+      const busy = Boolean(value);
       ["btn-generate", "btn-stop", "btn-answer", "btn-npoints", "target-steps", "bonus-reuse", "bonus-center"].forEach(id => {
         const element = genEl(id);
         if (!element) return;
         if (id === "btn-stop") element.disabled = true;
-        else element.disabled = value || ((id === "btn-answer" || id === "btn-npoints") && !genCurrent);
+        else element.disabled = busy || ((id === "btn-answer" || id === "btn-npoints") && !genCurrent);
       });
-      genInputs("attacker").forEach(input => { input.disabled = value; });
-    };
-    window.setBusy = wrappedMainSetBusy;
-    setBusy = wrappedMainSetBusy;
+      genInputs("attacker").forEach(input => { input.disabled = busy; });
+    });
   }
 
-  svg.addEventListener("click", () => {
-    if (!genCurrent || genBusy) return;
+  window.addEventListener("vcf-board-changed", event => {
+    if (event.detail?.source !== "manual" || !genCurrent || genBusy) return;
     invalidateGeneratedResult("棋盤已手動修改；原產生題目的答案與 N 點已清除");
   });
 

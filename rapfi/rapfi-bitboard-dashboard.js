@@ -149,67 +149,52 @@
     return `${timeText}／${nodeText}`;
   };
 
-  if (typeof setBusy === "function") {
-    const originalSetBusy = setBusy;
-    setBusy = function(v) {
-      originalSetBusy(v);
-      simplifyCheck.disabled = Boolean(v);
-      pruningSelect.disabled = Boolean(v);
-      multiTimeInput.disabled = Boolean(v);
-      multiNodeInput.disabled = Boolean(v);
-      addModeSelect.disabled = Boolean(v);
-    };
-  }
+  window.vcfRegisterBusyHook?.("workbench-settings", value => {
+    const busy = Boolean(value);
+    simplifyCheck.disabled = busy;
+    pruningSelect.disabled = busy;
+    multiTimeInput.disabled = busy;
+    multiNodeInput.disabled = busy;
+    addModeSelect.disabled = busy;
+  });
 
-  if (typeof engine !== "undefined" && engine && typeof engine.findVCF === "function") {
-    const originalFindVCF = engine.findVCF.bind(engine);
-    engine.findVCF = async options => {
-      const normalized = { ...options };
-      normalized.mode = normalized.mode || (Number(normalized.maxVCF || 1) > 1 ? "multi" : "single");
-      if (normalized.simplify == null) normalized.simplify = normalized.mode === "multi" || normalized.mode === "shortest";
-      if (normalized.pruning == null && normalized.mode !== "single") normalized.pruning = selectedPruning();
-      if (window.engineAPI) {
-        await engine._initP;
-        return (await window.engineAPI.send("findVCF", normalized)) || { winMoves: [] };
-      }
-      return originalFindVCF(normalized);
-    };
-  }
+  window.vcfRegisterEngineRequestProvider?.("workbench-settings", (cmd, param = {}) => {
+    if (cmd === "findVCF") {
+      const mode = param.mode || (Number(param.maxVCF || 1) > 1 ? "multi" : "single");
+      return {
+        mode,
+        simplify: param.simplify ?? (mode === "multi" || mode === "shortest"),
+        pruning: mode === "single" ? param.pruning : (param.pruning || selectedPruning()),
+      };
+    }
+    if (cmd === "getLevelPoints") {
+      return {
+        pruning: param.pruning || selectedPruning(),
+        arr: Array.from(param.arr || []),
+      };
+    }
+    return null;
+  }, 50);
 
-  if (typeof pool !== "undefined" && pool && typeof pool.getLevelPoints === "function") {
-    const originalPoolGetLevelPoints = pool.getLevelPoints.bind(pool);
-    pool.getLevelPoints = async options => {
-      if (window.engineAPI) {
-        await pool._initP;
-        return window.engineAPI.poolGetLevelPoints({
+  if (typeof genRegisterFindRequestProvider === "function") {
+    genRegisterFindRequestProvider("workbench-settings", request => {
+      const options = { ...(request.options || {}) };
+      const mode = options.mode || "shortest";
+      return {
+        ...request,
+        options: {
           ...options,
+          mode,
+          simplify: options.simplify ?? true,
           pruning: options.pruning || selectedPruning(),
-          arr: Array.from(options.arr || []),
-        });
-      }
-      return originalPoolGetLevelPoints(options);
-    };
+          maxDepth: Math.max(1, Number(options.maxDepth) || 200),
+          maxNode: Math.max(1, Number(options.maxNode) || 5000000),
+        },
+      };
+    }, 50);
   }
 
-  if (typeof genEngine !== "undefined" && genEngine && typeof genEngine.post === "function") {
-    genEngine.findVCF = async (arr, color, maxVCF = 64, options = {}) => {
-      await genEngine.ready;
-      const useBitboardGeneratorMode = Boolean(window.engineAPI);
-      return (await genEngine.post("findVCF", {
-        arr: arr.slice(),
-        color,
-        maxVCF,
-        mode: options.mode || (useBitboardGeneratorMode ? "shortest" : undefined),
-        simplify: options.simplify ?? useBitboardGeneratorMode,
-        pruning: options.pruning || selectedPruning(),
-        maxDepth: Math.max(1, Number(options.maxDepth) || 200),
-        maxNode: Math.max(1, Number(options.maxNode) || 5000000),
-      })) || { winMoves: [], nodeCount: 0 };
-    };
-  }
-
-  if (typeof doSearch === "function") {
-    doSearch = async function(arr, color) {
+  async function runSingleSearch(arr, color) {
       lastParam = { arr, color };
       lastVCFMoves = null;
       lastVCFColor = color;
@@ -243,110 +228,105 @@
         setStatus("搜索失敗：" + (e && e.message || String(e)));
       }
       setBusy(false);
-    };
   }
+
+  window.vcfRegisterSearchHandler?.("single", "workbench-single", runSingleSearch, 50);
 
   // 多組固定最多回傳 64 組；使用者只設定時間（秒）與節點（百萬）限制。
   // 時間與節點輸入 0 代表不限制。C++ 每 524,288 節點檢查一次時間。
-  const multiButton = document.getElementById("btn-multi-vcf");
-  if (multiButton) {
-    multiButton.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      const arr = window._getArr();
-      if (!arr.slice(0, 225).some(v => v > 0)) {
-        setStatus("請先擺好棋型");
-        return;
-      }
-
-      const color = getAColor();
-      const cName = color === 1 ? "黑" : "白";
-      const maxRoutes = 64;
-      const maxDepth = 200;
-      const maxTimeSeconds = selectedTimeSeconds();
-      const maxNodeMillions = selectedNodeMillions();
-      const maxNodeCount = maxNodeMillions > 0 ? maxNodeMillions * 1000000 : 0;
-      const encodedLimits = packMultiLimits(maxTimeSeconds, maxNodeMillions);
-      const limitsText = limitSummary(maxTimeSeconds, maxNodeMillions);
-      const modeName = pruningName();
-      const t0 = performance.now();
-      let progressTimer = 0;
-
-      setBusy(true);
-      window._clearVCF();
-      window._clearAnalysis();
-      resetVcfGroups();
-
-      const updateProgress = () => {
-        const seconds = ((performance.now() - t0) / 1000).toFixed(1);
-        setStatus(`搜索 ${cName} 多組 VCF（${modeName}，先去重後精簡）……已執行 ${seconds} 秒；固定最多 ${maxRoutes} 組；限制 ${limitsText}`);
-      };
-
-      const buildLimitNotes = info => {
-        const notes = [];
-        const nodeCount = Number(info?.nodeCount || 0);
-        const reachedNodes = Boolean(info?.aborted) && maxNodeCount > 0 && nodeCount >= maxNodeCount;
-        const reachedTime = Boolean(info?.aborted) && !reachedNodes && maxTimeSeconds > 0;
-        if ((info?.vcfCount || 0) >= maxRoutes) notes.push(`已達 ${maxRoutes} 組回傳上限，可能仍有其他路線`);
-        if (reachedNodes) notes.push(`已達 ${maxNodeMillions} 百萬節點限制，搜尋未完整`);
-        else if (reachedTime) notes.push(`已達 ${maxTimeSeconds} 秒限制，搜尋未完整`);
-        else if (info?.aborted) notes.push("搜尋已中止，結果未完整");
-        return notes;
-      };
-
-      try {
-        updateProgress();
-        progressTimer = window.setInterval(updateProgress, 250);
-        const info = await engine.findVCF({
-          arr,
-          color,
-          mode: "multi",
-          simplify: true,
-          pruning: selectedPruning(),
-          maxVCF: maxRoutes,
-          maxDepth,
-          maxNode: encodedLimits,
-        });
-        window.clearInterval(progressTimer);
-        progressTimer = 0;
-
-        const rawGroups = (info?.winMoves || []).filter(moves => moves && moves.length);
-        if (!rawGroups.length) {
-          const limitNotes = buildLimitNotes(info);
-          const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
-          setStatus(`${cName} VCF 未找到（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
-          return;
-        }
-
-        setStatus(`後處理：${rawGroups.length} 組路線修剪活四尾步並去重……`);
-        const groups = await engine.trimVCFGroups({ arr, groups: rawGroups, color });
-        if (!groups) return;
-        if (!groups.length) {
-          setStatus(`${cName} VCF 後處理後無結果（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}）`);
-          return;
-        }
-
-        vcfGroups = groups;
-        vcfGroupColor = color;
-        setVcfGroup(0);
-
-        const uniqueStarts = new Set(groups.map(moves => moves[0])).size;
-        const trimNote = rawGroups.length !== groups.length
-          ? `，原 ${rawGroups.length} 組→修剪後 ${groups.length} 組`
-          : `，共 ${groups.length} 組`;
-        const limitNotes = buildLimitNotes(info);
-        const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
-        setStatus(`${cName} VCF（${modeName}）：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
-      } catch (error) {
-        console.error(error);
-        setStatus(`多組 VCF 搜索失敗：${error?.message || error}`);
-      } finally {
-        if (progressTimer) window.clearInterval(progressTimer);
-        setBusy(false);
-      }
-    }, true);
+  async function runMultiSearch({ arr, color }) {
+  if (!arr.slice(0, 225).some(v => v > 0)) {
+    setStatus("請先擺好棋型");
+    return;
   }
+
+  const cName = color === 1 ? "黑" : "白";
+  const maxRoutes = 64;
+  const maxDepth = 200;
+  const maxTimeSeconds = selectedTimeSeconds();
+  const maxNodeMillions = selectedNodeMillions();
+  const maxNodeCount = maxNodeMillions > 0 ? maxNodeMillions * 1000000 : 0;
+  const encodedLimits = packMultiLimits(maxTimeSeconds, maxNodeMillions);
+  const limitsText = limitSummary(maxTimeSeconds, maxNodeMillions);
+  const modeName = pruningName();
+  const t0 = performance.now();
+  let progressTimer = 0;
+
+  setBusy(true);
+  window._clearVCF();
+  window._clearAnalysis();
+  resetVcfGroups();
+
+  const updateProgress = () => {
+    const seconds = ((performance.now() - t0) / 1000).toFixed(1);
+    setStatus(`搜索 ${cName} 多組 VCF（${modeName}，先去重後精簡）……已執行 ${seconds} 秒；固定最多 ${maxRoutes} 組；限制 ${limitsText}`);
+  };
+
+  const buildLimitNotes = info => {
+    const notes = [];
+    const nodeCount = Number(info?.nodeCount || 0);
+    const reachedNodes = Boolean(info?.aborted) && maxNodeCount > 0 && nodeCount >= maxNodeCount;
+    const reachedTime = Boolean(info?.aborted) && !reachedNodes && maxTimeSeconds > 0;
+    if ((info?.vcfCount || 0) >= maxRoutes) notes.push(`已達 ${maxRoutes} 組回傳上限，可能仍有其他路線`);
+    if (reachedNodes) notes.push(`已達 ${maxNodeMillions} 百萬節點限制，搜尋未完整`);
+    else if (reachedTime) notes.push(`已達 ${maxTimeSeconds} 秒限制，搜尋未完整`);
+    else if (info?.aborted) notes.push("搜尋已中止，結果未完整");
+    return notes;
+  };
+
+  try {
+    updateProgress();
+    progressTimer = window.setInterval(updateProgress, 250);
+    const info = await engine.findVCF({
+      arr,
+      color,
+      mode: "multi",
+      simplify: true,
+      pruning: selectedPruning(),
+      maxVCF: maxRoutes,
+      maxDepth,
+      maxNode: encodedLimits,
+    });
+    window.clearInterval(progressTimer);
+    progressTimer = 0;
+
+    const rawGroups = (info?.winMoves || []).filter(moves => moves && moves.length);
+    if (!rawGroups.length) {
+      const limitNotes = buildLimitNotes(info);
+      const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
+      setStatus(`${cName} VCF 未找到（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
+      return;
+    }
+
+    setStatus(`後處理：${rawGroups.length} 組路線修剪活四尾步並去重……`);
+    const groups = await engine.trimVCFGroups({ arr, groups: rawGroups, color });
+    if (!groups) return;
+    if (!groups.length) {
+      setStatus(`${cName} VCF 後處理後無結果（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}）`);
+      return;
+    }
+
+    vcfGroups = groups;
+    vcfGroupColor = color;
+    setVcfGroup(0);
+
+    const uniqueStarts = new Set(groups.map(moves => moves[0])).size;
+    const trimNote = rawGroups.length !== groups.length
+      ? `，原 ${rawGroups.length} 組→修剪後 ${groups.length} 組`
+      : `，共 ${groups.length} 組`;
+    const limitNotes = buildLimitNotes(info);
+    const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
+    setStatus(`${cName} VCF（${modeName}）：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
+  } catch (error) {
+    console.error(error);
+    setStatus(`多組 VCF 搜索失敗：${error?.message || error}`);
+  } finally {
+    if (progressTimer) window.clearInterval(progressTimer);
+    setBusy(false);
+  }
+  }
+
+  window.vcfRegisterSearchHandler?.("multi", "workbench-multi", runMultiSearch, 50);
 
   async function getShortestAddPoints(options) {
   const service = window.VCFBitboard;
@@ -443,8 +423,7 @@
   };
 }
 
-if (typeof doAddVCF === "function") {
-  doAddVCF = async function(arr, placeColor) {
+async function runAddSearch(arr, placeColor) {
     const color = getAColor();
     const placeName = placeColor===1 ? "黑" : "白";
     const vcfName = color===1 ? "黑" : "白";
@@ -525,8 +504,9 @@ if (typeof doAddVCF === "function") {
     } finally {
       setBusy(false);
     }
-  };
 }
+
+window.vcfRegisterSearchHandler?.("add", "workbench-add", runAddSearch, 50);
 
   const status = panel.querySelector("#bb-engine-status");
   Promise.all([

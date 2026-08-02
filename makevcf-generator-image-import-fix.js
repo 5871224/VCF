@@ -4,6 +4,26 @@
   const SIZE = 15;
   const OUTER_MARGIN_CELLS = 0.68;
   const PATCH_FLAG = Symbol.for("vcf.imageImportRuntimeFix");
+  const imageDataProcessors = [];
+  const houghLineProviders = [];
+
+  window.vcfRegisterImageDataProcessor = (name, processor, priority = 0) => {
+    if (!name || typeof processor !== "function") throw new TypeError("圖片處理器需要名稱與函式");
+    const entry = { name: String(name), processor, priority: Number(priority) || 0 };
+    const index = imageDataProcessors.findIndex(item => item.name === entry.name);
+    if (index >= 0) imageDataProcessors[index] = entry;
+    else imageDataProcessors.push(entry);
+    imageDataProcessors.sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name));
+  };
+
+  window.vcfRegisterHoughLineProvider = (name, provider, priority = 0) => {
+    if (!name || typeof provider !== "function") throw new TypeError("Hough 格線提供者需要名稱與函式");
+    const entry = { name: String(name), provider, priority: Number(priority) || 0 };
+    const index = houghLineProviders.findIndex(item => item.name === entry.name);
+    if (index >= 0) houghLineProviders[index] = entry;
+    else houghLineProviders.push(entry);
+    houghLineProviders.sort((a, b) => b.priority - a.priority || a.name.localeCompare(b.name));
+  };
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -141,32 +161,24 @@
     return imageData;
   }
 
-  function installImageDataPatch() {
+  function installImageDataAdapter() {
     const prototype = window.CanvasRenderingContext2D?.prototype;
     if (!prototype || prototype.getImageData[PATCH_FLAG]) return;
     const original = prototype.getImageData;
-    let lastWarpCall = 0;
-    let warpCallSequence = 0;
-
-    function patchedGetImageData(...args) {
-      const imageData = original.apply(this, args);
+    function processedGetImageData(...args) {
+      let imageData = original.apply(this, args);
       if (this.canvas?.id !== "warped-canvas") return imageData;
-      const stack = new Error().stack || "";
-      const now = performance.now();
-      if (now - lastWarpCall > 450) warpCallSequence = 0;
-      lastWarpCall = now;
-      warpCallSequence++;
-      const directRecognitionCall = stack.includes("recognizeBoard") && !stack.includes("refineWarpedIntersections");
-      const fallbackRecognitionCall = warpCallSequence % 2 === 0;
-      return directRecognitionCall || fallbackRecognitionCall
-        ? removeCenterText(imageData)
-        : imageData;
+      for (const entry of imageDataProcessors) {
+        imageData = entry.processor(imageData, { canvas: this.canvas, context: this }) || imageData;
+      }
+      return imageData;
     }
-
-    patchedGetImageData[PATCH_FLAG] = true;
-    patchedGetImageData.__vcfOriginal = original;
-    prototype.getImageData = patchedGetImageData;
+    processedGetImageData[PATCH_FLAG] = true;
+    processedGetImageData.__vcfOriginal = original;
+    prototype.getImageData = processedGetImageData;
   }
+
+  window.vcfRegisterImageDataProcessor("numbered-stone-centers", removeCenterText, 100);
 
   function orientationPeaks(segments) {
     const bins = 90;
@@ -364,53 +376,64 @@
     return output;
   }
 
-  function installCvPatch() {
+  window.vcfRegisterHoughLineProvider("permissive-internal-lattice", (values, context) => {
+    const { cv, image, original, rho, theta, threshold, minLineLength, maxLineGap } = context;
+    let permissive = null;
+    try {
+      permissive = new cv.Mat();
+      original.call(
+        cv,
+        image,
+        permissive,
+        rho,
+        theta,
+        Math.max(18, Math.round(threshold * 0.62)),
+        Math.max(24, Math.round(minLineLength * 0.45)),
+        Math.max(maxLineGap || 0, Math.round(Math.min(image.cols, image.rows) * 0.09)),
+      );
+      const merged = [...values, ...Array.from(permissive.data32S || [])];
+      return augmentHoughValues(merged, image.cols, image.rows);
+    } catch (error) {
+      console.warn("VCF 內部格線外推失敗，沿用原始 Hough 結果。", error);
+      return values;
+    } finally {
+      permissive?.delete();
+    }
+  }, 100);
+
+  function installHoughAdapter() {
     const cv = window.cv;
     if (!cv?.HoughLinesP || cv.HoughLinesP[PATCH_FLAG]) return false;
     const original = cv.HoughLinesP;
-    function patchedHoughLinesP(image, lines, rho, theta, threshold, minLineLength, maxLineGap) {
+    function registeredHoughLinesP(image, lines, rho, theta, threshold, minLineLength, maxLineGap) {
       original.call(cv, image, lines, rho, theta, threshold, minLineLength, maxLineGap);
-      let permissive = null;
-      try {
-        permissive = new cv.Mat();
-        original.call(
-          cv,
-          image,
-          permissive,
-          rho,
-          theta,
-          Math.max(18, Math.round(threshold * 0.62)),
-          Math.max(24, Math.round(minLineLength * 0.45)),
-          Math.max(maxLineGap || 0, Math.round(Math.min(image.cols, image.rows) * 0.09))
-        );
-        const merged = [...Array.from(lines.data32S || []), ...Array.from(permissive.data32S || [])];
-        const augmented = augmentHoughValues(merged, image.cols, image.rows);
-        if (augmented.length > merged.length) {
-          lines.create(augmented.length / 4, 1, cv.CV_32SC4);
-          lines.data32S.set(augmented);
-        } else if (merged.length > (lines.data32S?.length || 0)) {
-          lines.create(merged.length / 4, 1, cv.CV_32SC4);
-          lines.data32S.set(merged);
-        }
-      } catch (error) {
-        console.warn("VCF 內部格線外推失敗，沿用原始 Hough 結果。", error);
-      } finally {
-        if (permissive) permissive.delete();
+      let values = Array.from(lines.data32S || []);
+      const context = {
+        cv, image, lines, original, rho, theta, threshold, minLineLength, maxLineGap,
+        width: image.cols, height: image.rows,
+      };
+      for (const entry of houghLineProviders) {
+        const next = entry.provider(values, context);
+        if (Array.isArray(next)) values = next;
+      }
+      if (values.length !== (lines.data32S?.length || 0)) {
+        lines.create(values.length / 4, 1, cv.CV_32SC4);
+        lines.data32S.set(values);
       }
     }
-    patchedHoughLinesP[PATCH_FLAG] = true;
-    patchedHoughLinesP.__vcfOriginal = original;
-    cv.HoughLinesP = patchedHoughLinesP;
+    registeredHoughLinesP[PATCH_FLAG] = true;
+    registeredHoughLinesP.__vcfOriginal = original;
+    cv.HoughLinesP = registeredHoughLinesP;
     return true;
   }
 
-  installImageDataPatch();
-  if (!installCvPatch()) {
-    const timer = window.setInterval(() => {
-      if (installCvPatch()) window.clearInterval(timer);
-    }, 120);
-    window.setTimeout(() => window.clearInterval(timer), 20000);
+  function installWhenCvReady(attempt = 0) {
+    if (installHoughAdapter() || attempt >= 160) return;
+    window.setTimeout(() => installWhenCvReady(attempt + 1), 125);
   }
+
+  installImageDataAdapter();
+  installWhenCvReady();
 })();
 
 // 缺邊棋盤晶格修正必須在基礎圖片辨識修正之後安裝。
@@ -418,8 +441,6 @@
 
 (function installImageImportHoughFixV2() {
   const SIZE = 15;
-  const PATCH_FLAG = Symbol.for("vcf.imageImportRuntimeFix");
-  const V2_FLAG = Symbol.for("vcf.imageImportHoughFixV2");
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -652,36 +673,9 @@
     return output;
   }
 
-  function install() {
-    const cv = window.cv;
-    if (!cv?.HoughLinesP) return false;
-    if (cv.HoughLinesP[V2_FLAG]) return true;
-
-    const current = cv.HoughLinesP;
-    const original = current.__vcfOriginal || current;
-    function patchedHoughLinesP(image, lines, rho, theta, threshold, minLineLength, maxLineGap) {
-      original.call(cv, image, lines, rho, theta, threshold, minLineLength, maxLineGap);
-      try {
-        const originalValues = Array.from(lines.data32S || []);
-        const augmented = addSyntheticOuterLines(originalValues, image.cols, image.rows);
-        if (augmented.length > originalValues.length) {
-          lines.create(augmented.length / 4, 1, cv.CV_32SC4);
-          lines.data32S.set(augmented);
-        }
-      } catch (error) {
-        console.warn("VCF 缺邊棋盤晶格推算失敗，沿用原始 Hough 結果。", error);
-      }
-    }
-    patchedHoughLinesP[PATCH_FLAG] = true;
-    patchedHoughLinesP[V2_FLAG] = true;
-    patchedHoughLinesP.__vcfOriginal = original;
-    cv.HoughLinesP = patchedHoughLinesP;
-    return true;
-  }
-
-  if (!install()) {
-    const timer = window.setInterval(() => {
-      if (install()) window.clearInterval(timer);
-    }, 150);
+  if (typeof window.vcfRegisterHoughLineProvider === "function") {
+    window.vcfRegisterHoughLineProvider("missing-edge-lattice", (values, context) => (
+      addSyntheticOuterLines(values, context.width, context.height)
+    ), 50);
   }
 })();
