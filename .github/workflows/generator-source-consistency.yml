@@ -1,0 +1,47 @@
+name: Generator Source Consistency
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'makevcf.html'
+      - 'makevcf-mobile.js'
+      - 'makevcf-optimized-search-v2.js'
+      - 'makevcf-generator-*.js'
+      - 'eval/Evaluator.js'
+      - 'rapfi/vcf-bitboard-generator-compat.js'
+      - 'tools/apply-image-import-build-fixes.js'
+      - 'tools/apply-generator-replay-event-fixes.js'
+      - 'tests/generator-source-order.test.js'
+      - '.github/workflows/generator-source-consistency.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-consistency:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check generator JavaScript syntax
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for file in makevcf-generator-*.js makevcf-mobile.js makevcf-optimized-search-v2.js \
+            eval/Evaluator.js rapfi/vcf-bitboard-generator-compat.js; do
+            node --check "$file"
+          done
+
+      - name: Verify fixed source order
+        run: node tests/generator-source-order.test.js
+
+      - name: Verify build checks are read-only
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tools/apply-image-import-build-fixes.js
+          node tools/apply-generator-replay-event-fixes.js
+          git diff --exit-code
