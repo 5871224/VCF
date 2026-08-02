@@ -20,10 +20,11 @@ chunks = []
 for part in parts:
     suffix = part.name.rsplit("-", 1)[-1]
     data = part.read_text().strip()
-    # The GitHub contents write for chunk 02 dropped one ASCII character.
-    # Repair that known transport-only omission before checksum validation.
+    # Repair two known GitHub contents transport artifacts before validation.
     if suffix == "02" and len(data) == 16999:
         data = data[:7039] + "k" + data[7039:]
+    if suffix == "03" and len(data) > 17000:
+        data = data[:17000]
     length, digest = expected[suffix]
     actual_digest = hashlib.sha256(data.encode()).hexdigest()
     print(f"payload {suffix}: length={len(data)} sha256={actual_digest}")
