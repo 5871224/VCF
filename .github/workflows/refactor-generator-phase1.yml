@@ -4,24 +4,20 @@ on:
   push:
     branches:
       - agent/refactor-generator-phase1
-  pull_request:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/refactor-generator-phase1.yml'
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   prepare:
+    if: ${{ !contains(github.event.head_commit.message, '[workflow artifacts]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
         uses: actions/checkout@v6
         with:
           ref: agent/refactor-generator-phase1
+          fetch-depth: 0
 
       - name: Prepare non-mutating Pages workflow
         shell: python
@@ -64,7 +60,7 @@ jobs:
           PY
 '''
           text = text[:start] + verification + text[end + len(end_marker):]
-          path.write_text(text, encoding='utf-8')
+          Path('tools/generated-pages.yml.txt').write_text(text, encoding='utf-8')
 
       - name: Prepare generator CI workflow
         shell: python
@@ -94,13 +90,14 @@ jobs:
 """
           if "Verify generator source order and non-mutating build" not in text:
               text = text.replace(test_marker, test_block, 1)
-          path.write_text(text, encoding='utf-8')
+          Path('tools/generated-vcf-generator-ci.yml.txt').write_text(text, encoding='utf-8')
 
-      - name: Upload workflow updates
-        uses: actions/upload-artifact@v4
-        with:
-          name: generator-phase1-workflows
-          path: |
-            .github/workflows/pages.yml
-            .github/workflows/vcf-generator-ci.yml
-          if-no-files-found: error
+      - name: Commit prepared workflow text
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add tools/generated-pages.yml.txt tools/generated-vcf-generator-ci.yml.txt
+          git commit -m "產生第一階段 workflow 更新檔 [workflow artifacts]"
+          git push origin HEAD:agent/refactor-generator-phase1
