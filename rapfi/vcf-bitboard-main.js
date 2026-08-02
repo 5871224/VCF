@@ -8,6 +8,11 @@
   const ENGINE_MAX_NODES = 0xffffffff;
   const DEFAULT_NODE_MILLIONS = 20;
 
+  const normalizeRules = rules => {
+    const value = Number(rules);
+    return value === 0 || value === 1 || value === 2 ? value : 2;
+  };
+
   function configuredMaxNodes() {
     let raw = null;
     try {
@@ -110,7 +115,7 @@
 
   class BitboardEngineService {
     constructor() {
-      this.rules = 2;
+      this.rules = normalizeRules(2);
       this.main = new RpcWorker();
       // 單次 VCF 只使用 main；批次掃點第一次呼叫時才建立 Worker 池，
       // 避免頁面啟動時無條件載入最多 8 份 Wasm 引擎。
@@ -132,8 +137,20 @@
         locateFile: file => new URL(file, base).href,
       });
       this.syncApi = {
-        levelPoint: this.syncModule.cwrap("vcfBbLegacyGetLevelPoint", "number", ["number", "number", "number", "number"]),
-        lineFour: this.syncModule.cwrap("vcfBbLegacyTestLineFour", "number", ["number", "number", "number", "number", "number"]),
+        levelPoint: this.syncModule.cwrap(
+          this.syncModule._vcfBbLegacyGetLevelPointCompat
+            ? "vcfBbLegacyGetLevelPointCompat"
+            : "vcfBbLegacyGetLevelPoint",
+          "number",
+          ["number", "number", "number", "number"],
+        ),
+        lineFour: this.syncModule.cwrap(
+          this.syncModule._vcfBbLegacyTestLineFourCompat
+            ? "vcfBbLegacyTestLineFourCompat"
+            : "vcfBbLegacyTestLineFour",
+          "number",
+          ["number", "number", "number", "number", "number"],
+        ),
         blockFour: this.syncModule.cwrap("vcfBbLegacyGetBlockFourPoint", "number", ["number", "number", "number", "number", "number"]),
         foul: this.syncModule.cwrap("vcfBbLegacyIsFoul", "number", ["number", "number", "number"]),
         selfTest: this.syncModule.cwrap("vcfBbSelfTest", "number", []),
@@ -154,7 +171,7 @@
 
     installLegacyGlobals() {
       const service = this;
-      global.setGameRules = rules => { service.rules = Number(rules) || 2; };
+      global.setGameRules = rules => { service.rules = normalizeRules(rules); };
       global.getLevelPoint = (idx, color, arr) => {
         service.writeSyncBoard(arr);
         return service.syncApi.levelPoint(service.syncBoardPtr, idx, color, service.rules);
@@ -240,7 +257,7 @@
     }
 
     async broadcastRules(rules) {
-      this.rules = Number(rules) || 2;
+      this.rules = normalizeRules(rules);
       await Promise.all([
         this.main.call("setGameRules", { rules: this.rules }),
         ...this.pool.map(worker => worker.call("setGameRules", { rules: this.rules })),
@@ -253,7 +270,7 @@
       const requested = resolveRequest(cmd, param);
       const normalized = cmd === "setGameRules" ? requested : withConfiguredMaxNode(requested);
       switch (cmd) {
-        case "setGameRules": return this.broadcastRules(normalized.rules);
+        case "setGameRules": return this.broadcastRules(normalizeRules(normalized.rules));
         case "findVCF": return this.main.call("findVCF", { ...normalized, rules: this.rules });
         case "isVCF": {
           const result = await this.main.call("isVCF", {
@@ -324,6 +341,8 @@
       }
     }
   }
+
+  global.vcfNormalizeRules = normalizeRules;
 
   const service = new BitboardEngineService();
   global.VCFBitboard = service;
