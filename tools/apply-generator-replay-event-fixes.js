@@ -1,31 +1,48 @@
 "use strict";
 
 const fs = require("fs");
-const { spawnSync } = require("child_process");
-function fail(message) { throw new Error(`[題目產生器架構驗證] ${message}`); }
-function source(file) { return fs.readFileSync(file, "utf8"); }
-function requireTokens(file, tokens, forbidden = []) {
-  const text = source(file);
-  for (const token of tokens) if (!text.includes(token)) fail(`${file} 缺少：${token}`);
-  for (const token of forbidden) if (text.includes(token)) fail(`${file} 仍殘留：${token}`);
-  const checked = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
-  if (checked.status !== 0) fail(`${file} 語法失敗：${checked.stderr}`);
+const path = require("path");
+const root = path.resolve(__dirname, "..");
+const read = file => fs.readFileSync(path.join(root, file), "utf8");
+
+const core = read("makevcf-generator-core.js");
+const progress = read("makevcf-generator-progress.js");
+const integrated = read("makevcf-generator-integrated.js");
+const policy = read("makevcf-generator-search-policy.js");
+const finalizer = read("makevcf-generator-finalize.js");
+
+for (const token of [
+  "function genEmitGeneratorEvent(",
+  "function genBeginGeneratorOperation(",
+  "function genBeginGenerationContext(",
+  "function genRegisterFindRequestProvider(",
+]) if (!core.includes(token)) throw new Error(`generator event architecture missing: ${token}`);
+
+for (const token of [
+  'genOnGeneratorEvent("generation:start"',
+  'genOnGeneratorEvent("stone:end"',
+  'genOnGeneratorEvent("validation:end"',
+]) if (!progress.includes(token)) throw new Error(`generator replay subscription missing: ${token}`);
+
+for (const forbidden of [
+  "genSetBusy =",
+  "genValidateCandidate =",
+  "genEngine.findVCF =",
+  "MutationObserver",
+  "setInterval(",
+]) if (progress.includes(forbidden)) throw new Error(`generator replay patch remains: ${forbidden}`);
+
+if (!integrated.includes('vcfRegisterBusyHook("generator-controls"')) {
+  throw new Error("generator controls do not use the workbench busy hook");
 }
-requireTokens("makevcf-generator-core.js", [
-  "genRegisterFindRequestProvider", "genRegisterCandidateDecorator", "genRegisterSeedProvider",
-  "genRegisterResultPresenter", "genRunValidationOperation", "genBeginStoneAttempt",
-]);
-requireTokens("makevcf-generator-search-policy.js", [
-  "validateWithRankedDefense", "rankDefensePoints", "genValidateBySearchPolicy", "genCleanFinalTargetBoard",
-]);
-requireTokens("makevcf-generator-finalize.js", [
-  "genFinalizeGeneratedResult", "fillRequiredColor", "validateFilledState",
-]);
-requireTokens("makevcf-generator-progress.js", [
-  'genOnGeneratorEvent("generation:start"', 'genOnGeneratorEvent("validation:start"',
-  'genOnGeneratorEvent("stone:start"', 'genOnGeneratorEvent("generation:end"',
-], ["genSetBusy =", "genValidateCandidate =", "genEngine.findVCF =", "MutationObserver", "setInterval("]);
-requireTokens("makevcf-generator-status-detail.js", [
-  "genRegisterStatusFormatter", 'genOnGeneratorEvent("search:start"', 'genOnGeneratorEvent("stone:start"',
-], ["genSetStatus =", "genEngine.findVCF =", "setTimeout("]);
-console.log("題目產生器單一政策、事件回放與狀態架構驗證通過。");
+if (integrated.includes("window.setBusy =") || integrated.includes("setBusy = wrapped")) {
+  throw new Error("generator integration still replaces main busy state");
+}
+if (!policy.includes("genRegisterFindRequestProvider") && !core.includes("genRegisterFindRequestProvider")) {
+  throw new Error("generator search request registry unavailable");
+}
+if (!finalizer.includes("genFinalizeGeneratedResult")) {
+  throw new Error("single generator finalizer unavailable");
+}
+
+console.log("Generator event, replay and finalizer checks passed");

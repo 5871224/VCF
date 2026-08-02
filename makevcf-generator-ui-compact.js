@@ -112,21 +112,8 @@
   }
 
   async function applyRuleDirectly(rules) {
-    if (typeof searching !== "undefined" && searching) return false;
-    if (typeof setStatus === "function") setStatus("正在切換規則...");
-    try {
-      const tasks = [];
-      if (typeof engine !== "undefined" && engine?.setRules) tasks.push(engine.setRules(rules));
-      if (typeof pool !== "undefined" && pool?.setRules) tasks.push(pool.setRules(rules));
-      await Promise.all(tasks);
-      if (typeof setStatus === "function") setStatus(`${RULE_NAMES[rules]}，就緒`);
-      window.dispatchEvent(new CustomEvent("vcf-rule-changed", { detail: { rules } }));
-      return true;
-    } catch (error) {
-      console.error(error);
-      if (typeof setStatus === "function") setStatus(`切換規則失敗：${error?.message || error}`);
-      return false;
-    }
+    if (typeof window.vcfSetRules !== "function") return false;
+    return window.vcfSetRules(rules);
   }
 
   function installRuleSelect(ruleBox) {

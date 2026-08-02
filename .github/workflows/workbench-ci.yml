@@ -1,0 +1,56 @@
+name: VCF Workbench CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'makevcf.html'
+      - 'makevcf-*.js'
+      - 'rapfi/*.js'
+      - 'eval/**'
+      - 'emoji/**'
+      - 'tests/**'
+      - 'tools/**'
+      - 'package.json'
+      - 'README.md'
+      - 'AGENTS.md'
+      - '規格書.MD'
+      - '檔案用途總覽.MD'
+      - '.github/workflows/pages.yml'
+      - '.github/workflows/workbench-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  workbench-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check workbench JavaScript syntax
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for file in \
+            makevcf-generator-integrated.js \
+            makevcf-generator-image-import-fix.js \
+            makevcf-generator-ui-compact.js \
+            makevcf-optimized-search-v2.js \
+            rapfi/vcf-bitboard-main.js \
+            rapfi/vcf-bitboard-generator-compat.js \
+            rapfi/rapfi-bitboard-dashboard.js \
+            rapfi/vcf-shortest-vcf-ui.js \
+            rapfi/vcf-forbidden-overlay.js \
+            rapfi/rapfi-workbench-header.js \
+            rapfi/rapfi-question-bank.js; do
+            node --check "$file"
+          done
+
+      - name: Verify workbench and repository architecture
+        run: npm run test:architecture
+
+      - name: Verify read-only build checks
+        run: npm run verify:source
