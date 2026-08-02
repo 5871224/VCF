@@ -99,4 +99,16 @@ for (const file of [
   }
 }
 
+const questionBank = read("rapfi/rapfi-question-bank.js");
+const generatorLayout = read("makevcf-generator-layout-fix.js");
+for (const token of [
+  'window.dispatchEvent(new CustomEvent("vcf-question-bank-ready"',
+  'if (!install()) {',
+]) if (!questionBank.includes(token)) throw new Error(`question-bank readiness contract missing: ${token}`);
+for (const token of [
+  'global.addEventListener("vcf-question-bank-ready", applyLayout, { once: true })',
+  'if (!bank) return false;',
+  'panel.lastElementChild === bank',
+]) if (!generatorLayout.includes(token)) throw new Error(`question-bank mount contract missing: ${token}`);
+
 console.log("Generator final architecture checks passed");
