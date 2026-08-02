@@ -1,9 +1,10 @@
 # Local dependency and build outputs
-app/node_modules/
-cpp/build/
-cpp/build_webparity/
-cpp/vcf_build/
-cpp/*.obj
+node_modules/
+.build/
+.cache/
+_site/
+__pycache__/
+*.py[cod]
 *.pdb
 *.ilk
 *.user
