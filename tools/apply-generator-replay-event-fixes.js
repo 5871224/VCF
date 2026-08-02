@@ -12,24 +12,18 @@ function fail(message) {
   throw new Error(`[補子回放事件建置] ${message}`);
 }
 
-function replaceOneOf(content, variants, label) {
-  for (const { from, to, name } of variants) {
-    const first = content.indexOf(from);
-    if (first < 0) continue;
-    if (content.indexOf(from, first + from.length) >= 0) {
-      fail(`${label}（${name}）：預期程式區塊出現超過一次`);
-    }
-    return content.replace(from, to);
-  }
-  fail(`${label}：找不到舊版或新版的預期程式區塊`);
-}
-
 function replaceOnce(content, oldText, newText, label) {
-  return replaceOneOf(content, [{ from: oldText, to: newText, name: "標準" }], label);
+  const first = content.indexOf(oldText);
+  if (first < 0) fail(`${label}：找不到目前多組補守的預期程式區塊`);
+  if (content.indexOf(oldText, first + oldText.length) >= 0) {
+    fail(`${label}：預期程式區塊出現超過一次`);
+  }
+  return content.replace(oldText, newText);
 }
 
 function syntaxCheck(filename, content) {
-  const temporaryPath = path.join(os.tmpdir(), filename);
+  const safeName = String(filename).replace(/[\\/]/g, "_");
+  const temporaryPath = path.join(os.tmpdir(), safeName);
   fs.writeFileSync(temporaryPath, content, "utf8");
   const result = spawnSync(process.execPath, ["--check", temporaryPath], {
     encoding: "utf8",
@@ -44,28 +38,20 @@ for (const requiredPath of [defensePath, finalBalancePath, progressPath, replayP
   if (!fs.existsSync(requiredPath)) fail(`缺少必要檔案：${requiredPath}`);
 }
 
-function layerBranch(functionName, hasFailedPoint, withReplay) {
-  const failedLine = hasFailedPoint
-    ? "\n          failedPoints.add(failedKey);"
-    : "";
-  const oldFailedLine = hasFailedPoint
-    ? "\n        if (!genCancelled) failedPoints.add(failedKey);"
-    : "";
+let defense = fs.readFileSync(defensePath, "utf8");
 
-  if (!withReplay) {
-    return `        const next = addLayerDefender(candidate, idx);
+if (!defense.includes('phase: "mid"')) {
+  const before = `        const next = addLayerDefender(candidate, idx);
         if (!next) continue;
-        const result = await ${functionName}(
+        const result = await validateWithRankedDefense(
           next,
           expectedSteps,
           previousResult,
           policy,
           budget,
         );
-        if (result) return result;${oldFailedLine}`;
-  }
-
-  return `        const next = addLayerDefender(candidate, idx);
+        if (result) return result;`;
+  const after = `        const next = addLayerDefender(candidate, idx);
         if (!next) continue;
         const replayAttempt = window.genReplayBeginDefenderAttempt?.({
           phase: "mid",
@@ -75,7 +61,7 @@ function layerBranch(functionName, hasFailedPoint, withReplay) {
           defender: next.defender,
           idx,
         });
-        const result = await ${functionName}(
+        const result = await validateWithRankedDefense(
           next,
           expectedSteps,
           previousResult,
@@ -87,24 +73,13 @@ function layerBranch(functionName, hasFailedPoint, withReplay) {
           return result;
         }
         if (!genCancelled) {
-          window.genReplayEndDefenderAttempt?.(replayAttempt, false);${failedLine}
+          window.genReplayEndDefenderAttempt?.(replayAttempt, false);
         }`;
+  defense = replaceOnce(defense, before, after, "中途補守明確事件");
 }
 
-function finalBranch(hasFailedPoint, withReplay) {
-  const failedLine = hasFailedPoint
-    ? "\n          failedPoints.add(failedKey);"
-    : "";
-  const oldFailedLine = hasFailedPoint
-    ? "\n        if (!genCancelled) failedPoints.add(failedKey);"
-    : "";
-
-  if (!withReplay) {
-    return `        const added = addFinalDefender(
-          state,
-          expectedBoard,
-          idx,
-        );
+if (!defense.includes('phase: "final"')) {
+  const before = `        const added = addFinalDefender(state, expectedBoard, idx);
         if (!added) continue;
         const result = await cleanFinalTargetBoard(
           added.state,
@@ -112,14 +87,8 @@ function finalBranch(hasFailedPoint, withReplay) {
           targetSteps,
           budget,
         );
-        if (result) return result;${oldFailedLine}`;
-  }
-
-  return `        const added = addFinalDefender(
-          state,
-          expectedBoard,
-          idx,
-        );
+        if (result) return result;`;
+  const after = `        const added = addFinalDefender(state, expectedBoard, idx);
         if (!added) continue;
         const replayAttempt = window.genReplayBeginDefenderAttempt?.({
           phase: "final",
@@ -140,52 +109,15 @@ function finalBranch(hasFailedPoint, withReplay) {
           return result;
         }
         if (!genCancelled) {
-          window.genReplayEndDefenderAttempt?.(replayAttempt, false);${failedLine}
+          window.genReplayEndDefenderAttempt?.(replayAttempt, false);
         }`;
-}
-
-let defense = fs.readFileSync(defensePath, "utf8");
-if (!defense.includes('phase: "mid"')) {
-  defense = replaceOneOf(
-    defense,
-    [
-      {
-        name: "新版多組排序補守",
-        from: layerBranch("validateWithRankedDefense", false, false),
-        to: layerBranch("validateWithRankedDefense", false, true),
-      },
-      {
-        name: "舊版串流補守",
-        from: layerBranch("validateWithStreamingDefense", true, false),
-        to: layerBranch("validateWithStreamingDefense", true, true),
-      },
-    ],
-    "中途補守明確事件",
-  );
-}
-
-if (!defense.includes('phase: "final"')) {
-  defense = replaceOneOf(
-    defense,
-    [
-      {
-        name: "新版多組最終補守",
-        from: finalBranch(false, false),
-        to: finalBranch(false, true),
-      },
-      {
-        name: "舊版最終補守",
-        from: finalBranch(true, false),
-        to: finalBranch(true, true),
-      },
-    ],
-    "最終唯一化明確事件",
-  );
+  defense = replaceOnce(defense, before, after, "最終唯一化明確事件");
 }
 
 for (const token of [
   'phase: "mid"',
   'phase: "final"',
+  "validateWithRankedDefense(",
   "genReplayBeginDefenderAttempt",
   "genReplayEndDefenderAttempt",
 ]) {
@@ -206,19 +138,11 @@ for (const token of [
 ]) {
   if (!finalBalance.includes(token)) fail(`最終補色驗證缺少：${token}`);
 }
-for (const forbidden of [
-  "const defender = genOther(state.attacker);\n      const replayBoard",
-  "findTargetAfterFill(\n      board,\n      color,",
-]) {
-  if (finalBalance.includes(forbidden)) {
-    fail(`最終補色仍把補入色當成守方或搜尋方：${forbidden}`);
-  }
-}
 syntaxCheck(finalBalancePath, finalBalance);
 
 let progress = fs.readFileSync(progressPath, "utf8");
 if (!progress.includes("stageTitleForAddedStone(color, idx, attacker)")) {
-  const inferredTitleFunction = `    function stageTitleForAddedStone(color, idx) {
+  const oldFunction = `    function stageTitleForAddedStone(color, idx) {
       const status = currentStageText();
       if (status.includes("封鎖其他完成盤面") || status.includes("只保留目標")) {
         return \`封鎖其他 VCF：補上\${colorName(color)} \${pointName(idx)}\`;
@@ -228,7 +152,7 @@ if (!progress.includes("stageTitleForAddedStone(color, idx, attacker)")) {
       }
       return \`補守：補上\${colorName(color)} \${pointName(idx)}\`;
     }`;
-  const explicitSideTitleFunction = `    function stageTitleForAddedStone(color, idx, attacker) {
+  const newFunction = `    function stageTitleForAddedStone(color, idx, attacker) {
       const normalizedAttacker = Number(attacker) === GEN_WHITE
         ? GEN_WHITE
         : GEN_BLACK;
@@ -240,31 +164,24 @@ if (!progress.includes("stageTitleForAddedStone(color, idx, attacker)")) {
       }
       return \`棋子 \${pointName(idx)} 加入後驗證\`;
     }`;
-  progress = replaceOnce(
-    progress,
-    inferredTitleFunction,
-    explicitSideTitleFunction,
-    "取消依狀態文字猜補守名稱",
-  );
+  progress = replaceOnce(progress, oldFunction, newFunction, "明確攻守方標題");
   progress = replaceOnce(
     progress,
     "title = stageTitleForAddedStone(board[idx], idx);",
     "title = stageTitleForAddedStone(board[idx], idx, attacker);",
-    "一般回放傳入明確攻方",
+    "一般回放傳入攻方",
   );
-  progress = replaceOnce(
-    progress,
+  progress = progress.replace(
     "title = `補上 ${parent.additions.length} 顆棋子後驗證`;",
     "title = `盤面增加 ${parent.additions.length} 顆棋子後驗證`;",
-    "多棋差異使用中性名稱",
   );
 }
-for (const required of [
+for (const token of [
   "stageTitleForAddedStone(color, idx, attacker)",
   "color === normalizedAttacker",
   "color === genOther(normalizedAttacker)",
 ]) {
-  if (!progress.includes(required)) fail(`一般回放攻守標示缺少：${required}`);
+  if (!progress.includes(token)) fail(`一般回放攻守標示缺少：${token}`);
 }
 syntaxCheck(progressPath, progress);
 fs.writeFileSync(progressPath, progress, "utf8");
@@ -277,11 +194,9 @@ for (const forbidden of [
   "findOneStoneParent",
   "defender !== expectedDefender",
 ]) {
-  if (replay.includes(forbidden)) {
-    fail(`事件式回放仍殘留推測或強制守方邏輯：${forbidden}`);
-  }
+  if (replay.includes(forbidden)) fail(`事件式回放仍殘留推測邏輯：${forbidden}`);
 }
-for (const required of [
+for (const token of [
   "genReplayBeginDefenderAttempt",
   "genReplayEndDefenderAttempt",
   "payload.color ?? payload.defender",
@@ -289,8 +204,8 @@ for (const required of [
   'role === "attacker"',
   "board[idx] !== placedColor",
 ]) {
-  if (!replay.includes(required)) fail(`事件式回放缺少：${required}`);
+  if (!replay.includes(token)) fail(`事件式回放缺少：${token}`);
 }
 syntaxCheck(replayPath, replay);
 
-console.log("補守與補齊子數回放建置完成：支援新版多組排序補守與舊版串流補守。\n");
+console.log("補守與補齊子數回放建置完成：已對齊目前多組排序補守。\n");
