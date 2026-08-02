@@ -208,18 +208,6 @@ self.onmessage = async event => {
     });
   }
 
-  function wrapBoardMutation(name) {
-    const original = global[name];
-    if (typeof original !== "function" || original.__forbiddenOverlayWrapped) return;
-    const wrapped = function (...args) {
-      const result = original.apply(this, args);
-      scheduleRefresh();
-      return result;
-    };
-    wrapped.__forbiddenOverlayWrapped = true;
-    global[name] = wrapped;
-  }
-
   function installUI() {
     const svg = document.getElementById("board-svg");
     const ruleBox = document.getElementById("rule-box");
@@ -251,9 +239,8 @@ self.onmessage = async event => {
       radio.addEventListener("change", scheduleRefresh);
     }
 
-    svg.addEventListener("click", () => setTimeout(scheduleRefresh, 0));
-    wrapBoardMutation("_setBoardArr");
-    wrapBoardMutation("_clearBoard");
+    global.addEventListener("vcf-board-changed", scheduleRefresh);
+    global.addEventListener("vcf-rule-changed", scheduleRefresh);
     scheduleRefresh();
     return true;
   }
