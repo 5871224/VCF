@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - agent/refactor-generator-phase1
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/refactor-generator-phase1.yml'
   workflow_dispatch:
 
 permissions:
