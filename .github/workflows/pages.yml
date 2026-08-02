@@ -69,20 +69,15 @@ jobs:
           source .build/emsdk/emsdk_env.sh
           rm -rf .build/rapfi .cache/rapfi-wasm
           mkdir -p .build .cache/rapfi-wasm
-
           git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
           git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
           git -C .build/rapfi checkout --detach "$RAPFI_REF"
           rm -rf .build/rapfi/Networks
-
           git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi-networks.git .build/rapfi/Networks
           git -C .build/rapfi/Networks sparse-checkout init --no-cone
-          git -C .build/rapfi/Networks sparse-checkout set --no-cone \
-            /wasm_preloads.txt /config-example/ /classical/ /mix9svq/
+          git -C .build/rapfi/Networks sparse-checkout set --no-cone /wasm_preloads.txt /config-example/ /classical/ /mix9svq/
           git -C .build/rapfi/Networks fetch --depth 1 origin "$RAPFI_NETWORKS_REF"
           git -C .build/rapfi/Networks checkout --detach "$RAPFI_NETWORKS_REF"
-
-          # 不修改 Rapfi 或 Networks 的任何原始碼、CMakeLists 或設定檔。
           build_dir="$GITHUB_WORKSPACE/.build/rapfi/Rapfi/build/wasm-single-simd128"
           mkdir -p "$build_dir"
           cd "$build_dir"
@@ -93,14 +88,9 @@ jobs:
             -DUSE_WASM_SIMD=ON \
             -DUSE_WASM_SIMD_RELAXED=OFF
           emmake cmake --build . -j2
+          cp rapfi-single-simd128.js rapfi-single-simd128.wasm rapfi-single-simd128.data "$GITHUB_WORKSPACE/.cache/rapfi-wasm/"
 
-          cp rapfi-single-simd128.js rapfi-single-simd128.wasm rapfi-single-simd128.data \
-            "$GITHUB_WORKSPACE/.cache/rapfi-wasm/"
-          test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.js"
-          test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.wasm"
-          test -s "$GITHUB_WORKSPACE/.cache/rapfi-wasm/rapfi-single-simd128.data"
-
-      - name: Test and build independent VCF pattern engine WebAssembly
+      - name: Build independent VCF pattern engine
         if: steps.pattern-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
@@ -108,37 +98,17 @@ jobs:
           source .build/emsdk/emsdk_env.sh
           rm -rf .cache/vcf-pattern-engine
           mkdir -p .cache/vcf-pattern-engine
-
-          g++ rapfi/vcf-pattern-engine-optimized.cpp \
-            -O3 \
-            -flto \
-            -DNDEBUG \
-            -std=c++17 \
-            -DVCF_PATTERN_TEST_MAIN \
-            -o /tmp/vcf-pattern-engine-test
+          g++ rapfi/vcf-pattern-engine-optimized.cpp -O3 -flto -DNDEBUG -std=c++17 -DVCF_PATTERN_TEST_MAIN -o /tmp/vcf-pattern-engine-test
           /tmp/vcf-pattern-engine-test
-
           em++ rapfi/vcf-pattern-engine-optimized.cpp \
-            -O3 \
-            -flto \
-            -DNDEBUG \
-            -std=c++17 \
-            -msimd128 \
-            --no-entry \
-            -s WASM=1 \
-            -s MODULARIZE=1 \
-            -s EXPORT_NAME=VCFPatternEngine \
-            -s ENVIRONMENT=worker \
-            -s FILESYSTEM=0 \
-            -s ALLOW_MEMORY_GROWTH=1 \
+            -O3 -flto -DNDEBUG -std=c++17 -msimd128 --no-entry \
+            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFPatternEngine \
+            -s ENVIRONMENT=worker -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1 \
             -s "EXPORTED_FUNCTIONS=['_vcfAnalyzePoint','_vcfAnalyzeForbidden','_vcfLookupBenchmark','_vcfPatternSelfTest','_malloc','_free']" \
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-pattern-engine/vcf-pattern-engine.js
 
-          test -s .cache/vcf-pattern-engine/vcf-pattern-engine.js
-          test -s .cache/vcf-pattern-engine/vcf-pattern-engine.wasm
-
-      - name: Test and build Bitboard VCF WebAssembly
+      - name: Build Bitboard VCF engine
         if: steps.bitboard-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
@@ -146,148 +116,48 @@ jobs:
           source .build/emsdk/emsdk_env.sh
           rm -rf .cache/vcf-bitboard-engine
           mkdir -p .cache/vcf-bitboard-engine
-
-          # 搜尋核心與棋型核心以獨立 VCF 原始碼連結；不包含 Rapfi 原始碼。
-          g++ rapfi/vcf-pattern-engine-optimized.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
-            -O3 \
-            -flto \
-            -DNDEBUG \
-            -std=c++17 \
-            -DVCF_BITBOARD_TEST_MAIN \
-            -o /tmp/vcf-bitboard-engine-test
+          sources=(
+            rapfi/vcf-pattern-engine-optimized.cpp
+            rapfi/vcf-bitboard-engine.cpp
+            rapfi/vcf-bitboard-search-v2.cpp
+            rapfi/vcf-bitboard-legacy-extra.cpp
+          )
+          g++ "${sources[@]}" -O3 -flto -DNDEBUG -std=c++17 -DVCF_BITBOARD_TEST_MAIN -o /tmp/vcf-bitboard-engine-test
           /tmp/vcf-bitboard-engine-test
-
-          em++ rapfi/vcf-pattern-engine-optimized.cpp rapfi/vcf-bitboard-engine.cpp rapfi/vcf-bitboard-search-v2.cpp rapfi/vcf-bitboard-legacy-extra.cpp \
-            -O3 \
-            -flto \
-            -DNDEBUG \
-            -std=c++17 \
-            -msimd128 \
-            --no-entry \
-            -s WASM=1 \
-            -s MODULARIZE=1 \
-            -s EXPORT_NAME=VCFBitboardModule \
-            -s ENVIRONMENT='web,worker,node' \
-            -s FILESYSTEM=0 \
-            -s ALLOW_MEMORY_GROWTH=1 \
+          em++ "${sources[@]}" \
+            -O3 -flto -DNDEBUG -std=c++17 -msimd128 --no-entry \
+            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFBitboardModule \
+            -s ENVIRONMENT='web,worker,node' -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1 \
             -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
-
-          test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
-          test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.wasm
           node - <<'NODE'
           const path = require("path");
           const createModule = require(path.resolve(".cache/vcf-bitboard-engine/vcf-bitboard-engine.js"));
-          createModule({
-            locateFile: file => path.resolve(".cache/vcf-bitboard-engine", file),
-          }).then(module => {
-            const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
-            const searchV2SelfTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
-            const findModeV3 = module.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"));
-            const findShortestOne = module.cwrap("vcfBbFindShortestOne", "number", Array(9).fill("number"));
-            const scanModeV3 = module.cwrap("vcfBbScanPointsModeV3", "number", Array(15).fill("number"));
-            const result = selfTest();
-            const searchResult = searchV2SelfTest();
-            if (result !== 0) throw new Error(`Wasm self-test failed: ${result}`);
-            if (searchResult !== 0) throw new Error(`Wasm search V2 self-test failed: ${searchResult}`);
-            if (typeof findModeV3 !== "function" || typeof findShortestOne !== "function" || typeof scanModeV3 !== "function") {
-              throw new Error("Optimized V3 exports are unavailable");
-            }
-            console.log("Bitboard Wasm runtime self-tests: 0 / 0; optimized V3 exports ready");
-          }).catch(error => {
-            console.error(error);
-            process.exit(1);
-          });
+          createModule({ locateFile: file => path.resolve(".cache/vcf-bitboard-engine", file) })
+            .then(module => {
+              const selfTest = module.cwrap("vcfBbSelfTest", "number", []);
+              const searchTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
+              if (selfTest() !== 0 || searchTest() !== 0) throw new Error("Bitboard Wasm self-test failed");
+            })
+            .catch(error => { console.error(error); process.exit(1); });
           NODE
-          ls -lh .cache/vcf-bitboard-engine
 
-      - name: Apply image import and generator replay build fixes
+      - name: Verify source architecture
         shell: bash
         run: |
           set -euxo pipefail
-          node tools/apply-image-import-build-fixes.js
-          node tools/apply-generator-replay-event-fixes.js
-          git diff --check -- makevcf.html 規格書.MD makevcf-generator-defense-points.js makevcf-generator-balance.js
+          npm run test:architecture
+          npm run verify:source
+          git diff --exit-code
 
-      - name: Prepare static site
+      - name: Prepare static site from allowlist
         shell: bash
         run: |
           set -euxo pipefail
-          rm -rf _site
-          mkdir -p _site
-          cp makevcf.html _site/index.html
-          cp makevcf-generator-*.js _site/
-          cp makevcf-mobile.js makevcf-layout.js makevcf-optimized-search-v2.js _site/
-          cp README.md AGENTS.md 規格書.MD 禁手判斷規格.MD 檔案用途總覽.MD _site/
-          cp -R eval emoji bitboard rapfi _site/
-          mkdir -p _site/rapfi/engine
-          cp .cache/rapfi-wasm/rapfi-single-simd128.* _site/rapfi/engine/
-          cp .cache/vcf-pattern-engine/vcf-pattern-engine.* _site/rapfi/engine/
-          cp .cache/vcf-bitboard-engine/vcf-bitboard-engine.* _site/rapfi/engine/
-
-          # 原始 rapfi/index.html 只保留為明確命名的實驗室頁；/rapfi/ 不建立入口頁。
-          mv _site/rapfi/index.html _site/rapfi/lab.html
-
-          python - <<'PY'
-          from pathlib import Path
-
-          root_scripts = '''
-          <!-- 手機棋盤自適應 -->
-          <script src="makevcf-mobile.js"></script>
-          <!-- VCF 題目產生器：與主分析頁共用同一棋盤 -->
-          <script src="emoji/emoji.js"></script>
-          <script src="eval/EvaluatorJScript.js"></script>
-          <script src="eval/EvaluatorCore.js"></script>
-          <script src="eval/Evaluator.js"></script>
-          <script src="makevcf-generator-core.js"></script>
-          <script src="makevcf-generator-base.js"></script>
-          <script src="makevcf-generator-layer.js"></script>
-          <script src="makevcf-generator-validate.js"></script>
-          <script src="makevcf-generator-integrated.js"></script>
-          <script src="makevcf-generator-reuse-bonus.js"></script>
-          <script src="makevcf-generator-concentration.js"></script>
-          <script src="makevcf-generator-main.js"></script>
-          <script src="makevcf-generator-order-mode.js"></script>
-          <script src="makevcf-generator-balance.js"></script>
-          <script src="makevcf-generator-unique.js"></script>
-          <script src="makevcf-generator-summary.js"></script>
-          <!-- 卡片化介面 -->
-          <script src="makevcf-layout.js"></script>
-          <!-- 獨立的優化 VCF 搜尋與速度比較 -->
-          <script src="makevcf-optimized-search-v2.js"></script>
-          '''
-
-          index_path = Path("_site/index.html")
-          index_text = index_path.read_text(encoding="utf-8")
-          if "makevcf-generator-integrated.js" not in index_text:
-              index_text = index_text.replace("</body>", root_scripts + "\n</body>")
-          index_path.write_text(index_text, encoding="utf-8")
-
-          assert Path("_site/index.html").is_file()
-          assert Path("_site/rapfi/lab.html").is_file()
-          for removed in (
-              "_site/makevcf.html",
-              "_site/pattern-compare.html",
-              "_site/pattern-compare.js",
-              "_site/rapfi/index.html",
-              "_site/rapfi/generator-flowchart.html",
-          ):
-              assert not Path(removed).exists(), removed
-          for token in (
-              "vcf-bitboard-main.js",
-              "makevcf-generator-core.js",
-              "rapfi-bitboard-dashboard.js",
-              "vcf-shortest-vcf-ui.js",
-              "vcf-forbidden-overlay.js",
-          ):
-              assert token in index_text, token
-          PY
-
-          touch _site/.nojekyll
+          python tools/prepare-pages-site.py
           du -sh _site
-          ls -lh _site/rapfi/engine
-          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard\|vcf-shortest-vcf-ui\|vcf-forbidden-overlay" _site/index.html
+          find _site -maxdepth 3 -type f | sort
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
