@@ -89,15 +89,17 @@
       return genEl("status")?.textContent || "";
     }
 
-    function stageTitleForAddedStone(color, idx) {
-      const status = currentStageText();
-      if (status.includes("封鎖其他完成盤面") || status.includes("只保留目標")) {
-        return `封鎖其他 VCF：補上${colorName(color)} ${pointName(idx)}`;
+    function stageTitleForAddedStone(color, idx, attacker) {
+      const normalizedAttacker = Number(attacker) === GEN_WHITE
+        ? GEN_WHITE
+        : GEN_BLACK;
+      if (color === normalizedAttacker) {
+        return `攻方${colorName(color)} ${pointName(idx)} 加入後驗證`;
       }
-      if (status.includes("補齊黑白子數") || status.includes("補齊子數")) {
-        return `補齊子數：補上${colorName(color)} ${pointName(idx)}`;
+      if (color === genOther(normalizedAttacker)) {
+        return `守方${colorName(color)} ${pointName(idx)} 加入後驗證`;
       }
-      return `補守：補上${colorName(color)} ${pointName(idx)}`;
+      return `棋子 ${pointName(idx)} 加入後驗證`;
     }
 
     function ensureReplayUI() {
@@ -331,9 +333,9 @@
       let detail = "";
       if (parent?.additions?.length === 1) {
         const idx = parent.additions[0];
-        title = stageTitleForAddedStone(board[idx], idx);
+        title = stageTitleForAddedStone(board[idx], idx, attacker);
       } else if (parent?.additions?.length > 1) {
-        title = `補上 ${parent.additions.length} 顆棋子後驗證`;
+        title = `盤面增加 ${parent.additions.length} 顆棋子後驗證`;
         detail = parent.additions
           .map(idx => `${colorName(board[idx])} ${pointName(idx)}`)
           .join("、");

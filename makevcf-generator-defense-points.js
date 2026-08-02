@@ -274,6 +274,14 @@
         if (genCancelled) return null;
         const next = addLayerDefender(candidate, idx);
         if (!next) continue;
+        const replayAttempt = window.genReplayBeginDefenderAttempt?.({
+          phase: "mid",
+          board: next.board,
+          nMask: next.nMask,
+          attacker: next.attacker,
+          defender: next.defender,
+          idx,
+        });
         const result = await validateWithRankedDefense(
           next,
           expectedSteps,
@@ -281,7 +289,13 @@
           policy,
           budget,
         );
-        if (result) return result;
+        if (result) {
+          window.genReplayEndDefenderAttempt?.(replayAttempt, true);
+          return result;
+        }
+        if (!genCancelled) {
+          window.genReplayEndDefenderAttempt?.(replayAttempt, false);
+        }
       }
       return null;
     }
@@ -321,13 +335,27 @@
         if (genCancelled) return null;
         const added = addFinalDefender(state, expectedBoard, idx);
         if (!added) continue;
+        const replayAttempt = window.genReplayBeginDefenderAttempt?.({
+          phase: "final",
+          board: added.state.board,
+          nMask: added.state.nMask,
+          attacker: added.state.attacker,
+          defender: added.state.defender,
+          idx,
+        });
         const result = await cleanFinalTargetBoard(
           added.state,
           added.expectedBoard,
           targetSteps,
           budget,
         );
-        if (result) return result;
+        if (result) {
+          window.genReplayEndDefenderAttempt?.(replayAttempt, true);
+          return result;
+        }
+        if (!genCancelled) {
+          window.genReplayEndDefenderAttempt?.(replayAttempt, false);
+        }
       }
       return null;
     }

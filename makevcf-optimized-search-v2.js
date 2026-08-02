@@ -4,6 +4,7 @@
 // It performs small bounded depth passes before the full original search.
 (function initIterativeVCFExperiment() {
   if (window.__iterativeVCFExperimentLoaded) return;
+  if (window.__vcfRootBitboardWorkbench) return;
   window.__iterativeVCFExperimentLoaded = true;
 
   const POINTS = 225;

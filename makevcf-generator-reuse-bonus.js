@@ -101,33 +101,7 @@
   };
 })();
 
-// Load the final target-board policy first, then the complete defense-point policy,
-// and finally the unified replay module so replay records the corrected blocking process.
-(function loadGeneratorTargetBoardPolicy() {
-  if (window.__generatorTargetBoardPolicyScriptRequested) return;
-  window.__generatorTargetBoardPolicyScriptRequested = true;
-
-  const script = document.createElement("script");
-  script.src = new URL("makevcf-generator-target-board-v3.js", document.baseURI).href;
-  script.async = false;
-  script.addEventListener("load", () => {
-    if (window.__generatorDefensePointPolicyScriptRequested) return;
-    window.__generatorDefensePointPolicyScriptRequested = true;
-    const defenseScript = document.createElement("script");
-    defenseScript.src = new URL("makevcf-generator-defense-points.js", document.baseURI).href;
-    defenseScript.async = false;
-    defenseScript.addEventListener("load", () => {
-      if (window.__generatorProgressScriptRequested) return;
-      window.__generatorProgressScriptRequested = true;
-      const progressScript = document.createElement("script");
-      progressScript.src = new URL("makevcf-generator-progress.js", document.baseURI).href;
-      progressScript.async = false;
-      document.head.appendChild(progressScript);
-    });
-    document.head.appendChild(defenseScript);
-  });
-  document.head.appendChild(script);
-})();
+// 題目產生器政策由 makevcf.html 依固定順序載入。
 
 // The unified interface only needs one layout pass. Suppress the one global
 // document.body child-list observer created by that interface, while leaving all
@@ -274,25 +248,16 @@ function stabilizeUnifiedInterfaceSelectors() {
   );
 }
 
-// The card layout is created later in the build-injected script list. Load the
-// compact interface policy now; it waits until that layout is available.
-(function loadCompactVCFInterface() {
-  if (window.__compactVCFInterfaceScriptRequested) return;
-  window.__compactVCFInterfaceScriptRequested = true;
-
-  const script = document.createElement("script");
-  script.src = new URL("makevcf-generator-ui-compact.js", document.baseURI).href;
-  script.async = false;
-  script.addEventListener("load", () => {
-    stabilizeUnifiedInterfaceSelectors();
-    let attempts = 0;
-    const timer = window.setInterval(() => {
-      attempts++;
-      if (stabilizeUnifiedInterfaceSelectors() || attempts >= 160) {
-        window.clearInterval(timer);
-      }
-    }, 50);
-  });
+// 固定腳本順序會在本檔之後載入版面模組；這裡只負責同步既有控制項。
+(function initializeUnifiedInterfaceSelectors() {
+  stabilizeUnifiedInterfaceSelectors();
+  let attempts = 0;
+  const timer = window.setInterval(() => {
+    attempts++;
+    if (stabilizeUnifiedInterfaceSelectors() || attempts >= 160) {
+      window.clearInterval(timer);
+    }
+  }, 50);
   document.addEventListener("change", event => {
     const input = event.target;
     if (
@@ -303,29 +268,4 @@ function stabilizeUnifiedInterfaceSelectors() {
     }
   }, true);
   window.addEventListener("load", stabilizeUnifiedInterfaceSelectors, { once: true });
-  document.head.appendChild(script);
-})();
-
-// Load the optional multi-search dominance control. It waits for both the
-// Bitboard search bar and engine bridge, so it is safe regardless of script order.
-(function loadOpenFourStopOption() {
-  if (window.__openFourStopOptionScriptRequested) return;
-  window.__openFourStopOptionScriptRequested = true;
-
-  const script = document.createElement("script");
-  script.src = new URL("makevcf-generator-open-four-stop.js", document.baseURI).href;
-  script.async = false;
-  document.head.appendChild(script);
-})();
-
-// Remember all user-adjustable workbench and generator settings, including
-// controls added later by optional feature scripts.
-(function loadUserSettingPersistence() {
-  if (window.__vcfUserSettingPersistenceScriptRequested) return;
-  window.__vcfUserSettingPersistenceScriptRequested = true;
-
-  const script = document.createElement("script");
-  script.src = new URL("makevcf-generator-settings-persistence.js", document.baseURI).href;
-  script.async = false;
-  document.head.appendChild(script);
 })();

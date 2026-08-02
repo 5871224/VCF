@@ -289,6 +289,24 @@ button:disabled { opacity: 0.45; cursor: default; }
 </div>
 
 <script>
+(function installRootBitboardBridge() {
+  let pathname = window.location.pathname.replace(/\/+$/, "");
+  if (pathname.endsWith("/VCF/index.html")) {
+    window.history.replaceState(
+      null,
+      "",
+      pathname.slice(0, -"index.html".length) + window.location.search + window.location.hash
+    );
+    pathname = window.location.pathname.replace(/\/+$/, "");
+  }
+  if (!pathname.endsWith("/VCF")) return;
+
+  window.__vcfRootBitboardWorkbench = true;
+  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js"><\/script>');
+})();
+</script>
+<script>
 "use strict";
 
 // ── WebView2 bridge：建立與 Electron preload 相同介面的 window.engineAPI ──
@@ -3087,5 +3105,48 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   resetImportState(false);
 })();
 </script>
+
+<!-- 手機棋盤自適應 -->
+<script src="makevcf-mobile.js"></script>
+<!-- VCF 題目產生器：固定載入順序，不再由功能檔動態插入腳本 -->
+<script src="emoji/emoji.js"></script>
+<script src="eval/EvaluatorJScript.js"></script>
+<script src="eval/EvaluatorCore.js"></script>
+<script src="eval/Evaluator.js"></script>
+<script src="rapfi/vcf-bitboard-generator-compat.js"></script>
+<script src="makevcf-generator-core.js"></script>
+<script src="makevcf-generator-base.js"></script>
+<script src="makevcf-generator-layer.js"></script>
+<script src="makevcf-generator-validate.js"></script>
+<script src="makevcf-generator-integrated.js"></script>
+<script src="makevcf-generator-reuse-bonus.js"></script>
+<script src="makevcf-generator-concentration.js"></script>
+<script src="makevcf-generator-main.js"></script>
+<script src="makevcf-generator-order-mode.js"></script>
+<script src="makevcf-generator-balance.js"></script>
+<script src="makevcf-generator-unique.js"></script>
+<script src="makevcf-generator-summary.js"></script>
+<!-- 目標盤面、補守、最終補色與回放政策 -->
+<script src="makevcf-generator-target-board-v3.js"></script>
+<script src="makevcf-generator-defense-points.js"></script>
+<script src="makevcf-generator-extension-other-vcf-fix.js"></script>
+<script src="makevcf-generator-protected-defenders.js"></script>
+<script src="makevcf-generator-progress.js"></script>
+<script src="makevcf-generator-status-detail.js"></script>
+<!-- 卡片化工作台與產生器介面 -->
+<script src="makevcf-layout.js"></script>
+<script src="rapfi/rapfi-bitboard-dashboard.js"></script>
+<script src="rapfi/vcf-shortest-vcf-ui.js"></script>
+<script src="rapfi/vcf-forbidden-overlay.js"></script>
+<script src="rapfi/rapfi-workbench-header.js"></script>
+<script src="rapfi/rapfi-question-bank.js"></script>
+<script src="makevcf-generator-layout-fix.js"></script>
+<script src="makevcf-generator-ui-compact.js"></script>
+<script src="makevcf-generator-open-four-stop.js"></script>
+<script src="makevcf-generator-settings-persistence.js"></script>
+<script src="makevcf-generator-image-import-fix.js"></script>
+<!-- 根工作台不啟動舊的優化搜尋覆寫 -->
+<script src="makevcf-optimized-search-v2.js"></script>
+
 </body>
 </html>
