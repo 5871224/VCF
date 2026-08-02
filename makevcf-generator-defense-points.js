@@ -1,10 +1,10 @@
 "use strict";
 
 // 題目產生器的較短／其他 VCF 採多組搜尋：
-// 1. 較短 VCF 永遠需要封鎖；其他 VCF 只在「只留目標 VCF」開啟時封鎖。
-// 2. 先完成目前搜尋所得路線的去重，再統計每個合法防守點可封鎖的組數。
-// 3. 由覆蓋組數最多的點開始嘗試；每補一子都重新執行完整多組搜尋，失敗即回溯。
-// 4. 搜尋達上限時，已有非目標 VCF 就先處理；完全沒找到非目標 VCF 就視為成功。
+// 1. 較短 VCF 永遠封鎖；其他 VCF 只在「只留目標 VCF」開啟時封鎖。
+// 2. C++ 依「集合子集／完全相同」完成活四正規化與去重後，再統計防守點覆蓋數。
+// 3. 由覆蓋組數最多的點開始嘗試；每補一子重新搜尋，失敗即回溯。
+// 4. 搜尋達上限時，已有非目標 VCF 就先處理；完全沒找到就視為成功。
 (function scheduleGeneratorDefensePointPolicy(global) {
   function install() {
     if (global.__generatorDefensePointPolicyInstalled) return;
@@ -22,7 +22,9 @@
 
     const MAX_GROUPS = 64;
     const MAX_DEPTH = 200;
+    const DEFAULT_TIME_SECONDS = 30;
     const DEFAULT_NODE_MILLIONS = 20;
+    const PACKED_LIMIT_FLAG = 0x80000000;
     const STATE_LIMIT = 96;
     const BALANCE_UNIQUE_ROUND_LIMIT = 8;
     const LINE_OVERLINE = 28;
@@ -54,12 +56,25 @@
         : genBuildExpectedBaseBoard(candidate);
     }
 
-    function selectedNodeLimit() {
-      const millions = Math.trunc(Number(genEl("vcf-multi-node-millions")?.value));
-      return Math.max(
-        1,
-        (Number.isFinite(millions) ? millions : DEFAULT_NODE_MILLIONS) * 1000000,
+    function selectedInteger(id, fallback, max) {
+      const parsed = Math.trunc(Number(genEl(id)?.value));
+      return Number.isFinite(parsed)
+        ? Math.max(0, Math.min(max, parsed))
+        : fallback;
+    }
+
+    function selectedPackedLimits() {
+      const seconds = selectedInteger(
+        "vcf-multi-time-seconds",
+        DEFAULT_TIME_SECONDS,
+        0x000fffff,
       );
+      const millions = selectedInteger(
+        "vcf-multi-node-millions",
+        DEFAULT_NODE_MILLIONS,
+        1023,
+      );
+      return (PACKED_LIMIT_FLAG + seconds * 1024 + millions) >>> 0;
     }
 
     function sameBoard(left, right) {
@@ -92,7 +107,10 @@
 
     function rememberSearchLimit(state, info) {
       const reasons = [];
-      if (info?.aborted) reasons.push("節點上限");
+      const stopReason = Number(info?.stopReason || 0);
+      if (stopReason === 2) reasons.push("時間上限");
+      else if (stopReason === 3) reasons.push("節點上限");
+      else if (info?.aborted) reasons.push("搜尋上限");
       if (Number(info?.vcfCount || info?.winMoves?.length || 0) >= MAX_GROUPS) {
         reasons.push("組數上限");
       }
@@ -117,38 +135,34 @@
           simplify: true,
           pruning: genSelectedPruning(),
           maxDepth: blockOtherVCF ? MAX_DEPTH : genTargetSearchPly(expectedSteps),
-          maxNode: selectedNodeLimit(),
+          maxNode: selectedPackedLimits(),
         },
       );
       if (genCancelled || !info) return null;
 
-      const raw = Array.from(info.winMoves || []).filter(moves => moves?.length);
-      // 目前仍保留相容後處理；C++ 端完成同規則去重後即可移除此步。
-      const groups = raw.length
-        ? await genEngine.trimGroups(state.board, raw, state.attacker)
-        : [];
-      if (genCancelled) return null;
-      return { info, groups: groups || [] };
+      // 多組 C++ 已依選單完成活四正規化與去重；不再於 JS 回放、排序及建字串 key。
+      const groups = Array.from(info.winMoves || [])
+        .filter(moves => moves?.length)
+        .map(moves => Array.from(moves));
+      return { info, groups };
     }
 
     function analyzeGroups(state, groups, expectedBoard, expectedSteps, blockOtherVCF) {
       const analyzed = [];
       for (const moves of groups) {
         const analysis = genAnalyzeVCFGroup(state.board, moves, state.attacker);
-        if (analysis?.valid) analyzed.push({ moves: Array.from(moves), analysis });
+        if (analysis?.valid) analyzed.push({ moves, analysis });
       }
 
       const exactTargets = analyzed.filter(item =>
         item.analysis.steps === expectedSteps &&
         sameBoard(item.analysis.standardBoard, expectedBoard)
       );
-
       const unwanted = analyzed.filter(item =>
         item.analysis.steps < expectedSteps ||
         (blockOtherVCF && !sameBoard(item.analysis.standardBoard, expectedBoard))
       );
-
-      return { analyzed, exactTargets, unwanted };
+      return { exactTargets, unwanted };
     }
 
     async function rankDefensePoints(state, unwanted) {
@@ -169,7 +183,6 @@
       const frequency = new Map();
       for (let routeIndex = 0; routeIndex < defenseSets.length; routeIndex++) {
         const legal = defenseSets[routeIndex];
-        // 已知存在的 VCF 若完全沒有合法防守點，此分支不能當作成功。
         if (!legal.length) return null;
         for (const idx of legal) {
           let entry = frequency.get(idx);
@@ -239,7 +252,6 @@
       if (!exactTargets.length) return null;
 
       const searchLimited = rememberSearchLimit(candidate, found.info);
-      // 即使搜尋達上限，只要目前沒有找到較短／其他 VCF，就依規格視為成功。
       if (!unwanted.length) {
         const result = genFinalizeValidatedResult(
           candidate,
@@ -258,7 +270,6 @@
 
       const ranked = await rankDefensePoints(candidate, unwanted);
       if (!ranked?.length) return null;
-
       for (const { idx } of ranked) {
         if (genCancelled) return null;
         const next = addLayerDefender(candidate, idx);
@@ -399,7 +410,6 @@
       );
       if (!result || !options.balanceStones) return result;
 
-      // 補齊黑白子數後可能重新產生其他 VCF，因此沿用既有多輪清理。
       for (let round = 0; round < BALANCE_UNIQUE_ROUND_LIMIT; round++) {
         const balanced = await previousExtendToTarget(
           result,
