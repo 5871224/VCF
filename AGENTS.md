@@ -22,7 +22,7 @@ https://5871224.github.io/VCF/
 正式路徑：
 
 ```text
-/VCF/index.html（由 makevcf.html 建置）
+/VCF/（部署產物 index.html，由 makevcf.html 建置）
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
@@ -36,9 +36,9 @@ makevcf-generator-core.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
 
-- 根網址不得轉址到 `/rapfi/`。
-- `/rapfi/` 只作為引擎、Worker、UI 模組及實驗室資源。
-- `makevcf.html` 是根頁建置來源，不是另一套正式產品。
+- Pages 只部署根 `index.html` 作為工作台入口；直接開啟 `/VCF/index.html` 時應將顯示網址正規化為 `/VCF/`。
+- `makevcf.html` 是根頁建置來源，不得複製為公開 `/VCF/makevcf.html`。
+- `/rapfi/` 只作為引擎、Worker、UI 模組及明確命名的實驗室資源，不得建立另一份工作台 `index.html`。
 - 題目產生器不得共用或中止主分析 Worker。
 
 ## 3. 規則值
@@ -79,5 +79,6 @@ makevcf-generator-core.js
 
 部署變更後：
 
+- 確認 Pages artifact 只有根工作台入口，沒有 `makevcf.html`、`rapfi/index.html` 或已刪除的獨立工具頁。
 - 確認 GitHub Pages `build` 與 `deploy` 都成功。
 - 若由 `GITHUB_TOKEN` 產生的提交不會再次觸發 workflow，使用一般 `main` 提交或 `workflow_dispatch` 觸發。
