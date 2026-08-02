@@ -8,6 +8,7 @@ on:
       - 'rapfi/vcf-bitboard-generator-compat.js'
       - 'rapfi/vcf-bitboard-worker.js'
       - 'tests/generator-layout-replay.test.js'
+      - 'tests/generator-context.test.js'
       - 'README.md'
       - 'AGENTS.md'
       - '規格書.MD'
@@ -32,6 +33,9 @@ jobs:
           for file in makevcf-generator-*.js rapfi/vcf-bitboard-generator-compat.js rapfi/vcf-bitboard-worker.js; do
             node --check "$file"
           done
+
+      - name: Test generator context
+        run: node tests/generator-context.test.js
 
       - name: Test generator layout and unified replay
         run: node tests/generator-layout-replay.test.js
@@ -225,6 +229,9 @@ jobs:
             genValidateExtensionCandidate: async () => null,
             genOptions: () => ({}),
             genSetBusy: () => {},
+            genRegisterOptionProvider: () => {},
+            genRegisterBusyHook: () => {},
+            genGetActiveOptions: () => ({ blockOtherVCF: false }),
             genExtendToTarget: async value => value,
             genShowResult: () => {},
             genResolveValidationSteps: (_candidate, steps) => steps,
