@@ -2,72 +2,30 @@
 
 const fs = require("fs");
 const { spawnSync } = require("child_process");
-
-function fail(message) { throw new Error(`[題目產生器事件回放驗證] ${message}`); }
-function check(filename, tokens, forbidden = []) {
-  const source = fs.readFileSync(filename, "utf8");
-  for (const token of tokens) if (!source.includes(token)) fail(`${filename} 缺少：${token}`);
-  for (const token of forbidden) if (source.includes(token)) fail(`${filename} 仍殘留：${token}`);
-  const result = spawnSync(process.execPath, ["--check", filename], { encoding: "utf8" });
-  if (result.status !== 0) fail(`${filename} 語法檢查失敗：${result.stderr}`);
+function fail(message) { throw new Error(`[題目產生器架構驗證] ${message}`); }
+function source(file) { return fs.readFileSync(file, "utf8"); }
+function requireTokens(file, tokens, forbidden = []) {
+  const text = source(file);
+  for (const token of tokens) if (!text.includes(token)) fail(`${file} 缺少：${token}`);
+  for (const token of forbidden) if (text.includes(token)) fail(`${file} 仍殘留：${token}`);
+  const checked = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
+  if (checked.status !== 0) fail(`${file} 語法失敗：${checked.stderr}`);
 }
-
-check("makevcf-generator-core.js", [
-  "function genOnGeneratorEvent(",
-  "function genEmitGeneratorEvent(",
-  "function genBeginGeneratorOperation(",
-  "function genRunValidationOperation(",
-  "function genBeginStoneAttempt(",
-  'genEmitGeneratorEvent("search:trimmed"',
+requireTokens("makevcf-generator-core.js", [
+  "genRegisterFindRequestProvider", "genRegisterCandidateDecorator", "genRegisterSeedProvider",
+  "genRegisterResultPresenter", "genRunValidationOperation", "genBeginStoneAttempt",
 ]);
-check("makevcf-generator-main.js", [
-  'genEmitGeneratorEvent("material:selected"',
-  'genEmitGeneratorEvent("generation:start"',
-  'genEmitGeneratorEvent("generation:result"',
-  'genEmitGeneratorEvent("generation:end"',
-  "genRunValidationOperation(",
+requireTokens("makevcf-generator-search-policy.js", [
+  "validateWithRankedDefense", "rankDefensePoints", "genValidateBySearchPolicy", "genCleanFinalTargetBoard",
 ]);
-check("makevcf-generator-summary.js", [
-  'materialType: "forbiddenSkeleton"',
-  "genRunValidationOperation(",
+requireTokens("makevcf-generator-finalize.js", [
+  "genFinalizeGeneratedResult", "fillRequiredColor", "validateFilledState",
 ]);
-check("makevcf-generator-defense-points.js", [
-  'phase: "mid"',
-  'phase: "final"',
-  "validateWithRankedDefense(",
-  "genBeginStoneAttempt(",
-  "genEndStoneAttempt(",
-], [
-  "genReplayBeginDefenderAttempt",
-  "genReplayEndDefenderAttempt",
-]);
-check("makevcf-generator-extension-other-vcf-fix.js", [
-  'phase: "balance"',
-  "filledAttackerStone",
-  "新增其他攻方 VCF",
-  "genBeginStoneAttempt(",
-  "genEndStoneAttempt(",
-], [
-  "genReplayBeginDefenderAttempt",
-  "genReplayEndDefenderAttempt",
-]);
-check("makevcf-generator-progress.js", [
-  'genOnGeneratorEvent("generation:start"',
-  'genOnGeneratorEvent("validation:start"',
-  'genOnGeneratorEvent("stone:start"',
-  'genOnGeneratorEvent("search:end"',
-  'genOnGeneratorEvent("generation:end"',
-], [
-  "genSetBusy =",
-  "genValidateCandidate =",
-  "genValidateExtensionCandidate =",
-  "genShowResult =",
-  "genEngine.findVCF =",
-  "genEngine.trimGroups =",
-  "harvestOldReplay",
-  "captureOldStep",
-  "setTimeout(",
-  "Worker.prototype.postMessage",
-]);
-
-console.log("題目產生器搜尋、驗證、補子與單一事件回放驗證通過。");
+requireTokens("makevcf-generator-progress.js", [
+  'genOnGeneratorEvent("generation:start"', 'genOnGeneratorEvent("validation:start"',
+  'genOnGeneratorEvent("stone:start"', 'genOnGeneratorEvent("generation:end"',
+], ["genSetBusy =", "genValidateCandidate =", "genEngine.findVCF =", "MutationObserver", "setInterval("]);
+requireTokens("makevcf-generator-status-detail.js", [
+  "genRegisterStatusFormatter", 'genOnGeneratorEvent("search:start"', 'genOnGeneratorEvent("stone:start"',
+], ["genSetStatus =", "genEngine.findVCF =", "setTimeout("]);
+console.log("題目產生器單一政策、事件回放與狀態架構驗證通過。");

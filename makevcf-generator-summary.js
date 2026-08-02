@@ -18,17 +18,18 @@
 
   // The evaluator reports a white dead four whose only block is a black foul as level 9.
   // Normal free fours store the 0x80 mark, while catch-foul stores no four mark.
-  // For generator board matching, catch-foul completes after White's move, not before it.
-  const baseAnalyzeVCFGroup = genAnalyzeVCFGroup;
-  genAnalyzeVCFGroup = function analyzeForbiddenCaptureGroup(initialBoard, moves, attacker) {
-    const analysis = baseAnalyzeVCFGroup(initialBoard, moves, attacker);
+  genRegisterAnalysisDecorator("white-forbidden-capture", (
+    analysis,
+    _initialBoard,
+    _moves,
+    attacker,
+  ) => {
     const rawLevel = analysis?.rawLevels?.at(-1);
     const isWhiteCatchFoul =
       analysis?.valid &&
       attacker === GEN_WHITE &&
       (rawLevel & 0x0f) === GEN_FOUR_FREE &&
       (rawLevel & 0xe0) === 0;
-
     if (isWhiteCatchFoul) {
       const foulPoint = (rawLevel >>> 8) & 0xff;
       if (
@@ -41,19 +42,15 @@
       }
     }
     return analysis;
-  };
+  }, 10);
 
-  // Keep the forbidden-capture metadata while the normal reverse layer generator
-  // extends the one-step seed to two or more steps.
-  const baseBuildLayerCandidates = genBuildLayerCandidates;
-  genBuildLayerCandidates = function buildLayerCandidatesWithForbiddenMetadata(...args) {
-    const base = args[0];
+  // Keep forbidden-capture metadata while adding later dead-four layers.
+  genRegisterCandidateDecorator("white-forbidden-capture", (candidates, context) => {
+    const base = context.base;
     const source = base?.captureForbidden
       ? base
       : base?.rootBase?.captureForbidden ? base.rootBase : null;
-    const candidates = baseBuildLayerCandidates(...args);
     if (!source) return candidates;
-
     for (const candidate of candidates) {
       candidate.captureForbidden = true;
       candidate.forbiddenPoint = source.forbiddenPoint;
@@ -62,7 +59,7 @@
       candidate.forbiddenPatternText = source.forbiddenPatternText || source.patternText;
     }
     return candidates;
-  };
+  }, 30);
 
   function cloneNMask(source) {
     return source instanceof Uint8Array ? source.slice() : Uint8Array.from(source || []);
@@ -237,53 +234,18 @@
     anchorSlot,
     options,
   ) {
-    const previousRepair = genBuildRepairVariants;
-    const previousIsFoul = isFoul;
-
-    // Reuse the normal four-four layer generator, but this one call has two deliberate
-    // differences: A is allowed to be a foul, and a live three left in Black's first
-    // four after removing A is not closed with a White stone.
-    genBuildRepairVariants = function skipForbiddenSkeletonThreeRepair(
-      board,
-      scanPoints,
-      _xPoints,
-      lineDirection,
-      attacker,
-      _defender,
-      rules,
-    ) {
-      return [{
-        board,
-        addedDefenders: [],
-        liveThreeExtensions: genGetNewLiveThreeExtensions(
-          board,
-          scanPoints,
-          lineDirection.line,
-          attacker,
-          rules,
-        ),
-      }];
-    };
-    isFoul = function allowTargetForbiddenPoint(idx, board) {
-      return idx === anchor ? false : previousIsFoul(idx, board);
-    };
-
-    try {
-      return baseBuildLayerCandidates(
-        base,
-        anchor,
-        direction,
-        sign,
-        template,
-        anchorSlot,
-        GEN_BLACK,
-        2,
-        options,
-      );
-    } finally {
-      genBuildRepairVariants = previousRepair;
-      isFoul = previousIsFoul;
-    }
+    return genBuildLayerCandidates(
+      base,
+      anchor,
+      direction,
+      sign,
+      template,
+      anchorSlot,
+      GEN_BLACK,
+      2,
+      options,
+      { skipThreeRepair: true, allowFoulAnchor: anchor },
+    );
   }
 
   function randomDoubleFourSkeleton(options) {
@@ -493,11 +455,8 @@
     return null;
   }
 
-  const previousBuildExpectedBaseBoard = genBuildExpectedBaseBoard;
-  genBuildExpectedBaseBoard = function buildForbiddenExpectedBaseBoard(candidate) {
-    const expected = previousBuildExpectedBaseBoard(candidate);
+  genRegisterExpectedBaseBoardDecorator("white-forbidden-capture", (expected, candidate) => {
     if (!expected || !candidate?.captureForbidden) return expected;
-
     const forbiddenPoint = Number(candidate.forbiddenPoint);
     if (
       candidate.attacker !== GEN_WHITE ||
@@ -507,23 +466,18 @@
       expected[forbiddenPoint] !== GEN_EMPTY ||
       !genIsNFor(candidate.nMask, forbiddenPoint, GEN_BLACK) ||
       !genIsNFor(candidate.nMask, forbiddenPoint, GEN_WHITE)
-    ) {
-      return null;
-    }
+    ) return null;
 
     const line = Number(candidate.direction?.line);
     if (!Number.isInteger(line) || line < 0 || line > 3) return null;
     const lineInfo = testLineFour(candidate.anchor, line, GEN_WHITE, expected);
     const rawLevel = getLevelPoint(candidate.anchor, GEN_WHITE, expected);
-    // 整體等級可因黑方唯一防點為禁手而升成抓禁活四，但模板方向必須仍是死四。
     if ((lineInfo & GEN_LINE_MASK) !== GEN_FOUR_NOFREE || (rawLevel & 0x60)) return null;
     if (!isFoul(forbiddenPoint, expected)) return null;
     return expected;
-  };
+  }, 10);
 
-  const previousLayerRecord = genLayerRecord;
-  genLayerRecord = function layerRecordWithForbidden(candidate, step) {
-    const record = previousLayerRecord(candidate, step);
+  genRegisterLayerRecordDecorator("white-forbidden-capture", (record, candidate) => {
     if (!candidate?.captureForbidden) return record;
     return {
       ...record,
@@ -532,21 +486,15 @@
       forbiddenKind: candidate.forbiddenKind,
       forbiddenLabel: candidate.forbiddenLabel,
     };
-  };
+  }, 30);
 
-  const previousFindTwoStep = genFindTwoStep;
-  genFindTwoStep = async function findForbiddenCaptureOrNormal(
-    attacker,
-    rules,
-    options,
-    counters,
-    targetSteps,
-  ) {
-    if (rules === 2 && attacker === GEN_WHITE) {
-      return genFindForbiddenCaptureSeed(options, counters, targetSteps);
-    }
-    return previousFindTwoStep(attacker, rules, options, counters, targetSteps);
-  };
+  async function whiteForbiddenSeedProvider(attacker, rules, options, counters, targetSteps) {
+    return genFindForbiddenCaptureSeed(options, counters, targetSteps);
+  }
+  whiteForbiddenSeedProvider.canHandle = ({ attacker, rules }) =>
+    rules === 2 && attacker === GEN_WHITE;
+  whiteForbiddenSeedProvider.weight = 1;
+  genRegisterSeedProvider("white-forbidden-capture", whiteForbiddenSeedProvider, 10);
 })();
 
 // Show only the compact generator summary requested by the user.
@@ -580,9 +528,8 @@
   `;
   document.head.appendChild(style);
 
-  const previousShowResult = genShowResult;
-  genShowResult = function showCompactSummary(result, targetSteps, attacker, counters, options) {
-    previousShowResult(result, targetSteps, attacker, counters, options);
+  genRegisterResultPresenter("compact-summary", (result, context) => {
+    const { targetSteps, attacker, counters, options } = context;
 
     const output = genEl("details");
     if (!output || !result) return;
@@ -644,5 +591,5 @@
       `雙方子數：黑${blackCount}、白${whiteCount}`,
       `多組 VCF：共 ${Number(result.groupCount || 0)} 組`,
     ].join("\n");
-  };
+  }, 20);
 })();

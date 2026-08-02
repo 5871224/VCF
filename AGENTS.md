@@ -56,6 +56,9 @@ makevcf-generator-core.js
 - 優先修改正式來源，不以額外修補層長期保留兩套互相覆蓋的邏輯。
 - 題目產生器一次執行共用單一 `GenerationContext`；新增設定或控制項鎖定行為應使用具名提供者／Hook，不得覆寫 `genOptions` 或核心 `genSetBusy`。
 - 題目產生器回放只可訂閱核心具名事件；不得覆寫驗證、搜尋、結果或忙碌函式，也不得操作舊回放按鈕、讀取已渲染盤面或用延遲排程合併時間軸。
+- 題目產生器的搜尋驗證只有 `makevcf-generator-search-policy.js` 一套正式政策，最終唯一化與補齊只有 `makevcf-generator-finalize.js` 一套流程；不得再新增平行版本或包裝舊函式。
+- 候選加成、設定、材料來源、狀態文字與結果摘要必須使用核心 Registry；功能模組不得重新指派全域 `gen*` 函式。
+- 固定載入的介面模組必須一次初始化；除等待 OpenCV 等外部非同步資源外，不得用全頁 `MutationObserver`、輪詢或延遲重試拼裝介面。
 - 建置腳本不得注入已淘汰的舊流程；程式重構後同步更新建置驗證。
 - `makevcf.html` 必須明確列出正式腳本順序；`makevcf-mobile.js`、加成、相容、狀態或回放模組不得動態載入其他正式功能檔。
 - Pages 與 CI 建置驗證不得使用 `writeFileSync`、字串替換或其他方式改寫 Git 追蹤來源。

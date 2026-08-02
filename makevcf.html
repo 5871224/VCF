@@ -773,6 +773,13 @@ function resetVcfGroups() {
 }
 function getAColor() { return parseInt(document.querySelector('input[name="acolor"]:checked').value); }
 
+const vcfBusyHooks = new Map();
+window.vcfRegisterBusyHook = (name, listener) => {
+  if (!name || typeof listener !== "function") throw new TypeError("VCF busy hook 需要名稱與函式");
+  vcfBusyHooks.set(String(name), listener);
+  return () => vcfBusyHooks.delete(String(name));
+};
+
 function setBusy(v) {
   searching = v;
   document.querySelectorAll('input[name="rules"]').forEach(r => r.disabled = v);
@@ -782,6 +789,10 @@ function setBusy(v) {
   document.getElementById("btn-vcf-prev").disabled = v || !vcfGroups || vcfGroupIdx === 0;
   document.getElementById("btn-vcf-next").disabled = v || !vcfGroups || vcfGroupIdx === vcfGroups.length - 1;
   document.getElementById("btn-stop").disabled = !v;
+  for (const [name, listener] of vcfBusyHooks) {
+    try { listener(Boolean(v)); }
+    catch (error) { console.error(`VCF busy hook ${name} 執行失敗`, error); }
+  }
 }
 
 async function doSearch(arr, color) {
@@ -3119,18 +3130,12 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-generator-layer.js"></script>
 <script src="makevcf-generator-validate.js"></script>
 <script src="makevcf-generator-integrated.js"></script>
-<script src="makevcf-generator-reuse-bonus.js"></script>
-<script src="makevcf-generator-concentration.js"></script>
+<script src="makevcf-generator-options.js"></script>
 <script src="makevcf-generator-main.js"></script>
-<script src="makevcf-generator-order-mode.js"></script>
-<script src="makevcf-generator-balance.js"></script>
-<script src="makevcf-generator-unique.js"></script>
 <script src="makevcf-generator-summary.js"></script>
 <!-- 目標盤面、補守、最終補色與回放政策 -->
-<script src="makevcf-generator-target-board-v3.js"></script>
-<script src="makevcf-generator-defense-points.js"></script>
-<script src="makevcf-generator-extension-other-vcf-fix.js"></script>
-<script src="makevcf-generator-protected-defenders.js"></script>
+<script src="makevcf-generator-search-policy.js"></script>
+<script src="makevcf-generator-finalize.js"></script>
 <script src="makevcf-generator-progress.js"></script>
 <script src="makevcf-generator-status-detail.js"></script>
 <!-- 卡片化工作台與產生器介面 -->
@@ -3140,9 +3145,9 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="rapfi/vcf-forbidden-overlay.js"></script>
 <script src="rapfi/rapfi-workbench-header.js"></script>
 <script src="rapfi/rapfi-question-bank.js"></script>
-<script src="makevcf-generator-layout-fix.js"></script>
-<script src="makevcf-generator-ui-compact.js"></script>
 <script src="makevcf-generator-open-four-stop.js"></script>
+<script src="makevcf-generator-ui-compact.js"></script>
+<script src="makevcf-generator-layout-fix.js"></script>
 <script src="makevcf-generator-settings-persistence.js"></script>
 <script src="makevcf-generator-image-import-fix.js"></script>
 <!-- 根工作台不啟動舊的優化搜尋覆寫 -->

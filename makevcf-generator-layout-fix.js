@@ -71,39 +71,11 @@
     return Boolean(actions && (!bank || bank.parentElement === panel));
   }
 
-  let queued = false;
-  const queueApply = () => {
-    if (queued) return;
-    queued = true;
-    queueMicrotask(() => {
-      queued = false;
-      applyLayout();
-    });
+  const applyWhenReady = () => {
+    if (applyLayout()) return;
+    document.addEventListener("DOMContentLoaded", applyLayout, { once: true });
+    global.addEventListener("load", applyLayout, { once: true });
   };
 
-  const observe = () => {
-    if (!document.body) return;
-    new MutationObserver(queueApply).observe(document.body, {
-      childList: true,
-      subtree: true,
-    });
-  };
-
-  if (document.body) observe();
-  else document.addEventListener("DOMContentLoaded", () => {
-    observe();
-    queueApply();
-  }, { once: true });
-
-  // 某些舊版介面會暫時攔截第一個全頁 MutationObserver；保留短期輪詢，
-  // 確保 Supabase 題庫稍晚載入時仍會被移到產生器最下方。
-  const started = Date.now();
-  const timer = global.setInterval(() => {
-    const complete = applyLayout();
-    if (complete && Date.now() - started > 1500) global.clearInterval(timer);
-    else if (Date.now() - started > 15000) global.clearInterval(timer);
-  }, 100);
-
-  queueApply();
-  global.addEventListener("load", queueApply, { once: true });
+  applyWhenReady();
 })(window);

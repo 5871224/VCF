@@ -122,7 +122,18 @@ function genBuildRepairVariants(board, scanPoints, xPoints, direction, attacker,
   return valid.filter(item => item.addedDefenders.length === minAdded);
 }
 
-function genBuildLayerCandidates(base, anchor, direction, sign, template, anchorSlot, attacker, rules, options) {
+function genBuildLayerCandidates(
+  base,
+  anchor,
+  direction,
+  sign,
+  template,
+  anchorSlot,
+  attacker,
+  rules,
+  options,
+  policy = {},
+) {
   const defender = genOther(attacker);
   const mapped = template.cells.map((_, slot) => genPointFrom(anchor, slot - anchorSlot, direction, sign));
   if (mapped[anchorSlot] !== anchor) return [];
@@ -172,16 +183,28 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
   if (board[anchor] !== attacker) return [];
   board[anchor] = GEN_EMPTY;
 
-  const repairVariants = genBuildRepairVariants(
-    board,
-    liveThreeScanPoints,
-    xPoints,
-    direction,
-    attacker,
-    defender,
-    rules,
-    base.nMask
-  );
+  const repairVariants = policy.skipThreeRepair
+    ? [{
+        board,
+        addedDefenders: [],
+        liveThreeExtensions: genGetNewLiveThreeExtensions(
+          board,
+          liveThreeScanPoints,
+          direction.line,
+          attacker,
+          rules,
+        ),
+      }]
+    : genBuildRepairVariants(
+        board,
+        liveThreeScanPoints,
+        xPoints,
+        direction,
+        attacker,
+        defender,
+        rules,
+        base.nMask,
+      );
   if (!repairVariants.length) return [];
 
   const uniqueAdded = Array.from(new Set(addedAttackers));
@@ -196,7 +219,12 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
 
   const candidates = [];
   for (const repair of repairVariants) {
-    if (rules === 2 && attacker === GEN_BLACK && isFoul(anchor, repair.board)) continue;
+    if (
+      rules === 2 &&
+      attacker === GEN_BLACK &&
+      policy.allowFoulAnchor !== anchor &&
+      isFoul(anchor, repair.board)
+    ) continue;
 
     const lineInfo = testLineFour(anchor, direction.line, attacker, repair.board);
     const lineType = lineInfo & GEN_LINE_MASK;
@@ -245,7 +273,18 @@ function genBuildLayerCandidates(base, anchor, direction, sign, template, anchor
       weight: baseWeight,
     });
   }
-  return candidates;
+  return genDecorateLayerCandidates(candidates, {
+    base,
+    anchor,
+    direction,
+    sign,
+    template,
+    anchorSlot,
+    attacker,
+    rules,
+    options,
+    policy,
+  });
 }
 
 function genEnumerateLayerCandidates(base, attacker, rules, options) {

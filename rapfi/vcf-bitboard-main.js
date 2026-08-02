@@ -39,6 +39,28 @@
     return normalized;
   }
 
+
+  const requestProviders = [];
+  global.vcfRegisterEngineRequestProvider = (name, provider, priority = 0) => {
+    if (!name || typeof provider !== "function") {
+      throw new TypeError("VCF 引擎請求提供者需要名稱與函式");
+    }
+    const entry = { name: String(name), provider, priority: Number(priority) || 0 };
+    const index = requestProviders.findIndex(item => item.name === entry.name);
+    if (index >= 0) requestProviders[index] = entry;
+    else requestProviders.push(entry);
+    requestProviders.sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
+  };
+
+  function resolveRequest(cmd, param = {}) {
+    let result = { ...param };
+    for (const entry of requestProviders) {
+      const next = entry.provider(cmd, result);
+      if (next && typeof next === "object") result = { ...result, ...next };
+    }
+    return result;
+  }
+
   class RpcWorker {
     constructor() {
       this.worker = null;
@@ -228,7 +250,8 @@
     }
 
     async send(cmd, param = {}) {
-      const normalized = cmd === "setGameRules" ? param : withConfiguredMaxNode(param);
+      const requested = resolveRequest(cmd, param);
+      const normalized = cmd === "setGameRules" ? requested : withConfiguredMaxNode(requested);
       switch (cmd) {
         case "setGameRules": return this.broadcastRules(normalized.rules);
         case "findVCF": return this.main.call("findVCF", { ...normalized, rules: this.rules });
@@ -253,7 +276,7 @@
     }
 
     async poolGetLevelPoints(param) {
-      const normalized = withConfiguredMaxNode(param);
+      const normalized = withConfiguredMaxNode(resolveRequest("getLevelPoints", param));
       const [pool] = await Promise.all([this.ensurePool(), this.syncReady]);
       const arr = Array.from(normalized.arr || []).slice(0, 225);
       const attacker = Number(normalized.color) || 1;
@@ -302,18 +325,6 @@
     }
   }
 
-  function installGeneratorNodeLimit() {
-    if (typeof genEngine === "undefined" || !genEngine || typeof genEngine.post !== "function") return false;
-    if (genEngine.__configuredNodeLimitWrapped) return true;
-    const originalPost = genEngine.post.bind(genEngine);
-    genEngine.post = (cmd, param) => {
-      const normalized = cmd === "setGameRules" ? param : withConfiguredMaxNode(param);
-      return originalPost(cmd, normalized);
-    };
-    Object.defineProperty(genEngine, "__configuredNodeLimitWrapped", { value: true });
-    return true;
-  }
-
   const service = new BitboardEngineService();
   global.VCFBitboard = service;
   global.engineAPI = {
@@ -325,13 +336,4 @@
     poolSetRules: rules => service.broadcastRules(rules),
   };
 
-  const shortestUiScript = document.createElement("script");
-  shortestUiScript.src = new URL("rapfi/vcf-shortest-vcf-ui.js", document.baseURI).href;
-  shortestUiScript.defer = true;
-  document.head.appendChild(shortestUiScript);
-
-  if (!installGeneratorNodeLimit()) {
-    global.addEventListener("DOMContentLoaded", installGeneratorNodeLimit, { once: true });
-    global.setTimeout(installGeneratorNodeLimit, 0);
-  }
 })(window);

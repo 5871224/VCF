@@ -228,8 +228,27 @@ function genWeightedPick(items) {
 }
 
 function genWeightedOrder(items) {
-  return items
-    .map(item => ({ item, key: -Math.log(Math.max(Number.MIN_VALUE, Math.random())) / Math.max(0.0001, item.weight || 1) }))
-    .sort((a, b) => a.key - b.key)
+  const source = Array.from(items || []);
+  const options = genGetActiveOptions();
+  const orderByBonus = options
+    ? Boolean(options.orderByBonus)
+    : Boolean(genEl("order-by-bonus")?.checked);
+  if (orderByBonus) {
+    return source
+      .map(item => ({
+        item,
+        weight: Math.max(0.0001, Number(item?.weight) || 1),
+        tie: Math.random(),
+      }))
+      .sort((left, right) => right.weight - left.weight || left.tie - right.tie)
+      .map(entry => entry.item);
+  }
+  return source
+    .map(item => ({
+      item,
+      key: -Math.log(Math.max(Number.MIN_VALUE, Math.random())) /
+        Math.max(0.0001, Number(item?.weight) || 1),
+    }))
+    .sort((left, right) => left.key - right.key)
     .map(entry => entry.item);
 }

@@ -171,63 +171,47 @@
     return { ...param, maxNode: encodeLimits(param?.maxNode, enabled()) };
   }
 
-  function wrapMethod(target, name, transform) {
-    const current = target?.[name];
-    if (typeof current !== "function" || current.__openFourStopWrapped) return false;
-    const wrapped = function(...args) {
-      return current.apply(this, transform(args));
-    };
-    Object.defineProperty(wrapped, "__openFourStopWrapped", { value: true });
-    target[name] = wrapped;
-    return true;
+  if (typeof global.vcfRegisterEngineRequestProvider === "function") {
+    global.vcfRegisterEngineRequestProvider("open-four-stop", (cmd, param) => (
+      cmd === "findVCF" || cmd === "getLevelPoints"
+        ? withOpenFourSetting(param || {})
+        : param
+    ), 40);
   }
 
-  function installApiWrappers() {
-    const api = global.engineAPI;
-    if (api) {
-      wrapMethod(api, "send", args => {
-        const [cmd, param] = args;
-        return [cmd, cmd === "findVCF" || cmd === "getLevelPoints"
-          ? withOpenFourSetting(param || {})
-          : param];
-      });
-      wrapMethod(api, "poolGetLevelPoints", args => [withOpenFourSetting(args[0] || {})]);
-    }
+  if (typeof global.vcfRegisterBusyHook === "function") {
+    global.vcfRegisterBusyHook("open-four-stop", value => {
+      const input = control();
+      if (input) input.disabled = Boolean(value);
+    });
+  }
 
-    if (global.genEngine) {
-      wrapMethod(global.genEngine, "post", args => {
-        const [cmd, param] = args;
-        return [cmd, cmd === "findVCF" || cmd === "getLevelPoints"
-          ? withOpenFourSetting(param || {})
-          : param];
-      });
-    }
+  if (typeof genRegisterFindRequestProvider === "function") {
+    genRegisterFindRequestProvider("open-four-stop", request => {
+      const options = request.options || {};
+      if (!isMultiSearch({ ...options, maxVCF: request.maxVCF })) return request;
+      return {
+        ...request,
+        options: {
+          ...options,
+          maxNode: encodeLimits(options.maxNode, enabled()),
+        },
+      };
+    }, 40);
+  }
 
-    if (typeof global.setBusy === "function" && !global.setBusy.__openFourStopWrapped) {
-      const originalSetBusy = global.setBusy;
-      const wrappedSetBusy = function(value) {
-        const result = originalSetBusy.apply(this, arguments);
+  if (typeof genRegisterBusyHook === "function") {
+    genRegisterBusyHook("open-four-stop", {
+      after(value) {
         const input = control();
         if (input) input.disabled = Boolean(value);
-        return result;
-      };
-      Object.defineProperty(wrappedSetBusy, "__openFourStopWrapped", { value: true });
-      global.setBusy = wrappedSetBusy;
-    }
+      },
+    });
   }
 
   global.vcfStopAfterOpenFourEnabled = enabled;
   global.vcfGetSearchLimitSnapshot = selectedSearchLimits;
   global.vcfEncodeCurrentMultiLimits = value => encodeLimits(value, enabled());
 
-  let rounds = 0;
-  const timer = global.setInterval(() => {
-    installControl();
-    installApiWrappers();
-    rounds++;
-    if (rounds >= 600) global.clearInterval(timer);
-  }, 100);
-
   installControl();
-  installApiWrappers();
 })(window);

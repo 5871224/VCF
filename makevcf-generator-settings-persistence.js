@@ -1,7 +1,7 @@
 "use strict";
 
 // Remember every user-adjustable setting in the main workbench and generator.
-// Controls added later by optional scripts are picked up through MutationObserver.
+// All setting controls are loaded in a fixed order before this module runs.
 (function initVCFUserSettingPersistence(global) {
   if (global.__vcfUserSettingPersistenceLoaded) return;
   global.__vcfUserSettingPersistenceLoaded = true;
@@ -20,7 +20,6 @@
   ].join(",");
 
   const boundControls = new WeakSet();
-  const pendingChange = new WeakSet();
 
   function storageGet(key) {
     try {
@@ -79,12 +78,7 @@
   }
 
   function scheduleChange(control) {
-    if (pendingChange.has(control)) return;
-    pendingChange.add(control);
-    global.setTimeout(() => {
-      pendingChange.delete(control);
-      control.dispatchEvent(new Event("change", { bubbles: true }));
-    }, 0);
+    queueMicrotask(() => control.dispatchEvent(new Event("change", { bubbles: true })));
   }
 
   function applyStoredValue(control, raw, notify = true) {
@@ -155,12 +149,7 @@
     }
 
     restoreControl(control);
-    // Wait until all feature scripts have applied their own legacy defaults/restores,
-    // then seed a key for controls that did not have a unified saved value yet.
-    global.setTimeout(() => {
-      restoreControl(control);
-      seedControl(control);
-    }, 250);
+    seedControl(control);
   }
 
   function scanControls(root = global.document) {
@@ -178,25 +167,16 @@
     });
   }
 
-  const observer = new MutationObserver(records => {
-    for (const record of records) {
-      for (const node of record.addedNodes) {
-        if (node.nodeType === Node.ELEMENT_NODE) scanControls(node);
-      }
-    }
-  });
-
-  if (global.document?.documentElement) {
-    observer.observe(global.document.documentElement, { childList: true, subtree: true });
-  }
-
   global.addEventListener("storage", event => {
     if (!event.key?.startsWith(STORAGE_PREFIX)) return;
     restoreAll();
   });
 
-  scanControls();
-  [0, 100, 500, 1500].forEach(delay => global.setTimeout(restoreAll, delay));
-  global.addEventListener("DOMContentLoaded", restoreAll, { once: true });
-  global.addEventListener("load", restoreAll, { once: true });
+  const initialize = () => {
+    scanControls();
+    restoreAll();
+  };
+  initialize();
+  global.addEventListener("DOMContentLoaded", initialize, { once: true });
+  global.addEventListener("load", initialize, { once: true });
 })(window);

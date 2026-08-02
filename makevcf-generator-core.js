@@ -137,20 +137,26 @@ class GeneratorVCFEngine {
   }
 
   async findVCF(arr, color, maxVCF = 64, options = {}) {
-    const mode = options.mode === "shortest" ? "shortest" : options.mode === "single" ? "single" : "multi";
     const board = genCloneBoard(arr);
-    const normalizedOptions = {
-      ...options,
-      mode,
-      maxDepth: Math.max(1, Number(options.maxDepth) || 200),
-      maxNode: Math.max(1, Number(options.maxNode) || 5000000),
-    };
+    const request = genResolveFindRequest({
+      board,
+      color,
+      maxVCF,
+      options: {
+        ...options,
+        mode: options.mode === "shortest" ? "shortest" : options.mode === "single" ? "single" : "multi",
+        maxDepth: Math.max(1, Number(options.maxDepth) || 200),
+        maxNode: Math.max(1, Number(options.maxNode) || 5000000),
+      },
+    });
+    const normalizedOptions = request.options;
+    const normalizedMaxVCF = Math.max(1, Number(request.maxVCF) || 1);
     const validationOperation = genFindGeneratorOperation("validation");
     const stoneOperation = genFindGeneratorOperation("stone");
     const operation = genBeginGeneratorOperation("search", {
       board,
       attacker: color,
-      maxVCF,
+      maxVCF: normalizedMaxVCF,
       options: normalizedOptions,
       validationOperationId: validationOperation?.id || null,
       stoneOperationId: stoneOperation?.id || null,
@@ -159,17 +165,17 @@ class GeneratorVCFEngine {
       const result = (await this.post("findVCF", {
         arr: board.slice(),
         color,
-        maxVCF,
-        mode,
-        simplify: mode !== "single",
-        pruning: genSelectedPruning(),
+        maxVCF: normalizedMaxVCF,
+        mode: normalizedOptions.mode,
+        simplify: normalizedOptions.simplify ?? normalizedOptions.mode !== "single",
+        pruning: normalizedOptions.pruning || genSelectedPruning(),
         maxDepth: normalizedOptions.maxDepth,
         maxNode: normalizedOptions.maxNode,
       })) || { winMoves: [], nodeCount: 0 };
       genEndGeneratorOperation(operation, {
         board,
         attacker: color,
-        maxVCF,
+        maxVCF: normalizedMaxVCF,
         options: normalizedOptions,
         validationOperationId: validationOperation?.id || null,
         stoneOperationId: stoneOperation?.id || null,
@@ -180,7 +186,7 @@ class GeneratorVCFEngine {
       genEndGeneratorOperation(operation, {
         board,
         attacker: color,
-        maxVCF,
+        maxVCF: normalizedMaxVCF,
         options: normalizedOptions,
         validationOperationId: validationOperation?.id || null,
         stoneOperationId: stoneOperation?.id || null,
@@ -254,21 +260,57 @@ class GeneratorVCFEngine {
   }
 
   async getBlockVCF(arr, color, moves, includeFour = true) {
-    const result = await this.post("getBlockVCF", {
-      arr: arr.slice(),
-      color,
-      vcfMoves: Array.from(moves || []),
+    const board = genCloneBoard(arr);
+    const route = Array.from(moves || []);
+    const validationOperation = genFindGeneratorOperation("validation");
+    const stoneOperation = genFindGeneratorOperation("stone");
+    const operation = genBeginGeneratorOperation("block", {
+      board,
+      attacker: color,
+      moves: route,
       includeFour,
+      validationOperationId: validationOperation?.id || null,
+      stoneOperationId: stoneOperation?.id || null,
     });
-    return Array.from(result?.points || []);
+    try {
+      const result = await this.post("getBlockVCF", {
+        arr: board.slice(),
+        color,
+        vcfMoves: route,
+        includeFour,
+      });
+      const points = Array.from(result?.points || []);
+      genEndGeneratorOperation(operation, {
+        board,
+        attacker: color,
+        moves: route,
+        includeFour,
+        points,
+        validationOperationId: validationOperation?.id || null,
+        stoneOperationId: stoneOperation?.id || null,
+      });
+      return points;
+    } catch (error) {
+      genEndGeneratorOperation(operation, {
+        board,
+        attacker: color,
+        moves: route,
+        includeFour,
+        error,
+        validationOperationId: validationOperation?.id || null,
+        stoneOperationId: stoneOperation?.id || null,
+      });
+      throw error;
+    }
   }
 
-  async cancel() {
+  cancel() {
     if (this.worker) this.worker.terminate();
     this.worker = null;
     this.rejectPending(new Error("題目產生器計算已中止"));
     this.ready = this.start();
-    await this.ready;
+    this.ready.catch(error => console.warn("題目產生器 Worker 重新初始化失敗", error));
+    return Promise.resolve();
   }
 }
 
@@ -297,8 +339,12 @@ function genPointFrom(anchor, delta, direction, sign) {
 }
 
 function genSetStatus(text) {
+  const message = String(text ?? "");
+  const formatted = genFormatStatus(message);
   const element = genEl("status");
-  if (element) element.textContent = text;
+  if (element) element.textContent = formatted;
+  genEmitGeneratorEvent("status:set", { text: message, formatted });
+  return formatted;
 }
 
 function genSetDetails(text) {
@@ -326,10 +372,131 @@ const genOptionProviders = [];
 const genBusyHooks = [];
 const genEventListeners = new Map();
 const genOperationStack = [];
+const genStatusFormatters = [];
+const genFindRequestProviders = [];
+const genCandidateDecorators = [];
+const genLayerRecordDecorators = [];
+const genAnalysisDecorators = [];
+const genExpectedBaseBoardDecorators = [];
+const genSeedProviders = [];
+const genResultPresenters = [];
 let genGenerationContext = null;
 let genGenerationSerial = 0;
 let genEventSerial = 0;
 let genOperationSerial = 0;
+
+
+function genRegisterNamedExtension(list, name, handler, priority = 0) {
+  if (!name || typeof handler !== "function") {
+    throw new TypeError("題目產生器擴充需要名稱與函式");
+  }
+  const entry = { name: String(name), handler, priority: Number(priority) || 0 };
+  const index = list.findIndex(item => item.name === entry.name);
+  if (index >= 0) list[index] = entry;
+  else list.push(entry);
+  list.sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name));
+}
+
+function genRegisterStatusFormatter(name, formatter, priority = 0) {
+  genRegisterNamedExtension(genStatusFormatters, name, formatter, priority);
+}
+
+function genFormatStatus(text) {
+  let result = String(text ?? "");
+  for (const entry of genStatusFormatters) {
+    result = String(entry.handler(result, genGetGenerationContext()) ?? result);
+  }
+  return result;
+}
+
+function genRegisterFindRequestProvider(name, provider, priority = 0) {
+  genRegisterNamedExtension(genFindRequestProviders, name, provider, priority);
+}
+
+function genResolveFindRequest(request) {
+  let result = {
+    ...request,
+    board: genCloneBoard(request.board),
+    options: { ...(request.options || {}) },
+  };
+  for (const entry of genFindRequestProviders) {
+    const next = entry.handler(result, genGetGenerationContext());
+    if (next && typeof next === "object") {
+      result = {
+        ...result,
+        ...next,
+        options: { ...result.options, ...(next.options || {}) },
+      };
+    }
+  }
+  return result;
+}
+
+function genRegisterCandidateDecorator(name, decorator, priority = 0) {
+  genRegisterNamedExtension(genCandidateDecorators, name, decorator, priority);
+}
+
+function genDecorateLayerCandidates(candidates, context) {
+  let result = Array.from(candidates || []);
+  for (const entry of genCandidateDecorators) {
+    const next = entry.handler(result, context);
+    if (Array.isArray(next)) result = next;
+  }
+  return result;
+}
+
+function genRegisterLayerRecordDecorator(name, decorator, priority = 0) {
+  genRegisterNamedExtension(genLayerRecordDecorators, name, decorator, priority);
+}
+
+function genDecorateLayerRecord(record, candidate, step) {
+  let result = record;
+  for (const entry of genLayerRecordDecorators) {
+    result = entry.handler(result, candidate, step) || result;
+  }
+  return result;
+}
+
+function genRegisterAnalysisDecorator(name, decorator, priority = 0) {
+  genRegisterNamedExtension(genAnalysisDecorators, name, decorator, priority);
+}
+
+function genDecorateAnalysis(analysis, initialBoard, moves, attacker) {
+  let result = analysis;
+  for (const entry of genAnalysisDecorators) {
+    result = entry.handler(result, initialBoard, moves, attacker) || result;
+  }
+  return result;
+}
+
+function genRegisterExpectedBaseBoardDecorator(name, decorator, priority = 0) {
+  genRegisterNamedExtension(genExpectedBaseBoardDecorators, name, decorator, priority);
+}
+
+function genDecorateExpectedBaseBoard(expected, candidate) {
+  let result = expected;
+  for (const entry of genExpectedBaseBoardDecorators) {
+    result = entry.handler(result, candidate);
+    if (!result) return null;
+  }
+  return result;
+}
+
+function genRegisterSeedProvider(name, provider, priority = 0) {
+  genRegisterNamedExtension(genSeedProviders, name, provider, priority);
+}
+
+function genEligibleSeedProviders(context) {
+  return genSeedProviders.filter(entry => entry.handler.canHandle?.(context) !== false);
+}
+
+function genRegisterResultPresenter(name, presenter, priority = 0) {
+  genRegisterNamedExtension(genResultPresenters, name, presenter, priority);
+}
+
+function genPresentResult(result, context) {
+  for (const entry of genResultPresenters) entry.handler(result, context);
+}
 
 function genRegisterOptionProvider(name, provider) {
   if (!name || typeof provider !== "function") {

@@ -1,12 +1,9 @@
 "use strict";
 
-// 分離題目產生器的三個階段：
-// 1. 每層驗證固定處理較短 VCF。
-// 2. 同步數其他 VCF 只依「只保留目標 VCF」設定處理。
-// 3. 黑白子數只在指定步數完成後補齊，且只由盤面差額決定補黑或補白。
-//    補入攻方棋時，必須確認攻方目標 VCF 仍存在，且沒有新增其他攻方 VCF。
-(function installGeneratorValidationAndBalanceFix(global) {
-  const INSTALL_FLAG = "__generatorValidationAndBalanceFixInstalled";
+// Final result orchestration. Search/validation creates the requested dead-four layers;
+// this module then optionally removes alternate target boards and balances the final
+// black/white move count. It is called once from genGenerate(), never by function wrapping.
+(function installGeneratorFinalizer() {
   const SHAPE_MASK = 0x0f;
   const THREE_NOFREE = 6;
   const THREE_FREE = 7;
@@ -37,32 +34,6 @@
     return { color: GEN_EMPTY, count: 0 };
   }
 
-  function callWithShorterVCFRepair(callback) {
-    const balanceInput = global.genEl("balance-stones");
-    const originalBalance = balanceInput?.checked;
-    if (balanceInput) balanceInput.checked = true;
-    try {
-      return callback();
-    } finally {
-      if (balanceInput) balanceInput.checked = originalBalance;
-    }
-  }
-
-  function patchImmediateCancel() {
-    if (genEngine.__immediateCancelPatched) return;
-    genEngine.__immediateCancelPatched = true;
-    genEngine.cancel = function cancelGeneratorImmediately() {
-      if (this.worker) this.worker.terminate();
-      this.worker = null;
-      this.rejectPending(new Error("題目產生器計算已中止"));
-      this.ready = this.start();
-      this.ready.catch(error => {
-        console.warn("題目產生器 Worker 重新初始化失敗", error);
-      });
-      return Promise.resolve();
-    };
-  }
-
   function isInteriorPoint(idx) {
     const x = genX(idx);
     const y = genY(idx);
@@ -82,20 +53,11 @@
     return count;
   }
 
-  function multiplyLineShapeWeight(
-    weight,
-    board,
-    idx,
-    color,
-    includeFours,
-    threeMultiplier,
-  ) {
+  function multiplyLineShapeWeight(weight, board, idx, color, includeFours, threeMultiplier) {
     let result = weight;
     for (let direction = 0; direction < 4; direction++) {
       const three = testLineThree(idx, direction, color, board) & SHAPE_MASK;
-      if (three === THREE_FREE || three === THREE_NOFREE) {
-        result *= threeMultiplier;
-      }
+      if (three === THREE_FREE || three === THREE_NOFREE) result *= threeMultiplier;
       if (includeFours) {
         const four = testLineFour(idx, direction, color, board) & SHAPE_MASK;
         if (four === GEN_FOUR_FREE) result *= 1000000;
@@ -108,22 +70,8 @@
   function fillPointWeight(board, idx, attacker, options) {
     const defender = genOther(attacker);
     let weight = 1;
-    weight = multiplyLineShapeWeight(
-      weight,
-      board,
-      idx,
-      attacker,
-      true,
-      options.threeMultiplier,
-    );
-    weight = multiplyLineShapeWeight(
-      weight,
-      board,
-      idx,
-      defender,
-      false,
-      options.threeMultiplier,
-    );
+    weight = multiplyLineShapeWeight(weight, board, idx, attacker, true, options.threeMultiplier);
+    weight = multiplyLineShapeWeight(weight, board, idx, defender, false, options.threeMultiplier);
     return weight * Math.max(1, neighborhoodStoneCount(board, idx));
   }
 
@@ -131,27 +79,22 @@
     return items
       .map(item => ({
         item,
-        key:
-          item.weight > 0
-            ? -Math.log(Math.max(Number.MIN_VALUE, Math.random())) / item.weight
-            : Math.random(),
+        key: item.weight > 0
+          ? -Math.log(Math.max(Number.MIN_VALUE, Math.random())) / item.weight
+          : Math.random(),
       }))
-      .sort((a, b) => a.key - b.key)
+      .sort((left, right) => left.key - right.key)
       .map(entry => entry.item);
   }
 
   function pointCreatesForbiddenResult(state, idx, color) {
-    if (state.rules === 2 && color === GEN_BLACK && isFoul(idx, state.board)) {
-      return true;
-    }
-
+    if (state.rules === 2 && color === GEN_BLACK && isFoul(idx, state.board)) return true;
     if (color === genOther(state.attacker)) {
       for (let direction = 0; direction < 4; direction++) {
         const four = testLineFour(idx, direction, color, state.board) & SHAPE_MASK;
         if (four === GEN_FOUR_NOFREE || four === GEN_FOUR_FREE) return true;
       }
     }
-
     const board = genCloneBoard(state.board);
     board[idx] = color;
     return (getLevelPoint(idx, color, board) & SHAPE_MASK) >= GEN_FIVE;
@@ -159,15 +102,9 @@
 
   async function buildFillPool(state, color, options) {
     const protectedPoints = new Set(
-      await genEngine.getBlockVCF(
-        state.board,
-        state.attacker,
-        state.moves,
-        true,
-      ),
+      await genEngine.getBlockVCF(state.board, state.attacker, state.moves, true),
     );
     if (genCancelled) return [];
-
     const eligible = [];
     for (let idx = 0; idx < 225; idx++) {
       if (!isInteriorPoint(idx) || state.board[idx] !== GEN_EMPTY) continue;
@@ -194,14 +131,7 @@
     );
   }
 
-  async function findTargetAfterFill(
-    board,
-    attacker,
-    fillColor,
-    targetSteps,
-    expectedBoard,
-    budget,
-  ) {
+  async function findTargetAfterFill(board, attacker, fillColor, targetSteps, expectedBoard, budget) {
     const maxDepth = genTargetSearchPly(targetSteps);
     const filledAttackerStone = fillColor === attacker;
     if (performance.now() >= budget.deadline) return null;
@@ -212,16 +142,11 @@
       maxNode: SHORTEST_MAX_NODE,
     });
     if (genCancelled || !shortestInfo?.winMoves?.length) return null;
-
     const shortestMoves = Array.from(shortestInfo.winMoves[0] || []);
     const shortestAnalysis = genAnalyzeVCFGroup(board, shortestMoves, attacker);
     if (!shortestAnalysis.valid || shortestAnalysis.steps < targetSteps) return null;
 
-    const shortestIsTarget = isExpectedTarget(
-      shortestAnalysis,
-      targetSteps,
-      expectedBoard,
-    );
+    const shortestIsTarget = isExpectedTarget(shortestAnalysis, targetSteps, expectedBoard);
     if (!filledAttackerStone && shortestIsTarget) {
       return {
         info: shortestInfo,
@@ -239,52 +164,38 @@
       maxNode: TARGET_MAX_NODE,
     });
     if (genCancelled || !info?.winMoves?.length) return null;
-    const raw = info.winMoves.filter(moves => moves && moves.length);
+    const raw = info.winMoves.filter(moves => moves?.length);
     const groups = await genEngine.trimGroups(board, raw, attacker);
     if (genCancelled || !groups.length) return null;
 
     let target = shortestIsTarget
       ? { moves: shortestMoves, analysis: shortestAnalysis }
       : null;
-
     for (const moves of groups) {
       const analysis = genAnalyzeVCFGroup(board, moves, attacker);
       if (!analysis.valid) continue;
       if (analysis.steps < targetSteps) return null;
-
       if (isExpectedTarget(analysis, targetSteps, expectedBoard)) {
-        if (!target) target = { moves: Array.from(moves), analysis };
-        continue;
-      }
-
-      if (filledAttackerStone && analysis.steps === targetSteps) {
+        target ||= { moves: Array.from(moves), analysis };
+      } else if (filledAttackerStone && analysis.steps === targetSteps) {
         return null;
       }
     }
-
     if (!target) return null;
     return {
       info,
       moves: target.moves,
       analysis: target.analysis,
       groupCount: groups.length,
-      searchLimited:
-        Boolean(info.aborted) || raw.length >= TARGET_MAX_GROUPS,
+      searchLimited: Boolean(info.aborted) || raw.length >= TARGET_MAX_GROUPS,
     };
   }
 
-  async function validateFilledState(
-    state,
-    idx,
-    color,
-    targetSteps,
-    budget,
-  ) {
+  async function validateFilledState(state, idx, color, targetSteps, budget) {
     const board = genCloneBoard(state.board);
     board[idx] = color;
     const expectedBoard = genCloneBoard(state.standardBoard);
     expectedBoard[idx] = color;
-
     const target = await findTargetAfterFill(
       board,
       state.attacker,
@@ -295,7 +206,8 @@
     );
     if (!target) return null;
 
-    const next = {
+    const isAttacker = color === state.attacker;
+    const next = genApplyBlockerNPoints({
       ...state,
       board,
       nMask: genApplyRouteNPoints({ ...state, board }, target.moves),
@@ -305,36 +217,31 @@
       nodeCount: target.info.nodeCount || 0,
       groupCount: target.groupCount,
       balanceComplete: false,
-    };
+      totalAddedAttackers: Number(state.totalAddedAttackers || 0) + (isAttacker ? 1 : 0),
+      totalAddedDefenders: Number(state.totalAddedDefenders || 0) + (isAttacker ? 0 : 1),
+      balanceFillAttackers: [
+        ...Array.from(state.balanceFillAttackers || []),
+        ...(isAttacker ? [idx] : []),
+      ],
+      balanceFillDefenders: [
+        ...Array.from(state.balanceFillDefenders || []),
+        ...(isAttacker ? [] : [idx]),
+      ],
+    });
     if (target.searchLimited) {
       next.balanceVCFSearchLimited = true;
-      next.balanceVCFSearchLimitWarnings =
-        Number(state.balanceVCFSearchLimitWarnings || 0) + 1;
-    }
-    if (color === state.attacker) {
-      next.totalAddedAttackers = Number(state.totalAddedAttackers || 0) + 1;
-    } else {
-      next.totalAddedDefenders = Number(state.totalAddedDefenders || 0) + 1;
+      next.balanceVCFSearchLimitWarnings = Number(state.balanceVCFSearchLimitWarnings || 0) + 1;
     }
     return next;
   }
 
-  async function fillColorRecursive(
-    state,
-    pool,
-    color,
-    targetSteps,
-    remaining,
-    budget,
-  ) {
+  async function fillColorRecursive(state, pool, color, targetSteps, remaining, budget) {
     if (remaining <= 0) return state;
     if (
       genCancelled ||
       budget.states >= FILL_STATE_LIMIT ||
       performance.now() >= budget.deadline
-    ) {
-      return null;
-    }
+    ) return null;
 
     const key = boardKey(state.board, remaining);
     if (budget.visited.has(key)) return null;
@@ -352,7 +259,7 @@
 
       const replayBoard = genCloneBoard(state.board);
       replayBoard[idx] = color;
-      const replayAttempt = genBeginStoneAttempt({
+      const attempt = genBeginStoneAttempt({
         phase: "balance",
         board: replayBoard,
         nMask: state.nMask,
@@ -360,17 +267,10 @@
         color,
         idx,
       });
-
-      const next = await validateFilledState(
-        state,
-        idx,
-        color,
-        targetSteps,
-        budget,
-      );
+      const next = await validateFilledState(state, idx, color, targetSteps, budget);
       if (!next) {
         genEndStoneAttempt(
-          replayAttempt,
+          attempt,
           false,
           color === state.attacker
             ? "補入攻方棋後，目標 VCF 消失、出現較短 VCF，或新增其他攻方 VCF，已撤銷"
@@ -378,7 +278,6 @@
         );
         continue;
       }
-
       const completed = await fillColorRecursive(
         next,
         pool,
@@ -387,32 +286,21 @@
         remaining - 1,
         budget,
       );
-      if (completed) {
-        genEndStoneAttempt(
-          replayAttempt,
-          true,
-          color === state.attacker
-            ? "攻方目標 VCF 仍存在，且未找到新增的其他攻方 VCF"
-            : "原攻方目標 VCF 仍存在",
-        );
-        return completed;
-      }
       genEndStoneAttempt(
-        replayAttempt,
-        false,
-        "後續補齊分支失敗，已撤銷並回溯",
+        attempt,
+        Boolean(completed),
+        completed
+          ? color === state.attacker
+            ? "攻方目標 VCF 仍存在，且未找到新增的其他攻方 VCF"
+            : "原攻方目標 VCF 仍存在"
+          : "後續補齊分支失敗，已撤銷並回溯",
       );
+      if (completed) return completed;
     }
     return null;
   }
 
-  async function fillRequiredColor(
-    state,
-    targetSteps,
-    options,
-    requirement,
-    deadline,
-  ) {
+  async function fillRequiredColor(state, targetSteps, options, requirement, deadline) {
     if (!requirement.count) return state;
     const pool = await buildFillPool(state, requirement.color, options);
     if (!pool.length) return null;
@@ -422,127 +310,47 @@
       requirement.color,
       targetSteps,
       requirement.count,
-      {
-        states: 0,
-        visited: new Set(),
-        deadline,
-      },
+      { states: 0, visited: new Set(), deadline },
     );
   }
 
-  function install() {
-    if (global[INSTALL_FLAG]) return;
-    if (
-      !global.__generatorDefensePointPolicyInstalled ||
-      typeof global.genValidateCandidate !== "function" ||
-      typeof global.genValidateExtensionCandidate !== "function" ||
-      typeof global.genExtendToTarget !== "function" ||
-      typeof global.genEl !== "function"
-    ) {
-      global.setTimeout(install, 0);
-      return;
+  window.genFinalizeGeneratedResult = async function genFinalizeGeneratedResult(
+    initialResult,
+    targetSteps,
+    options,
+    counters,
+  ) {
+    let result = genApplyBlockerNPoints(initialResult);
+    if (!result) return null;
+
+    if (options?.blockOtherVCF) {
+      genSetStatus(`正在以多組 VCF 封鎖較短／其他路線……已驗證 ${counters.attempts} 個候選`);
+      result = await genCleanFinalTargetBoard(result, targetSteps);
+      if (!result || genCancelled) return null;
     }
 
-    patchImmediateCancel();
-
-    const previousSetStatus = genSetStatus;
-    genSetStatus = function normalizeCancelledGeneratorStatus(text) {
-      const message = String(text ?? "");
-      if (
-        genCancelled &&
-        message.startsWith("產生失敗：") &&
-        message.includes("中止")
-      ) {
-        return previousSetStatus("已停止產生");
+    if (!options?.balanceStones) return genApplyBlockerNPoints(result);
+    const deadline = performance.now() + FILL_TIME_LIMIT_MS;
+    for (let round = 0; round < FILL_ROUND_LIMIT; round++) {
+      if (performance.now() >= deadline) return null;
+      const requirement = requiredFinalFill(result.board, result.attacker);
+      if (!requirement.count) {
+        return genApplyBlockerNPoints({ ...result, balanceComplete: true });
       }
-      return previousSetStatus(text);
-    };
-
-    const previousValidateCandidate = global.genValidateCandidate;
-    const previousValidateExtensionCandidate =
-      global.genValidateExtensionCandidate;
-    const previousExtendToTarget = global.genExtendToTarget;
-    global[INSTALL_FLAG] = true;
-
-    global.genValidateCandidate = function validateBaseWithShorterRepair(...args) {
-      return callWithShorterVCFRepair(
-        () => previousValidateCandidate.apply(this, args),
+      const colorName = requirement.color === GEN_BLACK ? "黑" : "白";
+      const roleName = requirement.color === result.attacker ? "攻方" : "守方";
+      genSetStatus(
+        `VCF 已完成，最後補齊${roleName}${colorName}子 ${requirement.count} 顆……` +
+        `已驗證 ${counters.attempts} 個候選`,
       );
-    };
+      result = await fillRequiredColor(result, targetSteps, options, requirement, deadline);
+      if (!result || genCancelled) return null;
 
-    global.genValidateExtensionCandidate =
-      function validateExtensionWithShorterRepair(...args) {
-        return callWithShorterVCFRepair(
-          () => previousValidateExtensionCandidate.apply(this, args),
-        );
-      };
-
-    global.genExtendToTarget = async function extendThenBalanceByBoardCount(
-      current,
-      targetSteps,
-      attacker,
-      rules,
-      options,
-      counters,
-    ) {
-      const balanceRequested = Boolean(options?.balanceStones);
-      let result = await previousExtendToTarget.call(
-        this,
-        current,
-        targetSteps,
-        attacker,
-        rules,
-        { ...options, balanceStones: false },
-        counters,
-      );
-      if (
-        !result ||
-        !balanceRequested ||
-        result.steps !== targetSteps ||
-        genCancelled
-      ) {
-        return result;
-      }
-
-      const balanceDeadline = performance.now() + FILL_TIME_LIMIT_MS;
-      for (let round = 0; round < FILL_ROUND_LIMIT; round++) {
-        if (performance.now() >= balanceDeadline) return null;
-        const requirement = requiredFinalFill(result.board, result.attacker);
-        if (!requirement.count) {
-          return { ...result, balanceComplete: true };
-        }
-
-        const colorName = requirement.color === GEN_BLACK ? "黑" : "白";
-        const roleName = requirement.color === result.attacker ? "攻方" : "守方";
-        genSetStatus(
-          `VCF 已完成，最後補齊${roleName}${colorName}子 ${requirement.count} 顆……` +
-            `已驗證 ${counters.attempts} 個候選`,
-        );
-        result = await fillRequiredColor(
-          result,
-          targetSteps,
-          options,
-          requirement,
-          balanceDeadline,
-        );
+      if (options.blockOtherVCF && requirement.color !== result.attacker) {
+        result = await genCleanFinalTargetBoard(result, targetSteps);
         if (!result || genCancelled) return null;
-
-        if (options?.blockOtherVCF && requirement.color !== result.attacker) {
-          result = await previousExtendToTarget.call(
-            this,
-            result,
-            targetSteps,
-            attacker,
-            rules,
-            { ...options, balanceStones: false, blockOtherVCF: true },
-            counters,
-          );
-          if (!result || genCancelled) return null;
-        }
       }
-      return null;
-    };
-  }
-
-  install();
-})(window);
+    }
+    return null;
+  };
+})();
