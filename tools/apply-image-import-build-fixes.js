@@ -31,8 +31,20 @@ const defense = requireTokens("makevcf-generator-defense-points.js", [
   "genReplayBeginDefenderAttempt",
   "genReplayEndDefenderAttempt",
 ]);
+requireTokens("makevcf-generator-core.js", [
+  "function genRegisterOptionProvider(",
+  "function genRegisterBusyHook(",
+  "function genBeginGenerationContext(",
+  "function genGetActiveOptions(",
+]);
+requireTokens("makevcf-generator-main.js", [
+  "genResolveOptions({",
+  "genBeginGenerationContext({",
+  "genEndGenerationContext(generationContext)",
+]);
 requireTokens("makevcf-generator-balance.js", [
-  "generatorOptionsWithFinalBalance",
+  'genRegisterOptionProvider("final-balance"',
+  'genRegisterBusyHook("final-balance"',
   "黑白子數已補齊",
 ]);
 requireTokens("makevcf-generator-extension-other-vcf-fix.js", [

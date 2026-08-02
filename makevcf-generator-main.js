@@ -25,14 +25,14 @@ function genOptions() {
   // 0% = 權重不變；100% = 完整加成時由 1 倍提高為 100 倍，因此增量為 99。
   const reuseBonus = 99 * reuseBonusPercent / 100;
   const centerBonus = 99 * centerBonusPercent / 100;
-  return {
+  return genResolveOptions({
     reuseBonus,
     centerBonus,
     reuseBonusPercent,
     centerBonusPercent,
     reuseFullMultiplier: 1 + reuseBonus,
     centerFullMultiplier: 1 + centerBonus,
-  };
+  });
 }
 
 async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
@@ -157,6 +157,13 @@ async function genGenerate() {
   const targetSteps = genGetTargetSteps();
   const options = genOptions();
   const counters = { attempts: 0, baseRounds: 0, restarts: 0 };
+  const generationContext = genBeginGenerationContext({
+    attacker,
+    rules,
+    targetSteps,
+    options,
+    counters,
+  });
   genRefreshGenerateLabel();
   genSetBusy(true);
 
@@ -185,7 +192,11 @@ async function genGenerate() {
     console.error(error);
     genSetStatus(`產生失敗：${error && error.message ? error.message : String(error)}`);
   } finally {
-    genSetBusy(false);
+    try {
+      genSetBusy(false);
+    } finally {
+      genEndGenerationContext(generationContext);
+    }
   }
 }
 

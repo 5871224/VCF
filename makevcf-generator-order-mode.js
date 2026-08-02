@@ -5,8 +5,6 @@
   if (window.__generatorOrderModeLoaded) return;
   window.__generatorOrderModeLoaded = true;
 
-  let orderByBonus = false;
-
   function addOrderControl() {
     const referenceInput = genEl("bonus-center") || genEl("bonus-reuse");
     const controls = referenceInput && (referenceInput.closest(".gen-controls") || referenceInput.closest(".controls"));
@@ -44,18 +42,17 @@
     };
   }, 0);
 
-  const originalOptions = genOptions;
-  genOptions = function generatorOptionsWithOrderMode() {
-    const options = originalOptions();
-    orderByBonus = Boolean(genEl("order-by-bonus")?.checked);
-    return {
-      ...options,
-      orderByBonus,
-    };
-  };
+  genRegisterOptionProvider("order-mode", options => ({
+    ...options,
+    orderByBonus: Boolean(genEl("order-by-bonus")?.checked),
+  }));
 
   const originalWeightedOrder = genWeightedOrder;
   genWeightedOrder = function generatorCandidateOrder(items) {
+    const activeOptions = genGetActiveOptions();
+    const orderByBonus = activeOptions
+      ? Boolean(activeOptions.orderByBonus)
+      : Boolean(genEl("order-by-bonus")?.checked);
     if (!orderByBonus) return originalWeightedOrder(items);
 
     return Array.from(items || [])
@@ -68,12 +65,12 @@
       .map(entry => entry.item);
   };
 
-  const originalSetBusy = genSetBusy;
-  genSetBusy = function generatorSetBusyWithOrderMode(value) {
-    originalSetBusy(value);
-    const input = genEl("order-by-bonus");
-    if (input) input.disabled = value;
-  };
+  genRegisterBusyHook("order-mode", {
+    after(value) {
+      const input = genEl("order-by-bonus");
+      if (input) input.disabled = value;
+    },
+  });
 
   // balance / unique / summary 都在本檔之後同步載入；等它們完成後，統一套用最新補子政策。
   setTimeout(() => {
