@@ -105,11 +105,11 @@
   };
 
   const install = () => {
-    if (document.getElementById("vcf-question-bank")) return;
-    if (typeof window._getArr !== "function" || typeof window._setBoardArr !== "function") return;
+    if (document.getElementById("vcf-question-bank")) return true;
+    if (typeof window._getArr !== "function" || typeof window._setBoardArr !== "function") return false;
 
     const anchor = document.getElementById("bitboard-architecture-panel");
-    if (!anchor) return;
+    if (!anchor) return false;
 
     const section = document.createElement("section");
     section.id = "vcf-question-bank";
@@ -124,6 +124,7 @@
       </div>
     `;
     anchor.insertAdjacentElement("afterend", section);
+    window.dispatchEvent(new CustomEvent("vcf-question-bank-ready", { detail: { section } }));
 
     const style = document.createElement("style");
     style.textContent = `
@@ -401,8 +402,11 @@
     };
 
     initialize();
+    return true;
   };
 
-  if (document.readyState === "complete") install();
-  else window.addEventListener("load", install, { once: true });
+  if (!install()) {
+    document.addEventListener("DOMContentLoaded", install, { once: true });
+    window.addEventListener("load", install, { once: true });
+  }
 })();
