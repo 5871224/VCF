@@ -1,16 +1,16 @@
 "use strict";
 
-// VCF 補守棋子是為了封鎖已知的較短／其他 VCF；後續反向增加死四時，
-// 不得再把這些棋子當成模板五點的對方棋而暫時移除，否則已封鎖的 VCF 會重新出現。
-(function installProtectedGeneratorDefenders(global) {
+// 封鎖較短／其他 VCF 所補入的守子，後續反向增加死四時不得再作為模板「五」點移除。
+// 不另建保護清單，只把既有 autoBlockDefenders／uniqueBlockDefenders 對應位置設成雙方 N。
+(function installGeneratorBlockerNPoints(global) {
   const INSTALL_FLAG = "__generatorProtectedDefendersInstalled";
-  const BOTH_N = GEN_NO_BLACK | GEN_NO_WHITE;
 
   function install() {
     if (global[INSTALL_FLAG]) return;
     if (
+      typeof GEN_NO_BLACK !== "number" ||
+      typeof GEN_NO_WHITE !== "number" ||
       !global.__generatorDefensePointPolicyInstalled ||
-      typeof global.genBuildLayerCandidates !== "function" ||
       typeof global.genValidateCandidate !== "function" ||
       typeof global.genValidateExtensionCandidate !== "function" ||
       typeof global.genExtendToTarget !== "function"
@@ -20,72 +20,63 @@
     }
 
     global[INSTALL_FLAG] = true;
+    const BOTH_N = GEN_NO_BLACK | GEN_NO_WHITE;
 
-    function protectedPointsOf(state) {
-      return new Set([
-        ...Array.from(state?.protectedDefenders || []),
-        ...Array.from(state?.autoBlockDefenders || []),
-        ...Array.from(state?.uniqueBlockDefenders || []),
-      ].filter(idx => Number.isInteger(idx) && idx >= 0 && idx < 225));
-    }
-
-    function protectState(state) {
+    function applyBlockerNPoints(state) {
       if (!state) return state;
       if (!state.nMask) state.nMask = new Uint8Array(225);
 
-      const points = protectedPointsOf(state);
-      for (const idx of points) state.nMask[idx] |= BOTH_N;
-      state.protectedDefenders = Array.from(points);
+      const points = new Set([
+        ...Array.from(state.autoBlockDefenders || []),
+        ...Array.from(state.uniqueBlockDefenders || []),
+      ]);
+      for (const idx of points) {
+        if (Number.isInteger(idx) && idx >= 0 && idx < 225) {
+          state.nMask[idx] |= BOTH_N;
+        }
+      }
       return state;
     }
 
-    // 先把既有補守棋標成雙方 N；即使原始模板仍允許五點使用對方棋，
-    // 也在候選建好後明確淘汰任何會移除受保護守子的候選，避免只依賴 N 點檢查順序。
-    const previousBuildLayerCandidates = global.genBuildLayerCandidates;
-    global.genBuildLayerCandidates = function buildLayerCandidatesWithoutRemovingProtectedDefenders(
-      ...args
-    ) {
-      const base = protectState(args[0]);
-      const protectedPoints = protectedPointsOf(base);
-      const candidates = previousBuildLayerCandidates.apply(this, args) || [];
-
-      return candidates.filter(candidate => {
-        protectState(candidate);
-        return !(candidate.removedDefenders || []).some(idx => protectedPoints.has(idx));
-      });
-    };
-
     const previousValidateCandidate = global.genValidateCandidate;
-    global.genValidateCandidate = async function validateCandidateWithProtectedDefenders(
+    global.genValidateCandidate = async function validateCandidateWithBlockerNPoints(
       candidate,
       ...args
     ) {
-      const result = await previousValidateCandidate.call(this, protectState(candidate), ...args);
-      return protectState(result);
+      const result = await previousValidateCandidate.call(
+        this,
+        applyBlockerNPoints(candidate),
+        ...args
+      );
+      return applyBlockerNPoints(result);
     };
 
     const previousValidateExtensionCandidate = global.genValidateExtensionCandidate;
-    global.genValidateExtensionCandidate = async function validateExtensionWithProtectedDefenders(
+    global.genValidateExtensionCandidate = async function validateExtensionWithBlockerNPoints(
       candidate,
       previousResult,
       ...args
     ) {
       const result = await previousValidateExtensionCandidate.call(
         this,
-        protectState(candidate),
-        protectState(previousResult),
+        applyBlockerNPoints(candidate),
+        applyBlockerNPoints(previousResult),
         ...args
       );
-      return protectState(result);
+      return applyBlockerNPoints(result);
     };
 
     const previousExtendToTarget = global.genExtendToTarget;
-    global.genExtendToTarget = async function extendToTargetWithProtectedDefenders(
+    global.genExtendToTarget = async function extendWithBlockerNPoints(
       current,
       ...args
     ) {
-      const result = await previousExtendToTarget.call(this, protectState(current), ...args);
-      return protectState(result);
+      const result = await previousExtendToTarget.call(
+        this,
+        applyBlockerNPoints(current),
+        ...args
+      );
+      return applyBlockerNPoints(result);
     };
   }
 
