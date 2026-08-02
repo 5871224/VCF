@@ -1,14 +1,15 @@
 // 多組 VCF V3：
 // - 單組搜尋繼續使用目前最快的舊版相容核心。
-// - 嚴格模式只剪除相同 ply 的完整同盤無解狀態。
-// - 高速模式另外記錄已完整證明有解的盤面；若其黑白棋集合都是目前盤面的子集，
-//   則目前分支最後只會形成會被子集去重刪除的延伸路線，可直接略過。
-// - 多組路線依規格先以原始手順做子集去重，再對保留下來的路線做精簡。
+// - 嚴格模式只剪除相同 ply 的完整同盤無解狀態，輸出只合併攻守集合完全相同的路線。
+// - 高速模式另外使用勝型子集剪枝，輸出也以攻守集合子集去重。
+// - 多手路線的最後一手若為活四，去重比較時退回活四前；一手活四保留落子點。
+// - 去重只改比較集合，輸出、回放與 getBlockVCF 仍保留完整精簡手順。
 
 namespace {
 
 constexpr int MULTI_PRUNING_STRICT = 0;
 constexpr int MULTI_PRUNING_FAST = 1;
+constexpr uint8_t MULTI_FOUR_FREE_PATTERN = 12;
 
 struct WinningSubsetV3 {
     std::array<uint64_t, BIT_WORDS> black {};
@@ -24,9 +25,25 @@ bool bitboardSubsetV3(const std::array<uint64_t, BIT_WORDS> &small,
     return true;
 }
 
+struct RouteShapeV3 {
+    std::array<uint64_t, BIT_WORDS> attack {};
+    std::array<uint64_t, BIT_WORDS> defense {};
+};
+
+bool routeShapeEqualV3(const RouteShapeV3 &left, const RouteShapeV3 &right)
+{
+    return left.attack == right.attack && left.defense == right.defense;
+}
+
+bool routeShapeSubsetV3(const RouteShapeV3 &small, const RouteShapeV3 &large)
+{
+    return bitboardSubsetV3(small.attack, large.attack)
+        && bitboardSubsetV3(small.defense, large.defense);
+}
+
 struct StoredRouteV3 {
-    std::vector<uint8_t> raw;
     std::vector<uint8_t> output;
+    RouteShapeV3 shape;
 };
 
 struct MultiSearchRunnerV3 {
@@ -72,6 +89,48 @@ struct MultiSearchRunnerV3 {
         winningSubsetsByPly[bucket].push_back({position.board.black, position.board.white});
     }
 
+    bool tailIsOpenFour(const std::vector<uint8_t> &route) const
+    {
+        // 一手活四不得退成空集合。
+        if (route.size() <= 1 || (route.size() & 1U) == 0 || !initialBoard)
+            return false;
+
+        Position replay;
+        replay.load(initialBoard);
+        const int defender = 3 - attacker;
+        for (size_t ply = 0; ply + 1 < route.size(); ply++) {
+            const int idx = route[ply];
+            if (!replay.empty(idx))
+                return false;
+            replay.play(idx, (ply & 1U) ? defender : attacker);
+        }
+
+        const int finalIndex = route.back();
+        if (!replay.empty(finalIndex))
+            return false;
+        PatternExportResult analysis {};
+        if (!vcfAnalyzePoint(replay.board.cells.data(), finalIndex, attacker, rule, 0, &analysis))
+            return false;
+        for (uint8_t pattern : analysis.directions)
+            if (pattern == MULTI_FOUR_FREE_PATTERN)
+                return true;
+        return false;
+    }
+
+    RouteShapeV3 normalizedShape(const std::vector<uint8_t> &route) const
+    {
+        RouteShapeV3 shape;
+        const size_t compareLength = route.size() - (tailIsOpenFour(route) ? 1U : 0U);
+        for (size_t ply = 0; ply < compareLength; ply++) {
+            const int idx = route[ply];
+            if (idx < 0 || idx >= BOARD_CELLS)
+                continue;
+            auto &bits = (ply & 1U) ? shape.defense : shape.attack;
+            bits[idx >> 6] |= uint64_t(1) << (idx & 63);
+        }
+        return shape;
+    }
+
     void rebuildOutputRoutes()
     {
         routes.clear();
@@ -88,26 +147,25 @@ struct MultiSearchRunnerV3 {
         if (raw.empty() || ctx->aborted)
             return;
 
-        // 規格：先以尚未精簡的原始手順做子集去重，避免先對必定會被淘汰的路線
-        // 反覆執行 isVCF 精簡驗證。
-        for (size_t i = storedRoutes.size(); i-- > 0;) {
-            const std::vector<uint8_t> &oldRaw = storedRoutes[i].raw;
-            if (raw.size() < oldRaw.size() && routeSubsetByColor(raw, oldRaw))
-                storedRoutes.erase(storedRoutes.begin() + i);
-            else if (routeSubsetByColor(oldRaw, raw))
-                return;
-        }
-
         std::vector<uint8_t> output = simplifyOld(initialBoard, attacker, rule, raw);
         if (output.empty())
             return;
+        const RouteShapeV3 shape = normalizedShape(output);
 
-        // 不再做第二次「子集」淘汰；僅避免精簡後完全相同的重複輸出。
-        for (const StoredRouteV3 &entry : storedRoutes)
-            if (entry.output == output)
+        for (size_t i = storedRoutes.size(); i-- > 0;) {
+            const RouteShapeV3 &oldShape = storedRoutes[i].shape;
+            if (pruning == MULTI_PRUNING_FAST) {
+                if (routeShapeSubsetV3(shape, oldShape))
+                    storedRoutes.erase(storedRoutes.begin() + i);
+                else if (routeShapeSubsetV3(oldShape, shape))
+                    return;
+            }
+            else if (routeShapeEqualV3(shape, oldShape)) {
                 return;
+            }
+        }
 
-        storedRoutes.push_back({raw, std::move(output)});
+        storedRoutes.push_back({std::move(output), shape});
         rebuildOutputRoutes();
     }
 
@@ -312,7 +370,6 @@ int findModeImplMultiV3(const uint8_t *board,
 
     Position position;
     position.load(board);
-    // 多組與最短模式依規格固定精簡；simplify 參數只保留 ABI 相容。
     (void)simplify;
     const auto routes = runMultiModeV3(position, board, attacker, rule, mode, pruning,
                                        maxRoutes, maxDepth, maxNodes, ctx, rootCandidates);
@@ -488,6 +545,16 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
     strict.winningSubsetsByPly.resize(8);
     if (strict.fastDominated(superset, 2))
         return 102;
+
+    RouteShapeV3 smallShape;
+    RouteShapeV3 largeShape;
+    smallShape.attack[0] = uint64_t(1) << 1;
+    largeShape.attack[0] = (uint64_t(1) << 1) | (uint64_t(1) << 2);
+    if (!routeShapeSubsetV3(smallShape, largeShape)
+        || routeShapeSubsetV3(largeShape, smallShape))
+        return 103;
+    if (routeShapeEqualV3(smallShape, largeShape))
+        return 104;
 
     return 0;
 }
