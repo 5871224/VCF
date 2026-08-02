@@ -65,10 +65,10 @@
     }
 
     const bank = document.getElementById("vcf-question-bank");
-    if (bank && bank.parentElement !== panel) panel.appendChild(bank);
-    else if (bank && panel.lastElementChild !== bank) panel.appendChild(bank);
+    if (!bank) return false;
+    if (bank.parentElement !== panel || panel.lastElementChild !== bank) panel.appendChild(bank);
 
-    return Boolean(actions && (!bank || bank.parentElement === panel));
+    return Boolean(actions && bank.parentElement === panel && panel.lastElementChild === bank);
   }
 
   const applyWhenReady = () => {
@@ -77,5 +77,6 @@
     global.addEventListener("load", applyLayout, { once: true });
   };
 
+  global.addEventListener("vcf-question-bank-ready", applyLayout, { once: true });
   applyWhenReady();
 })(window);
