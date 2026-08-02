@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - 'makevcf-generator-defense-points.js'
       - 'rapfi/vcf-pattern-engine.cpp'
       - 'rapfi/vcf-bitboard-engine.cpp'
       - 'rapfi/vcf-bitboard-search-v2.cpp'
@@ -46,6 +47,7 @@ jobs:
 
       - name: Check JavaScript syntax
         run: |
+          node --check makevcf-generator-defense-points.js
           node --check rapfi/vcf-bitboard-main.js
           node --check rapfi/vcf-bitboard-worker.js
           node --check rapfi/vcf-shortest-vcf-ui.js

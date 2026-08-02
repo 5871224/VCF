@@ -92,6 +92,24 @@
   document.body.appendChild(script);
 })();
 
+// 補守棋子保護會等待多組補守政策完成，再把補守點設為雙方 N，
+// 並禁止後續死四模板將這些守子當成五點對方棋移除。
+(function loadProtectedGeneratorDefenders() {
+  if (document.querySelector('script[data-vcf-generator-protected-defenders="true"]')) {
+    return;
+  }
+  const script = document.createElement("script");
+  script.src = "makevcf-generator-protected-defenders.js";
+  script.async = false;
+  script.dataset.vcfGeneratorProtectedDefenders = "true";
+  script.addEventListener(
+    "error",
+    () => console.error("題目產生器補守棋子保護載入失敗"),
+    { once: true },
+  );
+  document.body.appendChild(script);
+})();
+
 // 詳細狀態模組只改寫顯示文字，會自行等待所有題目產生驗證修正安裝完成。
 (function loadGeneratorDetailedStatus() {
   if (document.querySelector('script[data-vcf-generator-status-detail="true"]')) {
