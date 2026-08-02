@@ -142,7 +142,7 @@ for (const removedToken of [
 syntaxCheck(balancePath, balance);
 syntaxCheck(finalBalancePath, finalBalance);
 
-// GitHub Pages copies makevcf.html to both /index.html and /makevcf.html.
+// GitHub Pages 只用 makevcf.html 建立根 /index.html；其他舊入口不再部署。
 let html = fs.readFileSync(htmlPath, "utf8");
 const firstScriptPattern = /<script>\r?\n"use strict";/;
 const bodyEndMarker = "</body>";
@@ -151,12 +151,16 @@ if (!html.includes(bodyEndMarker)) fail("makevcf.html 找不到 body 結尾");
 
 const rootBridge = String.raw`<script>
 (function installRootBitboardBridge() {
-  const pathname = window.location.pathname.replace(/\/+$/, "");
-  const isRootWorkbench =
-    pathname.endsWith("/VCF") ||
-    pathname.endsWith("/VCF/index.html") ||
-    pathname.endsWith("/VCF/makevcf.html");
-  if (!isRootWorkbench) return;
+  let pathname = window.location.pathname.replace(/\/+$/, "");
+  if (pathname.endsWith("/VCF/index.html")) {
+    window.history.replaceState(
+      null,
+      "",
+      pathname.slice(0, -"index.html".length) + window.location.search + window.location.hash
+    );
+    pathname = window.location.pathname.replace(/\/+$/, "");
+  }
+  if (!pathname.endsWith("/VCF")) return;
 
   window.__vcfRootBitboardWorkbench = true;
   document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\/script>');
@@ -216,8 +220,7 @@ const evaluatorCompat = String.raw`
   const pathname = window.location.pathname.replace(/\/+$/, "");
   const isRootWorkbench =
     pathname.endsWith("/VCF") ||
-    pathname.endsWith("/VCF/index.html") ||
-    pathname.endsWith("/VCF/makevcf.html");
+    pathname.endsWith("/VCF/index.html");
   if (!isRootWorkbench || window.${evaluatorCompatMarker}) return;
   window.${evaluatorCompatMarker} = true;
   document.write('<script src="rapfi/vcf-bitboard-generator-compat.js"><\/script>');
@@ -250,6 +253,7 @@ syntaxCheck(optimizedPath, optimized);
 
 for (const token of [
   "__vcfRootBitboardWorkbench",
+  "window.history.replaceState",
   "rapfi/engine/vcf-bitboard-engine.js",
   "rapfi/vcf-bitboard-main.js",
   "rapfi/rapfi-bitboard-dashboard.js",
@@ -258,6 +262,9 @@ for (const token of [
 ]) {
   if (!html.includes(token)) fail(`根網址 Bitboard 工作台缺少：${token}`);
 }
+if (html.includes('pathname.endsWith("/VCF/makevcf.html")')) {
+  fail("根工作台仍保留 makevcf.html 公開入口");
+}
 if (!evaluator.includes("rapfi/vcf-bitboard-generator-compat.js")) {
   fail("Evaluator.js 未在產生器核心前重載 Bitboard 相容層");
 }
@@ -265,4 +272,4 @@ if (!optimized.includes(optimizedMarker)) {
   fail("舊優化搜尋仍會在根網址啟動");
 }
 
-console.log("圖片匯入、根網址 Bitboard 工作台、新版多組 VCF 補守與最終黑白子數分離已通過正式建置驗證。");
+console.log("圖片匯入、唯一根網址 Bitboard 工作台、新版多組 VCF 補守與最終黑白子數分離已通過正式建置驗證。");
