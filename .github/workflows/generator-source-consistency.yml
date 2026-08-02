@@ -13,6 +13,7 @@ on:
       - 'tools/apply-image-import-build-fixes.js'
       - 'tools/apply-generator-replay-event-fixes.js'
       - 'tests/generator-source-order.test.js'
+      - 'tests/generator-context.test.js'
       - '.github/workflows/generator-source-consistency.yml'
   workflow_dispatch:
 
@@ -35,8 +36,12 @@ jobs:
             node --check "$file"
           done
 
-      - name: Verify fixed source order
-        run: node tests/generator-source-order.test.js
+      - name: Verify generator source and context
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tests/generator-source-order.test.js
+          node tests/generator-context.test.js
 
       - name: Verify build checks are read-only
         shell: bash
