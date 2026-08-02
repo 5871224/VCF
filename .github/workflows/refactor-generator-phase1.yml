@@ -1,65 +1,101 @@
-name: Refactor Generator Phase 1
+name: Prepare Generator Phase 1 Workflows
 
 on:
   push:
     branches:
       - agent/refactor-generator-phase1
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'tools/refactor-generator-phase1-once.js'
-      - 'tools/refactor-generator-phase1-hotfix.js'
-      - '.github/workflows/refactor-generator-phase1.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  refactor:
-    if: ${{ !contains(github.event.head_commit.message || github.event.pull_request.title, '[phase1 applied]') }}
+  prepare:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
         uses: actions/checkout@v6
         with:
           ref: agent/refactor-generator-phase1
-          fetch-depth: 0
 
-      - name: Apply source-first generator refactor
+      - name: Prepare non-mutating Pages workflow
+        shell: python
         run: |
-          node tools/refactor-generator-phase1-hotfix.js
-          node tools/refactor-generator-phase1-once.js
-          # GitHub Actions token不能修改 workflow；兩支正式 workflow 由 GitHub App 另行更新。
-          git checkout -- .github/workflows/pages.yml .github/workflows/vcf-generator-ci.yml
+          from pathlib import Path
 
-      - name: Check generator JavaScript syntax
-        shell: bash
-        run: |
-          set -euxo pipefail
-          for file in makevcf-generator-*.js makevcf-mobile.js makevcf-optimized-search-v2.js \
-            rapfi/vcf-bitboard-generator-compat.js eval/Evaluator.js; do
-            node --check "$file"
-          done
+          path = Path('.github/workflows/pages.yml')
+          text = path.read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "          PY\n"
+          start = text.index(start_marker)
+          end = text.index(end_marker, start)
+          verification = '''          python - <<'PY'
+          from pathlib import Path
 
-      - name: Run generator source and replay checks
-        shell: bash
-        run: |
-          set -euxo pipefail
-          node tests/generator-source-order.test.js
-          node tests/generator-layout-replay.test.js
-          node tools/apply-image-import-build-fixes.js
-          node tools/apply-generator-replay-event-fixes.js
-          git diff --check
+          index_path = Path("_site/index.html")
+          index_text = index_path.read_text(encoding="utf-8")
+          assert index_path.is_file()
+          assert Path("_site/rapfi/lab.html").is_file()
+          for removed in (
+              "_site/makevcf.html",
+              "_site/pattern-compare.html",
+              "_site/pattern-compare.js",
+              "_site/rapfi/index.html",
+              "_site/rapfi/generator-flowchart.html",
+          ):
+              assert not Path(removed).exists(), removed
+          for token in (
+              "vcf-bitboard-main.js",
+              "makevcf-generator-core.js",
+              "makevcf-generator-target-board-v3.js",
+              "makevcf-generator-defense-points.js",
+              "makevcf-generator-progress.js",
+              "rapfi-bitboard-dashboard.js",
+              "vcf-shortest-vcf-ui.js",
+              "vcf-forbidden-overlay.js",
+          ):
+              assert token in index_text, token
+          assert "installRootBitboardFeatures" not in index_text
+          PY
+'''
+          text = text[:start] + verification + text[end + len(end_marker):]
+          path.write_text(text, encoding='utf-8')
 
-      - name: Commit refactored sources
-        shell: bash
+      - name: Prepare generator CI workflow
+        shell: python
         run: |
-          set -euxo pipefail
-          rm tools/refactor-generator-phase1-once.js
-          rm tools/refactor-generator-phase1-hotfix.js
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "整理題目產生器載入與建置來源 [phase1 applied]"
-          git push origin HEAD:agent/refactor-generator-phase1
+          from pathlib import Path
+
+          path = Path('.github/workflows/vcf-generator-ci.yml')
+          text = path.read_text(encoding='utf-8')
+          path_marker = "      - 'makevcf-generator-*.js'\n"
+          extra_paths = """      - 'makevcf-generator-*.js'
+      - 'makevcf.html'
+      - 'makevcf-mobile.js'
+      - 'makevcf-optimized-search-v2.js'
+      - 'eval/Evaluator.js'
+      - 'tools/apply-*-build-fixes.js'
+      - 'tools/apply-generator-replay-event-fixes.js'
+      - 'tests/generator-source-order.test.js'
+"""
+          if "tests/generator-source-order.test.js" not in text:
+              text = text.replace(path_marker, extra_paths, 1)
+          test_marker = """      - name: Test generator layout and unified replay
+        run: node tests/generator-layout-replay.test.js
+"""
+          test_block = test_marker + """
+      - name: Verify generator source order and non-mutating build
+        run: node tests/generator-source-order.test.js
+"""
+          if "Verify generator source order and non-mutating build" not in text:
+              text = text.replace(test_marker, test_block, 1)
+          path.write_text(text, encoding='utf-8')
+
+      - name: Upload workflow updates
+        uses: actions/upload-artifact@v4
+        with:
+          name: generator-phase1-workflows
+          path: |
+            .github/workflows/pages.yml
+            .github/workflows/vcf-generator-ci.yml
+          if-no-files-found: error
