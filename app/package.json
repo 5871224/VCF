@@ -27,7 +27,7 @@
     ],
     "extraFiles": [
       { "from": "engine.exe", "to": "engine.exe" },
-      { "from": "engine_node.js", "to": "engine_node.js" }
+      { "from": "../cpp/engine_node.js", "to": "engine_node.js" }
     ],
     "win": {
       "target": [{ "target": "portable", "arch": ["x64"] }]

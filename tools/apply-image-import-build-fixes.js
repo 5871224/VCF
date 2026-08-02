@@ -4,7 +4,6 @@ const path = require("path");
 const { spawnSync } = require("child_process");
 
 const runtimePath = "makevcf-generator-image-import-fix.js";
-const houghV2Path = "makevcf-generator-image-import-fix-v2.js";
 const loaderPath = "makevcf-mobile.js";
 const evaluatorPath = "eval/Evaluator.js";
 const optimizedPath = "makevcf-optimized-search-v2.js";
@@ -20,7 +19,6 @@ function fail(message) {
 
 for (const requiredPath of [
   runtimePath,
-  houghV2Path,
   loaderPath,
   evaluatorPath,
   optimizedPath,
@@ -47,7 +45,6 @@ function syntaxCheck(filename, content) {
 }
 
 const runtime = fs.readFileSync(runtimePath, "utf8");
-const houghV2 = fs.readFileSync(houghV2Path, "utf8");
 const loader = fs.readFileSync(loaderPath, "utf8");
 
 for (const token of [
@@ -66,12 +63,11 @@ for (const token of [
   "patchedHoughLinesP[V2_FLAG] = true",
   "window.setInterval(",
 ]) {
-  if (!houghV2.includes(token)) fail(`缺邊晶格修正模組缺少：${token}`);
+  if (!runtime.includes(token)) fail(`缺邊晶格修正模組缺少：${token}`);
 }
 
 for (const token of [
   "makevcf-generator-image-import-fix.js",
-  "makevcf-generator-image-import-fix-v2.js",
   "makevcf-generator-extension-other-vcf-fix.js",
   "loadImageImportRuntimeFixes",
 ]) {
@@ -79,7 +75,6 @@ for (const token of [
 }
 
 syntaxCheck(runtimePath, runtime);
-syntaxCheck(houghV2Path, houghV2);
 syntaxCheck(loaderPath, loader);
 
 // 新版較短／其他 VCF 使用多組搜尋、覆蓋數排序與有界遞迴回溯。
@@ -149,9 +144,9 @@ syntaxCheck(finalBalancePath, finalBalance);
 
 // GitHub Pages copies makevcf.html to both /index.html and /makevcf.html.
 let html = fs.readFileSync(htmlPath, "utf8");
-const firstScriptMarker = '<script>\n"use strict";';
+const firstScriptPattern = /<script>\r?\n"use strict";/;
 const bodyEndMarker = "</body>";
-if (!html.includes(firstScriptMarker)) fail("makevcf.html 找不到主要程式入口");
+if (!firstScriptPattern.test(html)) fail("makevcf.html 找不到主要程式入口");
 if (!html.includes(bodyEndMarker)) fail("makevcf.html 找不到 body 結尾");
 
 const rootBridge = String.raw`<script>
@@ -207,7 +202,7 @@ const rootFeatures = String.raw`<script>
 `;
 
 if (!html.includes("__vcfRootBitboardWorkbench")) {
-  html = html.replace(firstScriptMarker, rootBridge + firstScriptMarker);
+  html = html.replace(firstScriptPattern, marker => rootBridge + marker);
   html = html.replace(bodyEndMarker, rootFeatures + bodyEndMarker);
   fs.writeFileSync(htmlPath, html, "utf8");
 }
@@ -237,8 +232,16 @@ syntaxCheck(evaluatorPath, evaluator);
 let optimized = fs.readFileSync(optimizedPath, "utf8");
 const optimizedMarker = "if (window.__vcfRootBitboardWorkbench) return;";
 if (!optimized.includes(optimizedMarker)) {
-  const oldHeader = `  if (window.__iterativeVCFExperimentLoaded) return;\n  window.__iterativeVCFExperimentLoaded = true;`;
-  const newHeader = `  if (window.__iterativeVCFExperimentLoaded) return;\n  if (window.__vcfRootBitboardWorkbench) return;\n  window.__iterativeVCFExperimentLoaded = true;`;
+  const lineBreak = optimized.includes("\r\n") ? "\r\n" : "\n";
+  const oldHeader = [
+    "  if (window.__iterativeVCFExperimentLoaded) return;",
+    "  window.__iterativeVCFExperimentLoaded = true;",
+  ].join(lineBreak);
+  const newHeader = [
+    "  if (window.__iterativeVCFExperimentLoaded) return;",
+    "  if (window.__vcfRootBitboardWorkbench) return;",
+    "  window.__iterativeVCFExperimentLoaded = true;",
+  ].join(lineBreak);
   if (!optimized.includes(oldHeader)) fail("找不到舊優化搜尋初始化位置");
   optimized = optimized.replace(oldHeader, newHeader);
   fs.writeFileSync(optimizedPath, optimized, "utf8");

@@ -221,7 +221,7 @@ jobs:
           cp makevcf-generator-*.js _site/
           cp makevcf-mobile.js makevcf-layout.js makevcf-optimized-search-v2.js _site/
           cp pattern-compare.js pattern-compare.html _site/
-          cp README.md AGENTS.md 規格書.MD 禁手判斷規格.MD _site/
+          cp README.md AGENTS.md 規格書.MD 禁手判斷規格.MD 檔案用途總覽.MD _site/
           cp -R eval emoji bitboard rapfi _site/
           mkdir -p _site/rapfi/engine
           cp .cache/rapfi-wasm/rapfi-single-simd128.* _site/rapfi/engine/

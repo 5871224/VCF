@@ -70,8 +70,7 @@
     });
   }
 
-  loadScript("makevcf-generator-image-import-fix.js", "base")
-    .then(() => loadScript("makevcf-generator-image-import-fix-v2.js", "hough-v2"))
+  loadScript("makevcf-generator-image-import-fix.js", "complete")
     .catch(error => console.error("圖片匯入修正載入失敗", error));
 })();
 

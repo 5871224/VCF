@@ -209,10 +209,14 @@ context.genSetBusy = value => {
 };
 
 vm.createContext(context);
+const replaySource = fs.readFileSync("makevcf-generator-progress.js", "utf8");
+const stoneReplayMarker = "// 逐顆補子事件與完整回放共用同一時間軸；必須最後安裝。";
+const stoneReplayStart = replaySource.indexOf(stoneReplayMarker);
+if (stoneReplayStart < 0) throw new Error("missing unified stone replay section");
 vm.runInContext(
-  fs.readFileSync("makevcf-generator-replay-stone-attempts.js", "utf8"),
+  replaySource.slice(stoneReplayStart),
   context,
-  { filename: "makevcf-generator-replay-stone-attempts.js" },
+  { filename: "makevcf-generator-progress.js#stone-replay" },
 );
 
 context.genSetBusy(true);

@@ -6,19 +6,21 @@ const { spawnSync } = require("child_process");
 const defensePath = "makevcf-generator-defense-points.js";
 const finalBalancePath = "makevcf-generator-extension-other-vcf-fix.js";
 const progressPath = "makevcf-generator-progress.js";
-const replayPath = "makevcf-generator-replay-stone-attempts.js";
 
 function fail(message) {
   throw new Error(`[補子回放事件建置] ${message}`);
 }
 
 function replaceOnce(content, oldText, newText, label) {
-  const first = content.indexOf(oldText);
+  const lineBreak = content.includes("\r\n") ? "\r\n" : "\n";
+  const expected = oldText.replace(/\r?\n/g, lineBreak);
+  const replacement = newText.replace(/\r?\n/g, lineBreak);
+  const first = content.indexOf(expected);
   if (first < 0) fail(`${label}：找不到目前多組補守的預期程式區塊`);
-  if (content.indexOf(oldText, first + oldText.length) >= 0) {
+  if (content.indexOf(expected, first + expected.length) >= 0) {
     fail(`${label}：預期程式區塊出現超過一次`);
   }
-  return content.replace(oldText, newText);
+  return content.replace(expected, replacement);
 }
 
 function syntaxCheck(filename, content) {
@@ -34,7 +36,7 @@ function syntaxCheck(filename, content) {
   if (result.status !== 0) fail(`${filename} JavaScript 語法檢查失敗`);
 }
 
-for (const requiredPath of [defensePath, finalBalancePath, progressPath, replayPath]) {
+for (const requiredPath of [defensePath, finalBalancePath, progressPath]) {
   if (!fs.existsSync(requiredPath)) fail(`缺少必要檔案：${requiredPath}`);
 }
 
@@ -186,7 +188,11 @@ for (const token of [
 syntaxCheck(progressPath, progress);
 fs.writeFileSync(progressPath, progress, "utf8");
 
-const replay = fs.readFileSync(replayPath, "utf8");
+const stoneReplayMarker = "// 逐顆補子事件與完整回放共用同一時間軸；必須最後安裝。";
+const stoneReplayStart = progress.indexOf(stoneReplayMarker);
+if (stoneReplayStart < 0) fail("統一回放缺少逐顆補子區段");
+const stoneReplay = progress.slice(stoneReplayStart);
+
 for (const forbidden of [
   "Worker.prototype.postMessage",
   "genEngine.findVCF =",
@@ -194,7 +200,7 @@ for (const forbidden of [
   "findOneStoneParent",
   "defender !== expectedDefender",
 ]) {
-  if (replay.includes(forbidden)) fail(`事件式回放仍殘留推測邏輯：${forbidden}`);
+  if (stoneReplay.includes(forbidden)) fail(`事件式回放仍殘留推測邏輯：${forbidden}`);
 }
 for (const token of [
   "genReplayBeginDefenderAttempt",
@@ -204,8 +210,8 @@ for (const token of [
   'role === "attacker"',
   "board[idx] !== placedColor",
 ]) {
-  if (!replay.includes(token)) fail(`事件式回放缺少：${token}`);
+  if (!stoneReplay.includes(token)) fail(`事件式回放缺少：${token}`);
 }
-syntaxCheck(replayPath, replay);
+syntaxCheck(progressPath, progress);
 
 console.log("補守與補齊子數回放建置完成：已對齊目前多組排序補守。\n");
