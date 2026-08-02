@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'makevcf-generator-defense-points.js'
+      - 'makevcf-generator-*.js'
       - 'rapfi/vcf-pattern-engine.cpp'
       - 'rapfi/vcf-bitboard-engine.cpp'
       - 'rapfi/vcf-bitboard-search-v2.cpp'
@@ -46,12 +46,16 @@ jobs:
         run: /tmp/vcf-bitboard-engine-test
 
       - name: Check JavaScript syntax
+        shell: bash
         run: |
-          node --check makevcf-generator-defense-points.js
-          node --check rapfi/vcf-bitboard-main.js
-          node --check rapfi/vcf-bitboard-worker.js
-          node --check rapfi/vcf-shortest-vcf-ui.js
-          node --check rapfi/rapfi-bitboard-dashboard.js
+          set -euxo pipefail
+          for file in makevcf-generator-*.js \
+            rapfi/vcf-bitboard-main.js \
+            rapfi/vcf-bitboard-worker.js \
+            rapfi/vcf-shortest-vcf-ui.js \
+            rapfi/rapfi-bitboard-dashboard.js; do
+            node --check "$file"
+          done
 
   wasm-test:
     runs-on: ubuntu-latest
