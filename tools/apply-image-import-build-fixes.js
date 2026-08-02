@@ -34,7 +34,8 @@ for (const requiredPath of [
 }
 
 function syntaxCheck(filename, content) {
-  const temporaryPath = path.join(os.tmpdir(), filename);
+  const safeName = String(filename).replace(/[\\/]/g, "_");
+  const temporaryPath = path.join(os.tmpdir(), safeName);
   fs.writeFileSync(temporaryPath, content, "utf8");
   const result = spawnSync(process.execPath, ["--check", temporaryPath], {
     encoding: "utf8",
