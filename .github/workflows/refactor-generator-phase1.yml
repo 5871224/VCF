@@ -9,6 +9,7 @@ on:
       - main
     paths:
       - 'tools/refactor-generator-phase1-once.js'
+      - 'tools/refactor-generator-phase1-hotfix.js'
       - '.github/workflows/refactor-generator-phase1.yml'
 
 permissions:
@@ -26,7 +27,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply source-first generator refactor
-        run: node tools/refactor-generator-phase1-once.js
+        run: |
+          node tools/refactor-generator-phase1-hotfix.js
+          node tools/refactor-generator-phase1-once.js
 
       - name: Check generator JavaScript syntax
         shell: bash
@@ -52,6 +55,7 @@ jobs:
         run: |
           set -euxo pipefail
           rm tools/refactor-generator-phase1-once.js
+          rm tools/refactor-generator-phase1-hotfix.js
           rm .github/workflows/refactor-generator-phase1.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
