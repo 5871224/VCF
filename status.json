@@ -1,4 +1,11 @@
 {
-  "status": "waiting",
-  "message": "Waiting for the next GitHub Pages workflow completion"
+  "status": "failure",
+  "run_id": 30730625556,
+  "run_number": 571,
+  "head_sha": "f30efff78d067b12dca1408945c9cfec08943fcd",
+  "event": "push",
+  "html_url": "https://github.com/5871224/VCF/actions/runs/30730625556",
+  "created_at": "2026-08-02T03:26:30Z",
+  "updated_at": "2026-08-02T03:28:06Z",
+  "reported_at": "2026-08-02T03:28:19.650Z"
 }
