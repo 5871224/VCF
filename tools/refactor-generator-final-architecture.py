@@ -50,6 +50,14 @@ if hashlib.sha256(encoded.encode()).hexdigest() != "c5c1464ef266e23fe8ddf0ed621f
 patch_bytes = gzip.decompress(base64.b64decode(encoded))
 patch_file = tools / "generator-final-architecture.patch"
 patch_file.write_bytes(patch_bytes)
+# The locally generated patch carries complete replacement copies for these
+# three tracked files. Remove their old revisions so patch can recreate them.
+for relative in (
+    "tests/generator-source-order.test.js",
+    "tools/apply-generator-replay-event-fixes.js",
+    "tools/apply-image-import-build-fixes.js",
+):
+    (root / relative).unlink(missing_ok=True)
 try:
     subprocess.run(
         ["patch", "-p1", "--batch", "--forward", "-i", str(patch_file)],
