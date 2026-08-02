@@ -28,23 +28,11 @@ const defense = requireTokens("makevcf-generator-defense-points.js", [
   "async function cleanFinalTargetBoard(state, expectedBoard, targetSteps, budget)",
   'phase: "mid"',
   'phase: "final"',
-  "genReplayBeginDefenderAttempt",
-  "genReplayEndDefenderAttempt",
-]);
-requireTokens("makevcf-generator-core.js", [
-  "function genRegisterOptionProvider(",
-  "function genRegisterBusyHook(",
-  "function genBeginGenerationContext(",
-  "function genGetActiveOptions(",
-]);
-requireTokens("makevcf-generator-main.js", [
-  "genResolveOptions({",
-  "genBeginGenerationContext({",
-  "genEndGenerationContext(generationContext)",
+  "genBeginStoneAttempt",
+  "genEndStoneAttempt",
 ]);
 requireTokens("makevcf-generator-balance.js", [
   'genRegisterOptionProvider("final-balance"',
-  'genRegisterBusyHook("final-balance"',
   "黑白子數已補齊",
 ]);
 requireTokens("makevcf-generator-extension-other-vcf-fix.js", [
@@ -52,6 +40,20 @@ requireTokens("makevcf-generator-extension-other-vcf-fix.js", [
   "FILL_TIME_LIMIT_MS",
   'mode: "shortest"',
   'phase: "balance"',
+  "genBeginStoneAttempt",
+  "genEndStoneAttempt",
+]);
+requireTokens("makevcf-generator-core.js", [
+  "function genOnGeneratorEvent(",
+  "function genEmitGeneratorEvent(",
+  "function genRunValidationOperation(",
+  "function genBeginStoneAttempt(",
+]);
+requireTokens("makevcf-generator-progress.js", [
+  'genOnGeneratorEvent("generation:start"',
+  'genOnGeneratorEvent("validation:start"',
+  'genOnGeneratorEvent("stone:start"',
+  'genOnGeneratorEvent("generation:end"',
 ]);
 const html = requireTokens("makevcf.html", [
   "__vcfRootBitboardWorkbench",
@@ -75,10 +77,26 @@ for (const obsolete of [
 if (html.includes("installRootBitboardFeatures")) fail("根工作台仍動態載入正式功能");
 if (evaluator.includes("loadRootGeneratorCompatibilityAfterEvaluator")) fail("Evaluator.js 仍動態載入相容層");
 
+const progress = fs.readFileSync("makevcf-generator-progress.js", "utf8");
+for (const obsolete of [
+  "genSetBusy =",
+  "genValidateCandidate =",
+  "genValidateExtensionCandidate =",
+  "genShowResult =",
+  "genEngine.findVCF =",
+  "genEngine.trimGroups =",
+  "harvestOldReplay",
+  "captureOldStep",
+  "setTimeout(",
+]) if (progress.includes(obsolete)) fail(`回放仍殘留主流程覆寫／採集邏輯：${obsolete}`);
+
 for (const filename of [
   "makevcf-mobile.js",
   "makevcf-generator-reuse-bonus.js",
   "rapfi/vcf-bitboard-generator-compat.js",
+  "makevcf-generator-core.js",
+  "makevcf-generator-main.js",
+  "makevcf-generator-summary.js",
   "makevcf-generator-image-import-fix.js",
   "makevcf-generator-defense-points.js",
   "makevcf-generator-balance.js",
@@ -88,4 +106,4 @@ for (const filename of [
   "makevcf-optimized-search-v2.js",
 ]) syntaxCheck(filename);
 
-console.log("圖片匯入、固定載入順序、補守、最終補色與根工作台來源一致性驗證通過。");
+console.log("圖片匯入、固定載入順序、補守、最終補色、事件回放與根工作台來源一致性驗證通過。");

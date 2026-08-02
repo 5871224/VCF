@@ -83,15 +83,24 @@ for (const token of [
   "function genBeginGenerationContext(",
   "function genGetActiveOptions(",
   "function genEndGenerationContext(",
+  "function genOnGeneratorEvent(",
+  "function genEmitGeneratorEvent(",
+  "function genBeginGeneratorOperation(",
+  "function genRunValidationOperation(",
+  "function genBeginStoneAttempt(",
 ]) {
-  if (!core.includes(token)) throw new Error(`missing GenerationContext API: ${token}`);
+  if (!core.includes(token)) throw new Error(`missing generator core API: ${token}`);
 }
 for (const token of [
   "genResolveOptions({",
   "genBeginGenerationContext({",
+  'genEmitGeneratorEvent("generation:start"',
+  'genEmitGeneratorEvent("generation:result"',
+  'genEmitGeneratorEvent("generation:end"',
+  "genRunValidationOperation(",
   "genEndGenerationContext(generationContext)",
 ]) {
-  if (!main.includes(token)) throw new Error(`main does not use GenerationContext: ${token}`);
+  if (!main.includes(token)) throw new Error(`main does not use generator context/events: ${token}`);
 }
 
 for (const relative of [
@@ -115,4 +124,30 @@ for (const relative of [
   }
 }
 
-console.log("Generator source order, GenerationContext and non-mutating build checks passed");
+const progress = fs.readFileSync("makevcf-generator-progress.js", "utf8");
+for (const token of [
+  /\bgenSetBusy\s*=/,
+  /\bgenValidateCandidate\s*=/,
+  /\bgenValidateExtensionCandidate\s*=/,
+  /\bgenShowResult\s*=/,
+  /\bgenEngine\.findVCF\s*=/,
+  /\bgenEngine\.trimGroups\s*=/,
+  /\bsetTimeout\s*\(/,
+  /harvestOldReplay/,
+  /captureOldStep/,
+]) {
+  if (token.test(progress)) throw new Error(`replay wrapper/harvest logic remains: ${token}`);
+}
+for (const token of [
+  'genOnGeneratorEvent("generation:start"',
+  'genOnGeneratorEvent("material:selected"',
+  'genOnGeneratorEvent("validation:start"',
+  'genOnGeneratorEvent("stone:start"',
+  'genOnGeneratorEvent("search:end"',
+  'genOnGeneratorEvent("generation:result"',
+  'genOnGeneratorEvent("generation:end"',
+]) {
+  if (!progress.includes(token)) throw new Error(`replay event subscription missing: ${token}`);
+}
+
+console.log("Generator source order, GenerationContext, events and non-mutating build checks passed");

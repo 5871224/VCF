@@ -274,7 +274,7 @@
         if (genCancelled) return null;
         const next = addLayerDefender(candidate, idx);
         if (!next) continue;
-        const replayAttempt = window.genReplayBeginDefenderAttempt?.({
+        const replayAttempt = genBeginStoneAttempt({
           phase: "mid",
           board: next.board,
           nMask: next.nMask,
@@ -290,11 +290,11 @@
           budget,
         );
         if (result) {
-          window.genReplayEndDefenderAttempt?.(replayAttempt, true);
+          genEndStoneAttempt(replayAttempt, true);
           return result;
         }
         if (!genCancelled) {
-          window.genReplayEndDefenderAttempt?.(replayAttempt, false);
+          genEndStoneAttempt(replayAttempt, false);
         }
       }
       return null;
@@ -335,7 +335,7 @@
         if (genCancelled) return null;
         const added = addFinalDefender(state, expectedBoard, idx);
         if (!added) continue;
-        const replayAttempt = window.genReplayBeginDefenderAttempt?.({
+        const replayAttempt = genBeginStoneAttempt({
           phase: "final",
           board: added.state.board,
           nMask: added.state.nMask,
@@ -350,11 +350,11 @@
           budget,
         );
         if (result) {
-          window.genReplayEndDefenderAttempt?.(replayAttempt, true);
+          genEndStoneAttempt(replayAttempt, true);
           return result;
         }
         if (!genCancelled) {
-          window.genReplayEndDefenderAttempt?.(replayAttempt, false);
+          genEndStoneAttempt(replayAttempt, false);
         }
       }
       return null;

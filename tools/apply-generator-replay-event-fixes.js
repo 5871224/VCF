@@ -3,7 +3,7 @@
 const fs = require("fs");
 const { spawnSync } = require("child_process");
 
-function fail(message) { throw new Error(`[補子回放事件驗證] ${message}`); }
+function fail(message) { throw new Error(`[題目產生器事件回放驗證] ${message}`); }
 function check(filename, tokens, forbidden = []) {
   const source = fs.readFileSync(filename, "utf8");
   for (const token of tokens) if (!source.includes(token)) fail(`${filename} 缺少：${token}`);
@@ -12,10 +12,32 @@ function check(filename, tokens, forbidden = []) {
   if (result.status !== 0) fail(`${filename} 語法檢查失敗：${result.stderr}`);
 }
 
+check("makevcf-generator-core.js", [
+  "function genOnGeneratorEvent(",
+  "function genEmitGeneratorEvent(",
+  "function genBeginGeneratorOperation(",
+  "function genRunValidationOperation(",
+  "function genBeginStoneAttempt(",
+  'genEmitGeneratorEvent("search:trimmed"',
+]);
+check("makevcf-generator-main.js", [
+  'genEmitGeneratorEvent("material:selected"',
+  'genEmitGeneratorEvent("generation:start"',
+  'genEmitGeneratorEvent("generation:result"',
+  'genEmitGeneratorEvent("generation:end"',
+  "genRunValidationOperation(",
+]);
+check("makevcf-generator-summary.js", [
+  'materialType: "forbiddenSkeleton"',
+  "genRunValidationOperation(",
+]);
 check("makevcf-generator-defense-points.js", [
   'phase: "mid"',
   'phase: "final"',
   "validateWithRankedDefense(",
+  "genBeginStoneAttempt(",
+  "genEndStoneAttempt(",
+], [
   "genReplayBeginDefenderAttempt",
   "genReplayEndDefenderAttempt",
 ]);
@@ -23,17 +45,29 @@ check("makevcf-generator-extension-other-vcf-fix.js", [
   'phase: "balance"',
   "filledAttackerStone",
   "新增其他攻方 VCF",
-]);
-check("makevcf-generator-progress.js", [
-  "stageTitleForAddedStone(color, idx, attacker)",
+  "genBeginStoneAttempt(",
+  "genEndStoneAttempt(",
+], [
   "genReplayBeginDefenderAttempt",
   "genReplayEndDefenderAttempt",
-  'phase === "balance"',
-  'role === "attacker"',
+]);
+check("makevcf-generator-progress.js", [
+  'genOnGeneratorEvent("generation:start"',
+  'genOnGeneratorEvent("validation:start"',
+  'genOnGeneratorEvent("stone:start"',
+  'genOnGeneratorEvent("search:end"',
+  'genOnGeneratorEvent("generation:end"',
 ], [
+  "genSetBusy =",
+  "genValidateCandidate =",
+  "genValidateExtensionCandidate =",
+  "genShowResult =",
+  "genEngine.findVCF =",
+  "genEngine.trimGroups =",
+  "harvestOldReplay",
+  "captureOldStep",
+  "setTimeout(",
   "Worker.prototype.postMessage",
-  "MAX_KNOWN_BOARDS",
-  "findOneStoneParent",
 ]);
 
-console.log("補守、補齊子數與統一回放明確事件驗證通過。");
+console.log("題目產生器搜尋、驗證、補子與單一事件回放驗證通過。");

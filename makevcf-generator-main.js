@@ -62,6 +62,15 @@ async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
     const base = genPickInitialPlacement(basePlacements);
     const baseSteps = base.materialType === "deadFour" ? 1 : 2;
     const baseLabel = base.materialType === "deadFour" ? "死四" : "活三";
+    genEmitGeneratorEvent("material:selected", {
+      board: base.board,
+      nMask: base.nMask,
+      attacker: base.attacker || attacker,
+      materialType: base.materialType,
+      title: `建立初始${baseLabel}`,
+      reason: `已選中${baseLabel}材料，接著嘗試加入第一層死四`,
+      detail: [base.patternName, base.patternText].filter(Boolean).join("；"),
+    });
     const candidates = genWeightedOrder(genEnumerateLayerCandidates(base, attacker, rules, options));
     if (!candidates.length) {
       if (counters.baseRounds % 20 === 0) await genTick();
@@ -72,7 +81,14 @@ async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
       if (genCancelled) return null;
       counters.attempts++;
       genSetStatus(`正在建立 ${baseSteps}/${targetSteps} 步${baseLabel}基礎……已驗證 ${counters.attempts} 個候選`);
-      const result = await genValidateCandidate(candidate, baseSteps);
+      const result = await genRunValidationOperation(
+        {
+          candidate,
+          expectedSteps: baseSteps,
+          phase: "base",
+        },
+        () => genValidateCandidate(candidate, baseSteps),
+      );
       if (result) {
         result.candidateGroupCounts = [candidates.length];
         return result;
@@ -99,7 +115,15 @@ async function genExtendToTarget(current, targetSteps, attacker, rules, options,
     counters.attempts++;
     genSetStatus(`正在延伸到 ${nextStep}/${targetSteps} 步……已驗證 ${counters.attempts} 個候選，重建 ${counters.restarts} 次`);
 
-    const next = await genValidateExtensionCandidate(candidate, current, nextStep);
+    const next = await genRunValidationOperation(
+      {
+        candidate,
+        expectedSteps: nextStep,
+        previousResult: current,
+        phase: "extension",
+      },
+      () => genValidateExtensionCandidate(candidate, current, nextStep),
+    );
     if (next) {
       next.candidateGroupCounts = [
         ...Array.from(current.candidateGroupCounts || []),
@@ -164,6 +188,9 @@ async function genGenerate() {
     options,
     counters,
   });
+  let generationOutcome = "stopped";
+  let generationError = null;
+  genEmitGeneratorEvent("generation:start", { context: generationContext });
   genRefreshGenerateLabel();
   genSetBusy(true);
 
@@ -180,6 +207,15 @@ async function genGenerate() {
 
       if (result) {
         genShowResult(result, targetSteps, attacker, counters, options);
+        generationOutcome = "success";
+        genEmitGeneratorEvent("generation:result", {
+          context: generationContext,
+          result,
+          targetSteps,
+          attacker,
+          counters,
+          options,
+        });
         return;
       }
 
@@ -189,13 +225,24 @@ async function genGenerate() {
 
     genSetStatus("已停止產生");
   } catch (error) {
+    generationOutcome = "error";
+    generationError = error;
     console.error(error);
     genSetStatus(`產生失敗：${error && error.message ? error.message : String(error)}`);
   } finally {
     try {
       genSetBusy(false);
     } finally {
-      genEndGenerationContext(generationContext);
+      try {
+        genEmitGeneratorEvent("generation:end", {
+          context: generationContext,
+          outcome: generationOutcome,
+          error: generationError,
+          stopped: genCancelled || generationOutcome === "stopped",
+        });
+      } finally {
+        genEndGenerationContext(generationContext);
+      }
     }
   }
 }

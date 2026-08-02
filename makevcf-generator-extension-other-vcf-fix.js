@@ -352,7 +352,7 @@
 
       const replayBoard = genCloneBoard(state.board);
       replayBoard[idx] = color;
-      const replayAttempt = window.genReplayBeginDefenderAttempt?.({
+      const replayAttempt = genBeginStoneAttempt({
         phase: "balance",
         board: replayBoard,
         nMask: state.nMask,
@@ -369,7 +369,7 @@
         budget,
       );
       if (!next) {
-        window.genReplayEndDefenderAttempt?.(
+        genEndStoneAttempt(
           replayAttempt,
           false,
           color === state.attacker
@@ -388,7 +388,7 @@
         budget,
       );
       if (completed) {
-        window.genReplayEndDefenderAttempt?.(
+        genEndStoneAttempt(
           replayAttempt,
           true,
           color === state.attacker
@@ -397,7 +397,7 @@
         );
         return completed;
       }
-      window.genReplayEndDefenderAttempt?.(
+      genEndStoneAttempt(
         replayAttempt,
         false,
         "後續補齊分支失敗，已撤銷並回溯",

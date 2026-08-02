@@ -448,6 +448,19 @@
         continue;
       }
 
+      genEmitGeneratorEvent("material:selected", {
+        board: skeleton.board,
+        nMask: skeleton.nMask,
+        attacker: GEN_WHITE,
+        materialType: "forbiddenSkeleton",
+        title: `建立禁手骨架（${skeleton.label}）`,
+        reason: "黑棋禁手骨架已建立，接著套入白棋死四",
+        detail: [
+          Number.isInteger(skeleton.point) ? `A=${genName(skeleton.point)}` : "",
+          skeleton.patternText,
+        ].filter(Boolean).join("；"),
+      });
+
       const candidates = genWeightedOrder(buildWhiteCaptureCandidates(skeleton, options));
       if (!candidates.length) {
         if (counters.baseRounds % 12 === 0) await genTick();
@@ -462,7 +475,14 @@
           `已驗證 ${counters.attempts} 個候選`,
         );
 
-        const result = await genValidateCandidate(candidate, 1);
+        const result = await genRunValidationOperation(
+          {
+            candidate,
+            expectedSteps: 1,
+            phase: "forbidden-base",
+          },
+          () => genValidateCandidate(candidate, 1),
+        );
         if (result) {
           result.candidateGroupCounts = [candidates.length];
           return result;
