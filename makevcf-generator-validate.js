@@ -46,14 +46,14 @@ function genAnalyzeVCFGroup(initialBoard, moves, attacker) {
   }
 
   if (!standardBoard) standardBoard = genCloneBoard(board);
-  return {
+  return genDecorateAnalysis({
     valid: true,
     steps,
     levels,
     rawLevels,
     completedBoard: board,
     standardBoard,
-  };
+  }, initialBoard, moves, attacker);
 }
 
 function genBoardsEqual(a, b) {
@@ -107,7 +107,7 @@ function genBuildExpectedBaseBoard(candidate) {
     if (!genHasPreservedBaseLiveThree(candidate, expected)) return null;
   }
 
-  return expected;
+  return genDecorateExpectedBaseBoard(expected, candidate);
 }
 
 function genBuildExpectedExtendedBoard(previousResult, candidate) {
@@ -148,7 +148,7 @@ function genApplyRouteNPoints(candidate, moves) {
 }
 
 function genLayerRecord(candidate, step) {
-  return {
+  const record = {
     step,
     anchor: candidate.anchor,
     fivePoint: candidate.fivePoint,
@@ -162,6 +162,21 @@ function genLayerRecord(candidate, step) {
     addedDefenders: Array.from(candidate.addedDefenders),
     removedDefenders: Array.from(candidate.removedDefenders),
   };
+  return genDecorateLayerRecord(record, candidate, step);
+}
+
+function genApplyBlockerNPoints(state) {
+  if (!state) return state;
+  const nMask = state.nMask?.slice() || new Uint8Array(225);
+  const both = GEN_NO_BLACK | GEN_NO_WHITE;
+  for (const idx of new Set([
+    ...Array.from(state.autoBlockDefenders || []),
+    ...Array.from(state.uniqueBlockDefenders || []),
+  ])) {
+    if (Number.isInteger(idx) && idx >= 0 && idx < 225) nMask[idx] |= both;
+  }
+  state.nMask = nMask;
+  return state;
 }
 
 function genFinalizeValidatedResult(candidate, target, info, groups, previousResult = null) {
@@ -171,7 +186,7 @@ function genFinalizeValidatedResult(candidate, target, info, groups, previousRes
   const totalAddedAttackers = (previousResult ? previousResult.totalAddedAttackers : 0) + candidate.addedAttackers.length;
   const totalAddedDefenders = (previousResult ? previousResult.totalAddedDefenders : 0) + candidate.addedDefenders.length;
 
-  return {
+  return genApplyBlockerNPoints({
     ...candidate,
     rootBase: candidate.rootBase || candidate.base,
     nMask,
@@ -184,7 +199,7 @@ function genFinalizeValidatedResult(candidate, target, info, groups, previousRes
     totalAddedDefenders,
     nodeCount: info.nodeCount || 0,
     groupCount: groups.length,
-  };
+  });
 }
 
 function genResolveValidationSteps(candidate, expectedSteps) {
@@ -234,64 +249,12 @@ async function genFindAnalyzedGroups(candidate, expectedSteps) {
 }
 
 async function genValidateCandidate(candidate, expectedSteps) {
-  const expectedBoard = genBuildExpectedBaseBoard(candidate);
-  if (!expectedBoard) return null;
-
-  const found = await genFindAnalyzedGroups(candidate, expectedSteps);
-  if (!found) return null;
-  const { info, groups } = found;
-
-  let target = null;
-  for (const moves of groups) {
-    const analysis = genAnalyzeVCFGroup(candidate.board, moves, candidate.attacker);
-    if (!analysis.valid) continue;
-
-    // 未開啟自動補守子時，存在較短 VCF 仍視為不合格。
-    // 開啟「補齊黑白子數」時，makevcf-generator-balance.js 會攔截本函式，
-    // 依舊版流程找防守點、補守子並重新驗證，而不會走到這裡直接淘汰。
-    if (analysis.steps < expectedSteps) return null;
-
-    // 不限定 VCF 落子順序；只要其中一組在指定步數到達預期黑白棋盤面即可。
-    if (
-      !target &&
-      analysis.steps === expectedSteps &&
-      genBoardsEqual(analysis.standardBoard, expectedBoard)
-    ) {
-      target = { moves: Array.from(moves), analysis };
-    }
-  }
-  if (!target) return null;
-  return genFinalizeValidatedResult(candidate, target, info, groups);
+  return genValidateBySearchPolicy(candidate, expectedSteps, null);
 }
 
 async function genValidateExtensionCandidate(candidate, previousResult, targetSteps) {
   if (targetSteps !== previousResult.steps + 1) return null;
-  const expectedBoard = genBuildExpectedExtendedBoard(previousResult, candidate);
-  if (!expectedBoard) return null;
-
-  const found = await genFindAnalyzedGroups(candidate, targetSteps);
-  if (!found) return null;
-  const { info, groups } = found;
-
-  let target = null;
-  for (const moves of groups) {
-    const analysis = genAnalyzeVCFGroup(candidate.board, moves, candidate.attacker);
-    if (!analysis.valid) continue;
-
-    // 未開啟自動補守子時，存在任何較短 VCF 就淘汰。
-    if (analysis.steps < targetSteps) return null;
-
-    if (
-      !target &&
-      analysis.steps === targetSteps &&
-      genBoardsEqual(analysis.standardBoard, expectedBoard)
-    ) {
-      target = { moves: Array.from(moves), analysis };
-    }
-  }
-
-  if (!target) return null;
-  return genFinalizeValidatedResult(candidate, target, info, groups, previousResult);
+  return genValidateBySearchPolicy(candidate, targetSteps, previousResult);
 }
 
 function genMakeExtensionBase(result) {

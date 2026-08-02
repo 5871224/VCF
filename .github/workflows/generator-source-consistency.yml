@@ -12,8 +12,7 @@ on:
       - 'rapfi/vcf-bitboard-generator-compat.js'
       - 'tools/apply-image-import-build-fixes.js'
       - 'tools/apply-generator-replay-event-fixes.js'
-      - 'tests/generator-source-order.test.js'
-      - 'tests/generator-context.test.js'
+      - 'tests/generator-*.test.js'
       - '.github/workflows/generator-source-consistency.yml'
   workflow_dispatch:
 
@@ -36,10 +35,14 @@ jobs:
             node --check "$file"
           done
 
-      - name: Verify generator source and context
+      - name: Verify final generator architecture and context
         shell: bash
         run: |
           set -euxo pipefail
+          node tests/generator-architecture-v2.test.js
+          node tests/generator-registry-v2.test.js
+          node tests/generator-search-policy-v2.test.js
+          node tests/generator-finalize-v2.test.js
           node tests/generator-source-order.test.js
           node tests/generator-context.test.js
 

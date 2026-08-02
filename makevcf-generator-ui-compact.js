@@ -20,7 +20,7 @@
     style.textContent = `
       html.${PENDING_CLASS} body > *:not(#camera-overlay){visibility:hidden}
       html.${READY_CLASS} body > *{visibility:visible}
-      #bitboard-architecture-panel{display:none!important}
+      #bitboard-architecture-panel:not(.bb-quick-actions){display:none!important}
       #vcf-app-shell{width:min(100%,1180px)}
       #vcf-app-shell>.vcf-app-header p,.vcf-card-heading p{display:none}
       .vcf-top-grid{grid-template-columns:minmax(0,570px) minmax(430px,1fr)}
@@ -44,16 +44,16 @@
       .vcf-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
       #btn-fast-vcf{order:1}
       #btn-shortest-vcf{order:2}
-      .vcf-setting-toggle:has(#vcf-show-calculation-settings){order:3}
+      .vcf-setting-toggle.vcf-calculation-toggle{order:3}
       #btn-multi-vcf{order:1}
       #btn-vcf-prev{order:2}
       #btn-vcf-next{order:3}
-      .vcf-setting-toggle:has(#vcf-show-multi-settings){order:4}
+      .vcf-setting-toggle.vcf-multi-toggle{order:4}
       #vcf-app-shell button{min-width:0}
       #${FAST_BUTTON_ID},#btn-shortest-vcf{color:#fff;background:var(--vcf-accent,#355f8d);border-color:var(--vcf-accent,#355f8d);font-weight:700}
       #${FAST_BUTTON_ID}:hover:not(:disabled),#btn-shortest-vcf:hover:not(:disabled){color:#fff;background:#294f78}
       .vcf-setting-toggle{display:flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:7px 9px;border:1px solid #c9bea0;border-radius:8px;background:#fff;color:#4f4634;font-size:13px;font-weight:700;cursor:pointer;user-select:none}
-      .vcf-setting-toggle:has(input:checked){border-color:#7798b9;background:#e8f0f8;color:#294f78}
+      .vcf-setting-toggle.vcf-setting-toggle-active{border-color:#7798b9;background:#e8f0f8;color:#294f78}
       .vcf-settings-card[hidden]{display:none!important}
       .vcf-settings-card{padding:10px;border:1px dashed #cdbf9d;border-radius:9px;background:#fbf7ec}
       .vcf-settings-card h3{margin:0 0 8px;color:#5d5138;font-size:14px}
@@ -190,9 +190,7 @@
       if (radio instanceof HTMLInputElement && radio.name === "rules" && radio.checked) select.value = radio.value;
     });
 
-    const syncDisabled = () => { select.disabled = radios.some(radio => radio.disabled); };
-    syncDisabled();
-    new MutationObserver(syncDisabled).observe(compatibility, { subtree: true, attributes: true, attributeFilter: ["disabled"] });
+    select.disabled = radios.some(radio => radio.disabled);
     return select;
   }
 
@@ -218,20 +216,19 @@
     const sync = () => { button.disabled = (selectedAnalysisColor() === 2 ? white : black).disabled; };
     sync();
     document.querySelectorAll('input[name="acolor"]').forEach(radio => radio.addEventListener("change", sync));
-    new MutationObserver(sync).observe(black, { attributes: true, attributeFilter: ["disabled"] });
-    new MutationObserver(sync).observe(white, { attributes: true, attributeFilter: ["disabled"] });
     return button;
   }
 
-  function settingToggle(id, text, target, key) {
+  function settingToggle(id, text, target, key, kind) {
     const label = document.createElement("label");
-    label.className = "vcf-setting-toggle";
+    label.className = `vcf-setting-toggle vcf-${kind}-toggle`;
     const input = document.createElement("input");
     input.id = id;
     input.type = "checkbox";
     try { input.checked = localStorage.getItem(key) === "1"; } catch (_) {}
     const update = () => {
       target.hidden = !input.checked;
+      label.classList.toggle("vcf-setting-toggle-active", input.checked);
       try { localStorage.setItem(key, input.checked ? "1" : "0"); } catch (_) {}
     };
     input.addEventListener("change", update);
@@ -310,19 +307,6 @@
     activate(active);
   }
 
-  function readyForOnePass() {
-    return Boolean(
-      document.getElementById("vcf-app-shell") &&
-      document.getElementById("generator-panel") &&
-      document.getElementById("import-panel") &&
-      document.getElementById("vcf-search-options") &&
-      document.getElementById("btn-shortest-vcf") &&
-      document.getElementById("show-forbidden") &&
-      document.getElementById("vcf-stop-after-open-four") &&
-      document.getElementById("vcf-same-type-trim-live-four")
-    );
-  }
-
   function install() {
     const app = document.getElementById("vcf-app-shell");
     const topGrid = app?.querySelector(".vcf-top-grid");
@@ -364,7 +348,7 @@
 
     const calcSection = section("VCF 搜尋");
     const calcRow = actions(3);
-    const calcToggle = settingToggle("vcf-show-calculation-settings", "計算設定", calcSettings, "vcf_show_calculation_settings");
+    const calcToggle = settingToggle("vcf-show-calculation-settings", "計算設定", calcSettings, "vcf_show_calculation_settings", "calculation");
     calcRow.append(fastButton, calcToggle);
     calcSection.append(calcRow, calcSettings);
 
@@ -376,7 +360,7 @@
 
     const multiSection = section("多組 VCF");
     const multiRow = actions(4);
-    const multiToggle = settingToggle("vcf-show-multi-settings", "多組設定", multiSettings, "vcf_show_multi_settings");
+    const multiToggle = settingToggle("vcf-show-multi-settings", "多組設定", multiSettings, "vcf_show_multi_settings", "multi");
     multiSection.append(multiRow, multiSettings);
 
     const defenseSection = section("防守");
@@ -461,19 +445,19 @@
       document.getElementById("btn-white-optimized")?.setAttribute("hidden", "");
     };
     reconcile();
-    new MutationObserver(reconcile).observe(document.body, { childList: true, subtree: true });
 
-    if (typeof window.setBusy === "function" && !window.setBusy.__unifiedUiWrapped) {
-      const base = window.setBusy;
-      const wrapped = function(value) {
-        const result = base.apply(this, arguments);
-        document.getElementById("vcf-show-calculation-settings").disabled = Boolean(value);
-        document.getElementById("vcf-show-multi-settings").disabled = Boolean(value);
-        return result;
-      };
-      Object.defineProperty(wrapped, "__unifiedUiWrapped", { value: true });
-      window.setBusy = wrapped;
-      try { setBusy = wrapped; } catch (_) {}
+    if (typeof window.vcfRegisterBusyHook === "function") {
+      window.vcfRegisterBusyHook("unified-interface", value => {
+        const busy = Boolean(value);
+        const calculation = document.getElementById("vcf-show-calculation-settings");
+        const multi = document.getElementById("vcf-show-multi-settings");
+        const ruleSelect = document.getElementById(RULE_SELECT_ID);
+        const fast = document.getElementById(FAST_BUTTON_ID);
+        if (calculation) calculation.disabled = busy;
+        if (multi) multi.disabled = busy;
+        if (ruleSelect) ruleSelect.disabled = busy;
+        if (fast) fast.disabled = busy;
+      });
     }
 
     app.dataset.compactInterfaceReady = "1";
@@ -483,17 +467,14 @@
     return true;
   }
 
-  const started = performance.now();
-  const timer = window.setInterval(() => {
-    const elapsed = performance.now() - started;
-    if ((readyForOnePass() || elapsed >= 1800) && install()) {
-      window.clearInterval(timer);
-      return;
-    }
-    if (elapsed >= 5000) {
-      window.clearInterval(timer);
-      document.documentElement.classList.remove(PENDING_CLASS);
-      document.documentElement.classList.add(READY_CLASS);
-    }
-  }, 40);
+  const finishVisibility = () => {
+    document.documentElement.classList.remove(PENDING_CLASS);
+    document.documentElement.classList.add(READY_CLASS);
+  };
+  const boot = () => {
+    if (!install()) finishVisibility();
+  };
+  boot();
+  document.addEventListener("DOMContentLoaded", boot, { once: true });
+  window.addEventListener("load", boot, { once: true });
 })();

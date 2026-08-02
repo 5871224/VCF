@@ -35,7 +35,7 @@ function genOptions() {
   });
 }
 
-async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
+async function genFindNormalSeed(attacker, rules, options, counters, targetSteps) {
   const allPlacements = genBuildBasePlacements(attacker, rules);
   let basePlacements;
 
@@ -99,6 +99,28 @@ async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
   return null;
 }
 
+async function genFindTwoStep(attacker, rules, options, counters, targetSteps) {
+  const context = { attacker, rules, options, counters, targetSteps };
+  const providers = [
+    { name: "normal", handler: genFindNormalSeed, weight: 1 },
+    ...genEligibleSeedProviders(context).map(entry => ({
+      ...entry,
+      weight: Math.max(0, Number(entry.handler.weight ?? 1)),
+    })),
+  ].filter(entry => entry.weight > 0);
+  const total = providers.reduce((sum, entry) => sum + entry.weight, 0);
+  let choice = Math.random() * Math.max(total, Number.MIN_VALUE);
+  let selected = providers[providers.length - 1];
+  for (const entry of providers) {
+    choice -= entry.weight;
+    if (choice <= 0) {
+      selected = entry;
+      break;
+    }
+  }
+  return selected.handler(attacker, rules, options, counters, targetSteps);
+}
+
 async function genExtendToTarget(current, targetSteps, attacker, rules, options, counters) {
   if (genCancelled) return null;
   if (current.steps >= targetSteps) return current;
@@ -155,10 +177,11 @@ function genShowResult(result, targetSteps, attacker, counters, options) {
     `初始${root.patternName}（${root.patternText}）；共反向新增 ${result.layers.length} 層死四，` +
     `永久新增攻子 ${result.totalAddedAttackers} 顆、補守子 ${result.totalAddedDefenders} 顆，` +
     `${repairedLayers} 層曾產生活三並在 X 封閉；最外層 A=${genName(latest.anchor)}，五點=${latestFive}；` +
-    `偏好設定：沿用攻子每顆 ${options.reuseBonusPercent}%（完整加成 ${reuseMultiplier} 倍），` +
-    `朝天元 ${options.centerBonusPercent}%（方向與平均距離滿分時 ${centerMultiplier} 倍）；` +
+    `偏好設定：沿用棋子每顆 ${options.reuseBonusPercent}%（完整加成 ${reuseMultiplier} 倍），` +
+    `棋子集中 ${options.centerBonusPercent}%（滿分時 ${centerMultiplier} 倍）；` +
     `最終多組 VCF 搜尋取得 ${result.groupCount} 組。`
   );
+  genPresentResult(result, { targetSteps, attacker, counters, options });
 }
 
 async function genGenerate() {
@@ -203,7 +226,10 @@ async function genGenerate() {
       const seed = await genFindTwoStep(attacker, rules, options, counters, targetSteps);
       if (!seed || genCancelled) break;
 
-      const result = await genExtendToTarget(seed, targetSteps, attacker, rules, options, counters);
+      const extended = await genExtendToTarget(seed, targetSteps, attacker, rules, options, counters);
+      const result = extended
+        ? await genFinalizeGeneratedResult(extended, targetSteps, options, counters)
+        : null;
 
       if (result) {
         genShowResult(result, targetSteps, attacker, counters, options);
@@ -225,10 +251,15 @@ async function genGenerate() {
 
     genSetStatus("已停止產生");
   } catch (error) {
-    generationOutcome = "error";
     generationError = error;
-    console.error(error);
-    genSetStatus(`產生失敗：${error && error.message ? error.message : String(error)}`);
+    if (genCancelled || String(error?.message || error).includes("中止")) {
+      generationOutcome = "stopped";
+      genSetStatus("已停止產生");
+    } else {
+      generationOutcome = "error";
+      console.error(error);
+      genSetStatus(`產生失敗：${error && error.message ? error.message : String(error)}`);
+    }
   } finally {
     try {
       genSetBusy(false);
