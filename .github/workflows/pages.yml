@@ -217,10 +217,8 @@ jobs:
           rm -rf _site
           mkdir -p _site
           cp makevcf.html _site/index.html
-          cp makevcf.html _site/makevcf.html
           cp makevcf-generator-*.js _site/
           cp makevcf-mobile.js makevcf-layout.js makevcf-optimized-search-v2.js _site/
-          cp pattern-compare.js pattern-compare.html _site/
           cp README.md AGENTS.md 規格書.MD 禁手判斷規格.MD 檔案用途總覽.MD _site/
           cp -R eval emoji bitboard rapfi _site/
           mkdir -p _site/rapfi/engine
@@ -228,9 +226,8 @@ jobs:
           cp .cache/vcf-pattern-engine/vcf-pattern-engine.* _site/rapfi/engine/
           cp .cache/vcf-bitboard-engine/vcf-bitboard-engine.* _site/rapfi/engine/
 
-          # 舊 Rapfi／棋型比較頁保留為實驗室；/rapfi/ 改成完整 Bitboard 工作台。
+          # 原始 rapfi/index.html 只保留為明確命名的實驗室頁；/rapfi/ 不建立入口頁。
           mv _site/rapfi/index.html _site/rapfi/lab.html
-          cp makevcf.html _site/rapfi/index.html
 
           python - <<'PY'
           from pathlib import Path
@@ -261,62 +258,36 @@ jobs:
           <script src="makevcf-optimized-search-v2.js"></script>
           '''
 
-          for filename in ("index.html", "makevcf.html"):
-              path = Path("_site") / filename
-              text = path.read_text(encoding="utf-8")
-              if "makevcf-generator-integrated.js" not in text:
-                  text = text.replace("</body>", root_scripts + "\n</body>")
-              path.write_text(text, encoding="utf-8")
+          index_path = Path("_site/index.html")
+          index_text = index_path.read_text(encoding="utf-8")
+          if "makevcf-generator-integrated.js" not in index_text:
+              index_text = index_text.replace("</body>", root_scripts + "\n</body>")
+          index_path.write_text(index_text, encoding="utf-8")
 
-          rapfi_path = Path("_site/rapfi/index.html")
-          rapfi_text = rapfi_path.read_text(encoding="utf-8")
-          rapfi_text = rapfi_text.replace("<head>", '<head>\n<base href="../">', 1)
-          bridge = '''
-          <!-- 在舊頁面程式建立引擎前，先注入 Bitboard C++ Wasm 相容層。 -->
-          <script src="rapfi/engine/vcf-bitboard-engine.js"></script>
-          <script src="rapfi/vcf-bitboard-main.js"></script>
-          '''
-          rapfi_text = rapfi_text.replace("<script>", bridge + "\n<script>", 1)
-          rapfi_scripts = '''
-          <!-- 手機介面與原主頁題目產生器；棋型／搜尋介面由 Bitboard Wasm 提供。 -->
-          <script src="makevcf-mobile.js"></script>
-          <script src="emoji/emoji.js"></script>
-          <script src="rapfi/vcf-bitboard-generator-compat.js"></script>
-          <script src="makevcf-generator-core.js"></script>
-          <script src="makevcf-generator-base.js"></script>
-          <script src="makevcf-generator-layer.js"></script>
-          <script src="makevcf-generator-validate.js"></script>
-          <script src="makevcf-generator-integrated.js"></script>
-          <script src="makevcf-generator-reuse-bonus.js"></script>
-          <script src="makevcf-generator-concentration.js"></script>
-          <script src="makevcf-generator-main.js"></script>
-          <script src="makevcf-generator-order-mode.js"></script>
-          <script src="makevcf-generator-balance.js"></script>
-          <script src="makevcf-generator-unique.js"></script>
-          <script src="makevcf-generator-summary.js"></script>
-          <script src="makevcf-layout.js"></script>
-          <script src="rapfi/rapfi-bitboard-dashboard.js"></script>
-          <script src="rapfi/vcf-shortest-vcf-ui.js"></script>
-          <script src="rapfi/vcf-forbidden-overlay.js"></script>
-          '''
-          rapfi_text = rapfi_text.replace("</body>", rapfi_scripts + "\n</body>")
-          rapfi_path.write_text(rapfi_text, encoding="utf-8")
-
-          assert 'base href="../"' in rapfi_text
-          assert 'vcf-bitboard-engine.js' in rapfi_text
-          assert 'vcf-bitboard-main.js' in rapfi_text
-          assert 'vcf-bitboard-generator-compat.js' in rapfi_text
-          assert 'rapfi-bitboard-dashboard.js' in rapfi_text
-          assert 'vcf-shortest-vcf-ui.js' in rapfi_text
-          assert 'vcf-forbidden-overlay.js' in rapfi_text
-          assert 'eval/EvaluatorCore.js' not in rapfi_scripts
+          assert Path("_site/index.html").is_file()
           assert Path("_site/rapfi/lab.html").is_file()
+          for removed in (
+              "_site/makevcf.html",
+              "_site/pattern-compare.html",
+              "_site/pattern-compare.js",
+              "_site/rapfi/index.html",
+              "_site/rapfi/generator-flowchart.html",
+          ):
+              assert not Path(removed).exists(), removed
+          for token in (
+              "vcf-bitboard-main.js",
+              "makevcf-generator-core.js",
+              "rapfi-bitboard-dashboard.js",
+              "vcf-shortest-vcf-ui.js",
+              "vcf-forbidden-overlay.js",
+          ):
+              assert token in index_text, token
           PY
 
           touch _site/.nojekyll
           du -sh _site
           ls -lh _site/rapfi/engine
-          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard\|vcf-shortest-vcf-ui\|vcf-forbidden-overlay" _site/rapfi/index.html
+          grep -n "vcf-bitboard-main\|makevcf-generator-core\|rapfi-bitboard-dashboard\|vcf-shortest-vcf-ui\|vcf-forbidden-overlay" _site/index.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
