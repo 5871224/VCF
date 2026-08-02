@@ -1,0 +1,56 @@
+name: Refactor Generator Context Phase 2
+
+on:
+  push:
+    branches:
+      - agent/generator-context-phase2
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: ${{ !contains(github.event.head_commit.message || '', '[context phase2 applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/generator-context-phase2
+          fetch-depth: 0
+
+      - name: Apply GenerationContext refactor
+        run: python tools/refactor-generator-context-phase2.py
+
+      - name: Check generator JavaScript syntax
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for file in makevcf-generator-*.js; do
+            node --check "$file"
+          done
+
+      - name: Run context and source checks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tests/generator-source-order.test.js
+          node tests/generator-context.test.js
+          node tests/generator-layout-replay.test.js
+          node tools/apply-image-import-build-fixes.js
+          node tools/apply-generator-replay-event-fixes.js
+          git diff --check
+
+      - name: Commit refactored sources
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm tools/refactor-generator-context-phase2.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A -- ':!.github/workflows/refactor-generator-context-phase2.yml'
+          git commit -m "建立題目產生器 GenerationContext [context phase2 applied]"
+          git push origin HEAD:agent/generator-context-phase2
