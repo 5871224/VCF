@@ -4,7 +4,7 @@
 
 唯一正式網站：<https://5871224.github.io/VCF/>
 
-Pages 只建立根工作台入口；`makevcf.html` 僅是版本庫內的建置來源，不部署成公開頁面。`/rapfi/` 只保存引擎、Worker、介面模組與明確命名的實驗室資源，不提供 `index.html` 入口。
+Pages 只建立根工作台入口；`makevcf.html` 僅是版本庫內的建置來源，不部署成公開頁面。`/rapfi/` 只保存引擎、Worker、介面模組與明確命名的實驗室資源，不提供 `index.html` 入口。專案只維護瀏覽器版，不再包含 Electron、WebView2 或 Native 桌面包裝。
 
 ## 主要功能
 
@@ -25,6 +25,8 @@ Pages 只建立根工作台入口；`makevcf.html` 僅是版本庫內的建置�
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
 ```
+
+主工作台透過單一生命週期介面管理規則切換、忙碌狀態、盤面變更與擴充搜尋；功能模組不得互相覆寫全域函式。
 
 題目產生器使用獨立 Worker：
 
