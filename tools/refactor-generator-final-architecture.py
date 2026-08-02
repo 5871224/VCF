@@ -50,8 +50,6 @@ if hashlib.sha256(encoded.encode()).hexdigest() != "c5c1464ef266e23fe8ddf0ed621f
 patch_bytes = gzip.decompress(base64.b64decode(encoded))
 patch_file = tools / "generator-final-architecture.patch"
 patch_file.write_bytes(patch_bytes)
-# The locally generated patch carries complete replacement copies for these
-# three tracked files. Remove their old revisions so patch can recreate them.
 for relative in (
     "tests/generator-source-order.test.js",
     "tools/apply-generator-replay-event-fixes.js",
@@ -64,5 +62,7 @@ try:
         cwd=root,
         check=True,
     )
+    spec = root / "規格書.MD"
+    spec.write_text(spec.read_text().rstrip() + "\n")
 finally:
     patch_file.unlink(missing_ok=True)
