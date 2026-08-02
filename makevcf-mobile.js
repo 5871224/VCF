@@ -126,3 +126,18 @@
   );
   document.body.appendChild(script);
 })();
+
+// 分頁版面補充：調整按鈕文字、產生器頂部操作列與題庫位置。
+(function loadGeneratorRequestedLayout() {
+  if (document.querySelector('script[data-vcf-generator-layout-fix="true"]')) return;
+  const script = document.createElement("script");
+  script.src = "makevcf-generator-layout-fix.js";
+  script.async = false;
+  script.dataset.vcfGeneratorLayoutFix = "true";
+  script.addEventListener(
+    "error",
+    () => console.error("題目產生器版面修正載入失敗"),
+    { once: true },
+  );
+  document.body.appendChild(script);
+})();
