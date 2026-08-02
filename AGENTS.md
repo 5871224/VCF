@@ -89,3 +89,7 @@ makevcf-generator-core.js
 - 確認 Pages artifact 只有根工作台入口，沒有 `makevcf.html`、`rapfi/index.html` 或已刪除的獨立工具頁。
 - 確認 GitHub Pages `build` 與 `deploy` 都成功。
 - 若由 `GITHUB_TOKEN` 產生的提交不會再次觸發 workflow，使用一般 `main` 提交或 `workflow_dispatch` 觸發。
+
+## 跨模組介面掛載
+- 題庫等晚於主介面建立的區塊，必須用具名 ready event 與正式掛載函式銜接；不得把「元素尚未出現」誤判為版面完成，也不得以全頁 MutationObserver 或輪詢補救。
+- `#vcf-question-bank` 的正式位置是 `#generator-panel` 最下方；變更腳本順序或初始化時機時，必須保留 `vcf-question-bank-ready` 契約與架構回歸測試。
