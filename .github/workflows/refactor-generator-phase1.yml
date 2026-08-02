@@ -1,0 +1,54 @@
+name: Refactor Generator Phase 1
+
+on:
+  push:
+    branches:
+      - agent/refactor-generator-phase1
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: ${{ !contains(github.event.head_commit.message, '[phase1 applied]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v6
+        with:
+          ref: agent/refactor-generator-phase1
+          fetch-depth: 0
+
+      - name: Apply source-first generator refactor
+        run: node tools/refactor-generator-phase1-once.js
+
+      - name: Check generator JavaScript syntax
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for file in makevcf-generator-*.js makevcf-mobile.js makevcf-optimized-search-v2.js \
+            rapfi/vcf-bitboard-generator-compat.js eval/Evaluator.js; do
+            node --check "$file"
+          done
+
+      - name: Run generator source and replay checks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          node tests/generator-source-order.test.js
+          node tests/generator-layout-replay.test.js
+          node tools/apply-image-import-build-fixes.js
+          node tools/apply-generator-replay-event-fixes.js
+          git diff --check
+
+      - name: Commit refactored sources
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm tools/refactor-generator-phase1-once.js
+          rm .github/workflows/refactor-generator-phase1.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "整理題目產生器載入與建置來源 [phase1 applied]"
+          git push origin HEAD:agent/refactor-generator-phase1
