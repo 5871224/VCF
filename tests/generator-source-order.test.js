@@ -75,4 +75,44 @@ for (const relative of [
   }
 }
 
-console.log("Generator source order and non-mutating build checks passed");
+const core = fs.readFileSync("makevcf-generator-core.js", "utf8");
+const main = fs.readFileSync("makevcf-generator-main.js", "utf8");
+for (const token of [
+  "function genRegisterOptionProvider(",
+  "function genRegisterBusyHook(",
+  "function genBeginGenerationContext(",
+  "function genGetActiveOptions(",
+  "function genEndGenerationContext(",
+]) {
+  if (!core.includes(token)) throw new Error(`missing GenerationContext API: ${token}`);
+}
+for (const token of [
+  "genResolveOptions({",
+  "genBeginGenerationContext({",
+  "genEndGenerationContext(generationContext)",
+]) {
+  if (!main.includes(token)) throw new Error(`main does not use GenerationContext: ${token}`);
+}
+
+for (const relative of [
+  "makevcf-generator-order-mode.js",
+  "makevcf-generator-balance.js",
+  "makevcf-generator-unique.js",
+  "makevcf-generator-target-board-v3.js",
+]) {
+  const source = fs.readFileSync(relative, "utf8");
+  if (/\bgenOptions\s*=/.test(source)) {
+    throw new Error(`genOptions wrapper remains in ${relative}`);
+  }
+  if (/\bgenSetBusy\s*=/.test(source)) {
+    throw new Error(`control busy wrapper remains in ${relative}`);
+  }
+  if (!source.includes("genRegisterOptionProvider(")) {
+    throw new Error(`option provider missing in ${relative}`);
+  }
+  if (!source.includes("genRegisterBusyHook(")) {
+    throw new Error(`busy hook missing in ${relative}`);
+  }
+}
+
+console.log("Generator source order, GenerationContext and non-mutating build checks passed");

@@ -236,8 +236,6 @@
   const GEN_UNIQUE_SEARCH_LIMIT = 72;
   const GEN_UNIQUE_SHAPE_MASK = 0x0f;
 
-  let activeOptions = null;
-
   function addUniqueControl() {
     const target = genEl("target-steps");
     const controls = target && (target.closest(".gen-controls") || target.closest(".controls"));
@@ -263,22 +261,17 @@
 
   addUniqueControl();
 
-  const previousOptions = genOptions;
-  genOptions = function generatorOptionsWithUniqueVCF() {
-    const options = previousOptions();
-    activeOptions = {
-      ...options,
-      blockOtherVCF: Boolean(genEl("block-other-vcf")?.checked),
-    };
-    return activeOptions;
-  };
+  genRegisterOptionProvider("unique-vcf", options => ({
+    ...options,
+    blockOtherVCF: Boolean(genEl("block-other-vcf")?.checked),
+  }));
 
-  const previousSetBusy = genSetBusy;
-  genSetBusy = function generatorSetBusyWithUniqueVCF(value) {
-    previousSetBusy(value);
-    const input = genEl("block-other-vcf");
-    if (input) input.disabled = value;
-  };
+  genRegisterBusyHook("unique-vcf", {
+    after(value) {
+      const input = genEl("block-other-vcf");
+      if (input) input.disabled = value;
+    },
+  });
 
   function cloneCandidate(candidate) {
     return {
@@ -430,7 +423,7 @@
 
   const previousValidateCandidate = genValidateCandidate;
   genValidateCandidate = async function validateCandidateWithUniqueVCF(candidate, expectedSteps) {
-    if (!activeOptions?.blockOtherVCF) {
+    if (!genGetActiveOptions()?.blockOtherVCF) {
       return previousValidateCandidate(candidate, expectedSteps);
     }
     return validateUniqueCandidate(cloneCandidate(candidate), expectedSteps, null, { nodes: 0 });
@@ -438,7 +431,7 @@
 
   const previousValidateExtension = genValidateExtensionCandidate;
   genValidateExtensionCandidate = async function validateExtensionWithUniqueVCF(candidate, previousResult, targetSteps) {
-    if (!activeOptions?.blockOtherVCF) {
+    if (!genGetActiveOptions()?.blockOtherVCF) {
       return previousValidateExtension(candidate, previousResult, targetSteps);
     }
     if (targetSteps !== previousResult.steps + 1) return null;

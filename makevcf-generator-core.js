@@ -272,29 +272,113 @@ function genGetTargetSteps() {
   return steps;
 }
 
+const genOptionProviders = [];
+const genBusyHooks = [];
+let genGenerationContext = null;
+let genGenerationSerial = 0;
+
+function genRegisterOptionProvider(name, provider) {
+  if (!name || typeof provider !== "function") {
+    throw new TypeError("題目產生器設定提供者需要名稱與函式");
+  }
+  const entry = { name: String(name), provider };
+  const index = genOptionProviders.findIndex(item => item.name === entry.name);
+  if (index >= 0) genOptionProviders[index] = entry;
+  else genOptionProviders.push(entry);
+}
+
+function genResolveOptions(baseOptions) {
+  let options = { ...(baseOptions || {}) };
+  for (const entry of genOptionProviders) {
+    const next = entry.provider(options);
+    if (!next || typeof next !== "object") {
+      throw new TypeError(`題目產生器設定提供者 ${entry.name} 未回傳設定物件`);
+    }
+    options = { ...next };
+  }
+  return options;
+}
+
+function genRegisterBusyHook(name, hook) {
+  if (!name || !hook || (typeof hook.before !== "function" && typeof hook.after !== "function")) {
+    throw new TypeError("題目產生器忙碌狀態 Hook 需要名稱及 before/after 函式");
+  }
+  const entry = { name: String(name), before: hook.before, after: hook.after };
+  const index = genBusyHooks.findIndex(item => item.name === entry.name);
+  if (index >= 0) genBusyHooks[index] = entry;
+  else genBusyHooks.push(entry);
+}
+
+function genFreezeOptions(options) {
+  const copy = { ...(options || {}) };
+  if (copy.uniqueSearchSettings) {
+    copy.uniqueSearchSettings = Object.freeze({ ...copy.uniqueSearchSettings });
+  }
+  return Object.freeze(copy);
+}
+
+function genBeginGenerationContext({ attacker, rules, targetSteps, options, counters }) {
+  if (genGenerationContext) {
+    throw new Error("題目產生器已有進行中的 GenerationContext");
+  }
+  genGenerationContext = Object.freeze({
+    id: ++genGenerationSerial,
+    attacker,
+    defender: genOther(attacker),
+    rules,
+    targetSteps,
+    options: genFreezeOptions(options),
+    counters,
+    startedAt: Date.now(),
+  });
+  return genGenerationContext;
+}
+
+function genGetGenerationContext() {
+  return genGenerationContext;
+}
+
+function genGetActiveOptions() {
+  return genGenerationContext?.options || null;
+}
+
+function genEndGenerationContext(context) {
+  if (!context || context === genGenerationContext) genGenerationContext = null;
+}
+
 function genSetBusy(value) {
-  genBusy = value;
+  const busy = Boolean(value);
+  const context = genGetGenerationContext();
+  for (let index = genBusyHooks.length - 1; index >= 0; index--) {
+    genBusyHooks[index].before?.(busy, context);
+  }
+
+  genBusy = busy;
   const generateButton = genEl("btn-generate");
   const stopButton = genEl("btn-stop");
-  if (generateButton) generateButton.disabled = value;
-  if (stopButton) stopButton.disabled = !value;
+  if (generateButton) generateButton.disabled = busy;
+  if (stopButton) stopButton.disabled = !busy;
 
-  genInputs("attacker").forEach(input => { input.disabled = value; });
-  genInputs("rules").forEach(input => { input.disabled = value; });
+  genInputs("attacker").forEach(input => { input.disabled = busy; });
+  genInputs("rules").forEach(input => { input.disabled = busy; });
   ["target-steps", "bonus-reuse", "bonus-center"].forEach(id => {
     const input = genEl(id);
-    if (input) input.disabled = value;
+    if (input) input.disabled = busy;
   });
 
   const pruningSelect = document.getElementById("vcf-multi-pruning");
-  if (pruningSelect) pruningSelect.disabled = value;
+  if (pruningSelect) pruningSelect.disabled = busy;
 
   const answerButton = genEl("btn-answer");
   const nButton = genEl("btn-npoints");
-  if (answerButton) answerButton.disabled = value || !genCurrent;
-  if (nButton) nButton.disabled = value || !genCurrent;
+  if (answerButton) answerButton.disabled = busy || !genCurrent;
+  if (nButton) nButton.disabled = busy || !genCurrent;
 
   if (typeof window.genIntegrationSetBusy === "function") {
-    window.genIntegrationSetBusy(value);
+    window.genIntegrationSetBusy(busy);
+  }
+
+  for (const hook of genBusyHooks) {
+    hook.after?.(busy, context);
   }
 }

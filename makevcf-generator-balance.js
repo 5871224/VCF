@@ -48,9 +48,7 @@
 
   addBalanceControls();
 
-  const originalOptions = genOptions;
-  genOptions = function generatorOptionsWithFinalBalance() {
-    const options = originalOptions();
+  genRegisterOptionProvider("final-balance", options => {
     const balanceInput = genEl("balance-stones");
     const threeInput = genEl("three-multiplier");
     const rawThree = Number(threeInput?.value);
@@ -64,16 +62,16 @@
       balanceStones: Boolean(balanceInput?.checked),
       threeMultiplier,
     };
-  };
+  });
 
-  const originalSetBusy = genSetBusy;
-  genSetBusy = function generatorSetBusyWithFinalBalance(value) {
-    originalSetBusy(value);
-    ["balance-stones", "three-multiplier"].forEach(id => {
-      const element = genEl(id);
-      if (element) element.disabled = value;
-    });
-  };
+  genRegisterBusyHook("final-balance", {
+    after(value) {
+      ["balance-stones", "three-multiplier"].forEach(id => {
+        const element = genEl(id);
+        if (element) element.disabled = value;
+      });
+    },
+  });
 
   const originalShowResult = genShowResult;
   genShowResult = function showFinalBalanceSummary(

@@ -54,6 +54,7 @@ makevcf-generator-core.js
 ## 4. 變更原則
 
 - 優先修改正式來源，不以額外修補層長期保留兩套互相覆蓋的邏輯。
+- 題目產生器一次執行共用單一 `GenerationContext`；新增設定或控制項鎖定行為應使用具名提供者／Hook，不得覆寫 `genOptions` 或核心 `genSetBusy`。
 - 建置腳本不得注入已淘汰的舊流程；程式重構後同步更新建置驗證。
 - `makevcf.html` 必須明確列出正式腳本順序；`makevcf-mobile.js`、加成、相容、狀態或回放模組不得動態載入其他正式功能檔。
 - Pages 與 CI 建置驗證不得使用 `writeFileSync`、字串替換或其他方式改寫 Git 追蹤來源。

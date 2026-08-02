@@ -16,10 +16,6 @@
     const DEFAULT_TIME_SECONDS = 30;
     const DEFAULT_NODE_MILLIONS = 20;
 
-    let activeSearchSettings = null;
-
-    const previousOptions = genOptions;
-    const previousSetBusy = genSetBusy;
     const previousFindVCF = genEngine.findVCF.bind(genEngine);
     const previousValidateCandidate = genValidateCandidate;
     const previousValidateExtensionCandidate = genValidateExtensionCandidate;
@@ -66,25 +62,22 @@
     }
 
     function currentSearchSettings() {
-      return activeSearchSettings || readManualSearchSettings();
+      return genGetActiveOptions()?.uniqueSearchSettings || readManualSearchSettings();
     }
 
-    genOptions = function generatorOptionsWithTargetBoardSearchSettings() {
-      const options = previousOptions();
-      activeSearchSettings = readManualSearchSettings();
-      return {
-        ...options,
-        uniqueSearchSettings: { ...activeSearchSettings },
-      };
-    };
+    genRegisterOptionProvider("target-board-search", options => ({
+      ...options,
+      uniqueSearchSettings: readManualSearchSettings(),
+    }));
 
-    genSetBusy = function generatorSetBusyWithTargetBoardSearchSettings(value) {
-      previousSetBusy(value);
-      for (const id of ["vcf-multi-time-seconds", "vcf-multi-node-millions"]) {
-        const input = document.getElementById(id);
-        if (input) input.disabled = Boolean(value);
-      }
-    };
+    genRegisterBusyHook("target-board-search", {
+      after(value) {
+        for (const id of ["vcf-multi-time-seconds", "vcf-multi-node-millions"]) {
+          const input = document.getElementById(id);
+          if (input) input.disabled = Boolean(value);
+        }
+      },
+    });
 
     // Force every generator multi-route call, including old final-fill checks, to use the
     // generation-start snapshot of the manual pruning, time and node settings.
