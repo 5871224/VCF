@@ -32,13 +32,19 @@ jobs:
       - name: Apply verified optimization
         run: python .github/apply-runtime-optimization.py
 
+      - name: Restore connector-managed workflows
+        shell: bash
+        run: |
+          git checkout HEAD -- .github/workflows/pages.yml .github/workflows/apply-runtime-optimization.yml
+
       - name: Remove transfer chunks
         shell: bash
         run: |
           rm -f \
             .github/runtime-opt.part00 .github/runtime-opt.part01 \
             .github/runtime-opt.part02 .github/runtime-opt.part03 \
-            .github/runtime-opt-gz.part0 .github/runtime-opt-gz.part1
+            .github/runtime-opt-gz.part0 .github/runtime-opt-gz.part1 \
+            .github/apply-runtime-optimization.py
 
       - name: Validate optimized sources
         shell: bash
