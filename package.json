@@ -5,8 +5,8 @@
   "description": "Browser-only Renju/Gomoku VCF analyzer and problem generator",
   "scripts": {
     "test": "npm run test:architecture && npm run test:generator",
-    "test:architecture": "node tests/workbench-architecture.test.js && node tests/generator-architecture-v2.test.js && node tests/generator-source-order.test.js",
+    "test:architecture": "node tests/workbench-architecture.test.js && node tests/runtime-performance-contract.test.js && node tests/generator-architecture-v2.test.js && node tests/generator-source-order.test.js",
     "test:generator": "node tests/generator-registry-v2.test.js && node tests/generator-context.test.js && node tests/generator-search-policy-v2.test.js && node tests/generator-finalize-v2.test.js && node tests/generator-layout-replay.test.js",
-    "verify:source": "node tools/apply-image-import-build-fixes.js && node tools/apply-generator-replay-event-fixes.js"
+    "test:runtime": "node tests/bitboard-worker-runtime.test.js"
   }
 }
