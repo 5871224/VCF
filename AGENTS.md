@@ -98,9 +98,9 @@ makevcf-generator-core.js
 - 題庫等晚於主介面建立的區塊，必須用具名 ready event 與正式掛載函式銜接；不得把「元素尚未出現」誤判為版面完成，也不得以全頁 MutationObserver 或輪詢補救。
 - `#vcf-question-bank` 的正式位置是 `#generator-panel` 最下方；變更腳本順序或初始化時機時，必須保留 `vcf-question-bank-ready` 契約與架構回歸測試。
 
-
 ## 執行期驗證與熱路徑效能
 - `vcfBbSelfTest`、`vcfBbSearchV2SelfTest` 與完整棋型表自測只在 Native／Wasm CI 執行；正式瀏覽器執行個體只做固定盤面的 ABI 冒煙檢查。
 - 主搜尋 Worker 與主執行緒同步 Wasm 各保留一次環境檢查；同質 Worker Pool 不得重複完整或冒煙自測。
 - Worker RPC 邊界、C++ 匯出 ABI、規則／顏色／索引範圍及指定 VCF 基準路線驗證必須保留；同一候選在同一盤面、同一限制下的成功驗證結果不得再次重算。
 - 熱路徑避免為 225 格盤面建立短命陣列或重複寫入 Wasm heap；任何調整都必須以相同盤面比較結果、節點與耗時，不能用改變候選順序或放寬驗證換取速度。
+- 同一驗證契約只保留一個正式測試檔與命令入口；workflow 應呼叫正式測試，不得內嵌或平行維護同義驗證。
