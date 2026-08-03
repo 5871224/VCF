@@ -32,11 +32,6 @@ jobs:
       - name: Apply verified optimization
         run: python .github/apply-runtime-optimization.py
 
-      - name: Restore connector-managed workflows
-        shell: bash
-        run: |
-          git checkout HEAD -- .github/workflows/pages.yml .github/workflows/apply-runtime-optimization.yml
-
       - name: Remove transfer chunks
         shell: bash
         run: |
@@ -63,6 +58,11 @@ jobs:
           done
           npm test
           git diff --check
+
+      - name: Restore connector-managed workflows
+        shell: bash
+        run: |
+          git checkout HEAD -- .github/workflows/pages.yml .github/workflows/apply-runtime-optimization.yml
 
       - name: Commit verified optimization
         shell: bash
