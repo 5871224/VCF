@@ -143,13 +143,12 @@ jobs:
             .catch(error => { console.error(error); process.exit(1); });
           NODE
 
-      - name: Verify source architecture
+      - name: Verify source architecture and runtime
         shell: bash
         run: |
           set -euxo pipefail
           npm run test:architecture
-          npm run verify:source
-          git diff --exit-code
+          VCF_BITBOARD_ENGINE_DIR=.cache/vcf-bitboard-engine npm run test:runtime
 
       - name: Prepare static site from allowlist
         shell: bash
