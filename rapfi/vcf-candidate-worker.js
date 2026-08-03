@@ -16,12 +16,12 @@ function post(type, data) {
 }
 
 function decodeResult() {
-  const bytes = patternInstance.HEAPU8.slice(resultPtr, resultPtr + RESULT_BYTES);
+  const heap = patternInstance.HEAPU8;
   return {
-    directions: Array.from(bytes.slice(0, 4)),
-    pattern4: bytes[4],
-    forbidden: Boolean(bytes[5]),
-    forbiddenType: bytes[6],
+    directions: [heap[resultPtr], heap[resultPtr + 1], heap[resultPtr + 2], heap[resultPtr + 3]],
+    pattern4: heap[resultPtr + 4],
+    forbidden: Boolean(heap[resultPtr + 5]),
+    forbiddenType: heap[resultPtr + 6],
   };
 }
 

@@ -119,14 +119,11 @@ class GeneratorVCFEngine {
 
   async post(type, data = {}) {
     await this.ready;
+    if (type === "init" || type === "setGameRules") return this.callRaw(type, data);
+
     // 每個搜尋／驗證請求都明確附帶規則，避免自由規則 0 被 Worker 的預設值覆蓋。
-    const withRules = type === "init" || type === "setGameRules"
-      ? data
-      : { ...data, rules: this.rules };
-    const withPruning = { ...data, pruning: genSelectedPruning() };
-    const normalized = type === "findVCF"
-      ? { ...withPruning, rules: this.rules }
-      : withRules;
+    const normalized = { ...data, rules: this.rules };
+    if (type === "findVCF") normalized.pruning = genSelectedPruning();
     return this.callRaw(type, normalized);
   }
 
@@ -163,7 +160,7 @@ class GeneratorVCFEngine {
     });
     try {
       const result = (await this.post("findVCF", {
-        arr: board.slice(),
+        arr: board,
         color,
         maxVCF: normalizedMaxVCF,
         mode: normalizedOptions.mode,
@@ -274,7 +271,7 @@ class GeneratorVCFEngine {
     });
     try {
       const result = await this.post("getBlockVCF", {
-        arr: board.slice(),
+        arr: board,
         color,
         vcfMoves: route,
         includeFour,
