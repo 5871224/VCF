@@ -14,6 +14,8 @@ on:
       - 'rapfi/vcf-bitboard-worker.js'
       - 'rapfi/vcf-shortest-vcf-ui.js'
       - 'rapfi/rapfi-bitboard-dashboard.js'
+      - 'tests/bitboard-worker-runtime.test.js'
+      - 'package.json'
       - '.github/workflows/vcf-native-ci.yml'
   workflow_dispatch:
 
@@ -167,6 +169,10 @@ jobs:
             process.exit(1);
           });
           NODE
+
+      - name: Run Worker runtime regressions
+        shell: bash
+        run: VCF_BITBOARD_ENGINE_DIR=/tmp/vcf-wasm-test npm run test:runtime
 
       - name: Upload Wasm diagnostic
         if: always()

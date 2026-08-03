@@ -15,7 +15,6 @@ function genAnalyzeVCFGroup(initialBoard, moves, attacker) {
       return { valid: false, steps: Infinity, levels, rawLevels };
     }
 
-    const beforeMove = color === attacker ? genCloneBoard(board) : null;
     board[idx] = color;
 
     if (color === attacker) {
@@ -39,7 +38,9 @@ function genAnalyzeVCFGroup(initialBoard, moves, attacker) {
         break;
       }
       if (level === GEN_FOUR_FREE) {
-        standardBoard = beforeMove;
+        board[idx] = GEN_EMPTY;
+        standardBoard = genCloneBoard(board);
+        board[idx] = attacker;
         break;
       }
     }
@@ -169,11 +170,10 @@ function genApplyBlockerNPoints(state) {
   if (!state) return state;
   const nMask = state.nMask?.slice() || new Uint8Array(225);
   const both = GEN_NO_BLACK | GEN_NO_WHITE;
-  for (const idx of new Set([
-    ...Array.from(state.autoBlockDefenders || []),
-    ...Array.from(state.uniqueBlockDefenders || []),
-  ])) {
-    if (Number.isInteger(idx) && idx >= 0 && idx < 225) nMask[idx] |= both;
+  for (const source of [state.autoBlockDefenders, state.uniqueBlockDefenders]) {
+    for (const idx of source || []) {
+      if (Number.isInteger(idx) && idx >= 0 && idx < 225) nMask[idx] |= both;
+    }
   }
   state.nMask = nMask;
   return state;
@@ -202,50 +202,10 @@ function genFinalizeValidatedResult(candidate, target, info, groups, previousRes
   });
 }
 
-function genResolveValidationSteps(candidate, expectedSteps) {
-  const values = [
-    expectedSteps,
-    candidate && candidate.validationTargetSteps,
-    candidate && candidate.steps,
-    candidate && candidate.base && candidate.base.validationTargetSteps,
-  ];
-  for (const value of values) {
-    const steps = Math.round(Number(value));
-    if (Number.isFinite(steps) && steps >= GEN_MIN_STEPS && steps <= GEN_MAX_STEPS) return steps;
-  }
-
-  const materialType = candidate && candidate.base && candidate.base.materialType;
-  if (materialType === "deadFour") return 1;
-  if (materialType === "liveThree") return 2;
-  return 0;
-}
-
 function genTargetSearchPly(targetSteps) {
   // 題目步數只計算最後連五前的攻方落子；C++ maxDepth 使用實際攻守 ply。
   // 最長終止型為：目標攻方步數及其守方應手，再加最後一手連五，所以是 2 × steps + 1。
   return Math.min(200, Math.max(1, targetSteps * 2 + 1));
-}
-
-async function genFindAnalyzedGroups(candidate, expectedSteps) {
-  const targetSteps = genResolveValidationSteps(candidate, expectedSteps);
-  if (!targetSteps) return null;
-
-  // 舊版驗證需要在同一次多組搜尋中同時取得：
-  // 1. 指定目標步數的預期路線。
-  // 2. 所有已列舉到、比目標短的路線，用來統計防守點並補守子。
-  // 因此不能使用只回傳第一個有解深度的 shortest 模式。
-  const info = await genEngine.findVCF(candidate.board, candidate.attacker, 64, {
-    mode: "multi",
-    simplify: true,
-    maxDepth: genTargetSearchPly(targetSteps),
-    maxNode: 5000000,
-  });
-  if (genCancelled || !info || !info.winMoves || !info.winMoves.length) return null;
-  const raw = info.winMoves.filter(moves => moves && moves.length);
-  if (!raw.length) return null;
-  const groups = await genEngine.trimGroups(candidate.board, raw, candidate.attacker);
-  if (genCancelled || !groups.length) return null;
-  return { info, groups, targetSteps };
 }
 
 async function genValidateCandidate(candidate, expectedSteps) {

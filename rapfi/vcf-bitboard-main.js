@@ -7,6 +7,8 @@
   const LEGACY_DEFAULT_MAX_NODES = 5_000_000;
   const ENGINE_MAX_NODES = 0xffffffff;
   const DEFAULT_NODE_MILLIONS = 20;
+  const DIRECTION_X = [1, 0, 1, 1];
+  const DIRECTION_Y = [0, 1, 1, -1];
 
   const normalizeRules = rules => {
     const value = Number(rules);
@@ -67,16 +69,21 @@
   }
 
   class RpcWorker {
-    constructor() {
+    constructor({ runSmokeCheck = true } = {}) {
+      this.runSmokeCheck = Boolean(runSmokeCheck);
       this.worker = null;
       this.nextId = 1;
       this.pending = new Map();
+      this.appliedRules = 2;
+      this.ruleChain = Promise.resolve(true);
       this.ready = this.start();
     }
 
     async start() {
       this.terminate();
+      this.ruleChain = Promise.resolve(true);
       this.worker = new Worker(workerURL);
+      this.appliedRules = 2;
       this.worker.onmessage = event => {
         const { id, ok, result, error } = event.data || {};
         const pending = this.pending.get(id);
@@ -89,7 +96,7 @@
         for (const pending of this.pending.values()) pending.reject(error);
         this.pending.clear();
       };
-      return this.callRaw("init", { moduleURL });
+      return this.callRaw("init", { moduleURL, runSmokeCheck: this.runSmokeCheck });
     }
 
     callRaw(type, data) {
@@ -103,6 +110,18 @@
     async call(type, data) {
       await this.ready;
       return this.callRaw(type, data);
+    }
+
+    setRules(rules) {
+      const normalized = normalizeRules(rules);
+      this.ruleChain = this.ruleChain.catch(() => true).then(async () => {
+        await this.ready;
+        if (this.appliedRules === normalized) return true;
+        const result = await this.callRaw("setGameRules", { rules: normalized });
+        this.appliedRules = normalized;
+        return result;
+      });
+      return this.ruleChain;
     }
 
     terminate() {
@@ -153,20 +172,26 @@
         ),
         blockFour: this.syncModule.cwrap("vcfBbLegacyGetBlockFourPoint", "number", ["number", "number", "number", "number", "number"]),
         foul: this.syncModule.cwrap("vcfBbLegacyIsFoul", "number", ["number", "number", "number"]),
-        selfTest: this.syncModule.cwrap("vcfBbSelfTest", "number", []),
       };
-      const result = this.syncApi.selfTest();
-      if (result !== 0) throw new Error(`主執行緒 Bitboard Wasm 自我檢查失敗：${result}`);
       this.syncBoardPtr = this.syncModule._malloc(225);
+      this.syncModule.HEAPU8.fill(0, this.syncBoardPtr, this.syncBoardPtr + 225);
+      for (const x of [3, 4, 5]) this.syncModule.HEAPU8[this.syncBoardPtr + 7 * 15 + x] = 1;
+      const smokeLevel = this.syncApi.levelPoint(this.syncBoardPtr, 7 * 15 + 6, 1, 2) & 0x0f;
+      if (smokeLevel !== 9) throw new Error("主執行緒 Bitboard Wasm 啟動檢查失敗");
+      this.syncModule.HEAPU8.fill(0, this.syncBoardPtr, this.syncBoardPtr + 225);
       this.installLegacyGlobals();
       return true;
     }
 
     writeSyncBoard(arr) {
       if (!this.syncModule || !this.syncBoardPtr) throw new Error("Bitboard Wasm 尚未就緒");
-      const source = arr instanceof Uint8Array ? arr : Uint8Array.from(arr || []);
-      this.syncModule.HEAPU8.fill(0, this.syncBoardPtr, this.syncBoardPtr + 225);
-      this.syncModule.HEAPU8.set(source.subarray(0, 225), this.syncBoardPtr);
+      const heap = this.syncModule.HEAPU8;
+      if (arr instanceof Uint8Array) {
+        if (arr.length < 225) heap.fill(0, this.syncBoardPtr, this.syncBoardPtr + 225);
+        heap.set(arr.subarray(0, 225), this.syncBoardPtr);
+        return;
+      }
+      for (let idx = 0; idx < 225; idx++) heap[this.syncBoardPtr + idx] = Number(arr?.[idx]) || 0;
     }
 
     installLegacyGlobals() {
@@ -197,16 +222,20 @@
         return 225;
       };
       global.getLevel = (arr, color) => {
+        service.writeSyncBoard(arr);
         let best = 0;
         for (let idx = 0; idx < 225; idx++) {
           if ((arr[idx] || 0) !== 0) continue;
-          best = Math.max(best, global.getLevelPoint(idx, color, arr) & 0x1f);
+          best = Math.max(
+            best,
+            service.syncApi.levelPoint(service.syncBoardPtr, idx, color, service.rules) & 0x1f,
+          );
         }
         return best;
       };
       global.moveIdx = (idx, offset, direction) => {
-        const dx = [1, 0, 1, 1][direction] || 0;
-        const dy = [0, 1, 1, -1][direction] || 0;
+        const dx = DIRECTION_X[direction] || 0;
+        const dy = DIRECTION_Y[direction] || 0;
         const x = idx % 15 + dx * offset;
         const y = Math.floor(idx / 15) + dy * offset;
         return x >= 0 && x < 15 && y >= 0 && y < 15 ? y * 15 + x : 225;
@@ -220,9 +249,13 @@
       if (placeColor === attacker && (labelText === "4" || labelText === "5")) {
         const idx = Number(item?.idx);
         if (Number.isInteger(idx) && idx >= 0 && idx < 225 && (arr[idx] || 0) === 0) {
-          const placed = arr.slice();
-          placed[idx] = placeColor;
-          this.writeSyncBoard(placed);
+          const previous = arr[idx];
+          arr[idx] = placeColor;
+          try {
+            this.writeSyncBoard(arr);
+          } finally {
+            arr[idx] = previous;
+          }
           const level = this.syncApi.levelPoint(this.syncBoardPtr, idx, attacker, this.rules) & 0x0f;
           if (labelText === "5" && level >= 10) type = "five";
           else if (labelText === "4" && (level === 8 || level === 9)) type = "four";
@@ -240,9 +273,9 @@
     async ensurePool() {
       if (this.pool.length === desiredWorkers && !this.poolReady) return this.pool;
       if (!this.poolReady) {
-        this.pool = Array.from({ length: desiredWorkers }, () => new RpcWorker());
+        this.pool = Array.from({ length: desiredWorkers }, () => new RpcWorker({ runSmokeCheck: false }));
         this.poolReady = Promise.all(
-          this.pool.map(worker => worker.call("setGameRules", { rules: this.rules })),
+          this.pool.map(worker => worker.setRules(this.rules)),
         ).then(() => {
           this.poolReady = null;
           return this.pool;
@@ -259,8 +292,8 @@
     async broadcastRules(rules) {
       this.rules = normalizeRules(rules);
       await Promise.all([
-        this.main.call("setGameRules", { rules: this.rules }),
-        ...this.pool.map(worker => worker.call("setGameRules", { rules: this.rules })),
+        this.main.setRules(this.rules),
+        ...this.pool.map(worker => worker.setRules(this.rules)),
       ]);
       await this.syncReady;
       return true;

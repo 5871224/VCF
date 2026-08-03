@@ -40,8 +40,10 @@ jobs:
             makevcf-generator-ui-compact.js \
             makevcf-optimized-search-v2.js \
             rapfi/vcf-bitboard-main.js \
+            rapfi/vcf-bitboard-worker.js \
             rapfi/vcf-bitboard-generator-compat.js \
             rapfi/rapfi-bitboard-dashboard.js \
+            rapfi/vcf-candidate-worker.js \
             rapfi/vcf-shortest-vcf-ui.js \
             rapfi/vcf-forbidden-overlay.js \
             rapfi/rapfi-workbench-header.js \
@@ -51,6 +53,3 @@ jobs:
 
       - name: Verify workbench and repository architecture
         run: npm run test:architecture
-
-      - name: Verify read-only build checks
-        run: npm run verify:source

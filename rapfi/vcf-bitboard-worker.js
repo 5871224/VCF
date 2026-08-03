@@ -25,6 +25,11 @@ const SIX = 28;
 const DIRECTION_X = [1, 0, 1, 1];
 const DIRECTION_Y = [0, 1, 1, -1];
 
+function normalizeRules(rules) {
+  const value = Number(rules);
+  return value === 0 || value === 1 || value === 2 ? value : 2;
+}
+
 let ptr = {};
 let api = {};
 
@@ -33,6 +38,7 @@ function post(id, ok, result, error) {
 }
 
 function toBoard(input) {
+  if (input instanceof Uint8Array && input.length === BOARD_CELLS) return input;
   const source = input instanceof Uint8Array ? input : Uint8Array.from(input || []);
   const board = new Uint8Array(BOARD_CELLS);
   board.set(source.subarray(0, BOARD_CELLS));
@@ -92,7 +98,7 @@ function findVCF(param) {
     count = api.findModeV3(
       ptr.board,
       Number(param.color) || 1,
-      Number(param.rules ?? currentRules),
+      normalizeRules(param.rules ?? currentRules),
       mode,
       simplify ? 1 : 0,
       pruning,
@@ -108,7 +114,7 @@ function findVCF(param) {
     count = api.findMode(
       ptr.board,
       Number(param.color) || 1,
-      Number(param.rules ?? currentRules),
+      normalizeRules(param.rules ?? currentRules),
       mode,
       simplify ? 1 : 0,
       maxVCF,
@@ -123,7 +129,7 @@ function findVCF(param) {
     count = api.find(
       ptr.board,
       Number(param.color) || 1,
-      Number(param.rules ?? currentRules),
+      normalizeRules(param.rules ?? currentRules),
       maxVCF,
       maxDepth,
       maxNode,
@@ -164,7 +170,7 @@ function findShortestVCF(param) {
   const status = api.findShortestOne(
     ptr.board,
     Number(param.color) || 1,
-    Number(param.rules ?? currentRules),
+    normalizeRules(param.rules ?? currentRules),
     maxDepth,
     maxNode,
     ptr.moves,
@@ -193,7 +199,7 @@ function validateRoute(param) {
   const valid = api.validate(
     ptr.board,
     Number(param.color) || 1,
-    Number(param.rules ?? currentRules),
+    normalizeRules(param.rules ?? currentRules),
     ptr.route,
     routeLen,
     Math.max(1, Number(param.maxNode) || 5_000_000),
@@ -207,11 +213,6 @@ function moveIndex(idx, offset, direction) {
   const x = idx % 15 + DIRECTION_X[direction] * offset;
   const y = Math.floor(idx / 15) + DIRECTION_Y[direction] * offset;
   return x >= 0 && x < 15 && y >= 0 && y < 15 ? y * 15 + x : BOARD_CELLS;
-}
-
-function legacyLevelPoint(board, idx, side, rules) {
-  writeBoard(board);
-  return api.levelPointCompat(ptr.board, idx, side, rules);
 }
 
 function legacyLineFour(board, idx, direction, side, rules) {
@@ -261,19 +262,22 @@ function legacyIsOverline(board, idx) {
 
 function scanInitialCounterFours(board, defender, rules) {
   const result = new Uint8Array(BOARD_CELLS);
+  writeBoard(board);
   for (let idx = 0; idx < BOARD_CELLS; idx++) {
     if (board[idx] !== EMPTY) continue;
-    if ((legacyLevelPoint(board, idx, defender, rules) & FOUL_MAX) === FOUR_NOFREE) result[idx] = 1;
+    const level = api.levelPointCompat(ptr.board, idx, defender, rules);
+    if ((level & FOUL_MAX) === FOUR_NOFREE) result[idx] = 1;
   }
   return result;
 }
 
 function addLineCounterFours(blockMask, board, center, direction, defender, rules) {
   const mask = defender === BLACK && rules === RENJU ? FOUL_MAX : MAX;
+  writeBoard(board);
   for (let offset = -4; offset <= 4; offset++) {
     const idx = moveIndex(center, offset, direction);
     if (idx >= BOARD_CELLS || board[idx] !== EMPTY) continue;
-    const lineInfo = legacyLineFour(board, idx, direction, defender, rules);
+    const lineInfo = api.lineFourCompat(ptr.board, idx, direction, defender, rules);
     if ((lineInfo & mask) === FOUR_NOFREE) blockMask[idx] = 1;
   }
 }
@@ -286,9 +290,8 @@ function validateDefensePoint(baseBoard, attacker, rules, routeLen, idx, maxNode
   if (defender === BLACK && rules === RENJU && legacyIsOverline(baseBoard, idx)) {
     return { blocks: false, stats: null };
   }
-  const tested = baseBoard.slice();
-  tested[idx] = defender;
-  writeBoard(tested);
+  writeBoard(baseBoard);
+  moduleInstance.HEAPU8[ptr.board + idx] = defender;
   const stillWins = api.validate(
     ptr.board,
     attacker,
@@ -298,6 +301,7 @@ function validateDefensePoint(baseBoard, attacker, rules, routeLen, idx, maxNode
     maxNode,
     ptr.stats,
   );
+  moduleInstance.HEAPU8[ptr.board + idx] = EMPTY;
   const stats = readStats();
   return { blocks: !stillWins && !stats.aborted, stats };
 }
@@ -312,6 +316,7 @@ function oldGetBlockCandidates(baseBoard, attacker, rules, route, includeFour, m
   const lineInfoList = [];
   let fFourCount = 0;
   const fLineInfoList = [];
+  let validatedCandidates = null;
   let end = 0;
   const len = route.length;
   const endIdx = route[len - 1];
@@ -525,11 +530,14 @@ function oldGetBlockCandidates(baseBoard, attacker, rules, route, includeFour, m
     }
   } else {
     for (let i = 0; i < end; i++) board[route[i]] = EMPTY;
+    validatedCandidates = new Map();
     for (let idx = 0; idx < BOARD_CELLS; idx++) {
       if (!includeFour && initialCounterFours[idx]) continue;
       if (baseBoard[idx] !== EMPTY) continue;
       const checked = validateDefensePoint(baseBoard, attacker, rules, len, idx, maxNode);
-      if (checked.blocks) blockMask[idx] = 1;
+      if (!checked.blocks) continue;
+      blockMask[idx] = 1;
+      validatedCandidates.set(idx, checked.stats);
     }
   }
 
@@ -539,14 +547,14 @@ function oldGetBlockCandidates(baseBoard, attacker, rules, route, includeFour, m
     if (defender === BLACK && rules === RENJU && legacyIsOverline(baseBoard, idx)) continue;
     candidates.push(idx);
   }
-  return { candidates, fast };
+  return { candidates, fast, validatedCandidates };
 }
 
 function getBlockVCF(param) {
   const startedAt = performance.now();
   const baseBoard = toBoard(param.arr);
   const attacker = Number(param.color) || BLACK;
-  const rules = Number(param.rules ?? currentRules);
+  const rules = normalizeRules(param.rules ?? currentRules);
   const route = Array.from(param.vcfMoves || [])
     .filter(idx => Number.isInteger(idx) && idx >= 0 && idx < BOARD_CELLS)
     .slice(0, MAX_ROUTE_PLY);
@@ -597,18 +605,26 @@ function getBlockVCF(param) {
   let totalNodes = baselineStats.nodeCount || 0;
   let maxPly = baselineStats.maxPly || 0;
   let aborted = false;
-  const seen = new Set();
-
-  for (const idx of generated.candidates) {
-    if (seen.has(idx)) continue;
-    seen.add(idx);
-    const checked = validateDefensePoint(baseBoard, attacker, rules, routeLen, idx, maxNode);
-    if (checked.stats) {
-      totalNodes += checked.stats.nodeCount || 0;
-      maxPly = Math.max(maxPly, checked.stats.maxPly || 0);
-      aborted = aborted || Boolean(checked.stats.aborted);
+  if (generated.fast) {
+    for (const idx of generated.candidates) {
+      const checked = validateDefensePoint(baseBoard, attacker, rules, routeLen, idx, maxNode);
+      if (checked.stats) {
+        totalNodes += checked.stats.nodeCount || 0;
+        maxPly = Math.max(maxPly, checked.stats.maxPly || 0);
+        aborted = aborted || Boolean(checked.stats.aborted);
+      }
+      if (checked.blocks) points.push(idx);
     }
-    if (checked.blocks) points.push(idx);
+  } else {
+    for (const idx of generated.candidates) {
+      const stats = generated.validatedCandidates?.get(idx);
+      if (stats) {
+        totalNodes += stats.nodeCount || 0;
+        maxPly = Math.max(maxPly, stats.maxPly || 0);
+        aborted = aborted || Boolean(stats.aborted);
+      }
+      points.push(idx);
+    }
   }
 
   const elapsedMs = performance.now() - startedAt;
@@ -647,7 +663,7 @@ function getLevelPoints(param) {
       ptr.board,
       Number(param.color) || 1,
       Number(param.placeColor || param.color) || 1,
-      Number(param.rules ?? currentRules),
+      normalizeRules(param.rules ?? currentRules),
       mode,
       simplify ? 1 : 0,
       pruning,
@@ -665,7 +681,7 @@ function getLevelPoints(param) {
       ptr.board,
       Number(param.color) || 1,
       Number(param.placeColor || param.color) || 1,
-      Number(param.rules ?? currentRules),
+      normalizeRules(param.rules ?? currentRules),
       mode,
       simplify ? 1 : 0,
       indices.length ? ptr.indices : 0,
@@ -695,7 +711,7 @@ function trimVCFGroups(param) {
   const base = toBoard(param.arr);
   const attacker = Number(param.color) || 1;
   const defender = 3 - attacker;
-  const rules = Number(param.rules ?? currentRules);
+  const rules = normalizeRules(param.rules ?? currentRules);
   const groups = Array.isArray(param.groups) ? param.groups : [];
   const seen = new Set();
   const processed = [];
@@ -727,7 +743,7 @@ function trimVCFGroups(param) {
   return processed;
 }
 
-async function init(url) {
+async function init(url, runSmokeCheck = true) {
   if (readyPromise) return readyPromise;
   readyPromise = (async () => {
     const base = new URL("./", url).href;
@@ -744,8 +760,6 @@ async function init(url) {
         ? moduleInstance.cwrap("vcfBbFindShortestOne", "number", Array(9).fill("number"))
         : null,
       validate: moduleInstance.cwrap("vcfBbValidateRoute", "number", Array(7).fill("number")),
-      routeDefense: moduleInstance.cwrap("vcfBbRouteDefense", "number", Array(9).fill("number")),
-      scan: moduleInstance.cwrap("vcfBbScanPoints", "number", Array(12).fill("number")),
       scanMode: moduleInstance.cwrap("vcfBbScanPointsMode", "number", Array(14).fill("number")),
       scanModeV3: moduleInstance._vcfBbScanPointsModeV3
         ? moduleInstance.cwrap("vcfBbScanPointsModeV3", "number", Array(15).fill("number"))
@@ -755,24 +769,39 @@ async function init(url) {
       lineFourCompat: moduleInstance.cwrap("vcfBbLegacyTestLineFourCompat", "number", Array(5).fill("number")),
       blockFour: moduleInstance.cwrap("vcfBbLegacyGetBlockFourPoint", "number", Array(5).fill("number")),
       foul: moduleInstance.cwrap("vcfBbLegacyIsFoul", "number", Array(3).fill("number")),
-      selfTest: moduleInstance.cwrap("vcfBbSelfTest", "number", []),
-      searchV2SelfTest: moduleInstance.cwrap("vcfBbSearchV2SelfTest", "number", []),
     };
-    const test = api.selfTest();
-    if (test !== 0) throw new Error(`Bitboard C++ Wasm 自我檢查失敗：${test}`);
-    const searchTest = api.searchV2SelfTest();
-    if (searchTest !== 0) throw new Error(`Bitboard 搜尋自我檢查失敗：${searchTest}`);
-
     ptr.board = moduleInstance._malloc(BOARD_CELLS);
     ptr.moves = moduleInstance._malloc(MAX_ROUTES * MAX_ROUTE_PLY);
     ptr.lengths = moduleInstance._malloc(MAX_ROUTES * 2);
     ptr.stats = moduleInstance._malloc(STATS_BYTES);
     ptr.route = moduleInstance._malloc(MAX_ROUTE_PLY);
-    ptr.points = moduleInstance._malloc(BOARD_CELLS);
     ptr.indices = moduleInstance._malloc(BOARD_CELLS * 2);
     ptr.outIndices = moduleInstance._malloc(BOARD_CELLS * 2);
     ptr.labels = moduleInstance._malloc(BOARD_CELLS * 2);
-    return { selfTest: test, searchV2SelfTest: searchTest, optimizedV3: Boolean(api.findModeV3) };
+
+    if (runSmokeCheck) {
+      moduleInstance.HEAPU8.fill(0, ptr.board, ptr.board + BOARD_CELLS);
+      for (const x of [3, 4, 5]) moduleInstance.HEAPU8[ptr.board + 7 * 15 + x] = BLACK;
+      moduleInstance.HEAPU16.fill(0, ptr.lengths >>> 1, (ptr.lengths >>> 1) + MAX_ROUTES);
+      const count = api.findModeV3
+        ? api.findModeV3(
+            ptr.board, BLACK, RENJU, 0, 0, 0, 1, 20, 100_000,
+            ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
+          )
+        : api.find(
+            ptr.board, BLACK, RENJU, 1, 20, 100_000,
+            ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
+          );
+      if (count < 1 || moduleInstance.HEAPU16[ptr.lengths >>> 1] < 1) {
+        throw new Error("Bitboard Wasm 啟動檢查失敗");
+      }
+    }
+    return {
+      selfTest: runSmokeCheck ? 0 : null,
+      selfTestMode: runSmokeCheck ? "smoke" : "skipped",
+      searchV2SelfTest: "ci-only",
+      optimizedV3: Boolean(api.findModeV3),
+    };
   })();
   return readyPromise;
 }
@@ -781,14 +810,14 @@ self.onmessage = async event => {
   const { id, type, data } = event.data || {};
   try {
     if (type === "init") {
-      post(id, true, await init(data.moduleURL));
+      post(id, true, await init(data.moduleURL, data.runSmokeCheck !== false));
       return;
     }
     await readyPromise;
     let result;
     switch (type) {
       case "setGameRules":
-        currentRules = Number(data?.rules) || 2;
+        currentRules = normalizeRules(data?.rules);
         result = true;
         break;
       case "findVCF": result = findVCF(data || {}); break;

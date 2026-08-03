@@ -168,10 +168,7 @@
       };
     }
     if (cmd === "getLevelPoints") {
-      return {
-        pruning: param.pruning || selectedPruning(),
-        arr: Array.from(param.arr || []),
-      };
+      return { pruning: param.pruning || selectedPruning() };
     }
     return null;
   }, 50);
@@ -348,10 +345,11 @@
     : Array.from({ length: 225 }, (_, idx) => idx).filter(idx => base[idx] === 0);
   const immediateItems = [];
   const pending = [];
+  const checkBlackFoul = placeColor === 1 && service.rules === 2;
+  if (checkBlackFoul) service.writeSyncBoard(base);
 
   for (const idx of sourceIndices) {
-    if (placeColor === 1 && service.rules === 2) {
-      service.writeSyncBoard(base);
+    if (checkBlackFoul) {
       if (service.syncApi.foul(service.syncBoardPtr, idx, service.rules)) continue;
     }
 
