@@ -24,15 +24,21 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          cat .github/runtime-opt.part00 .github/runtime-opt.part01 .github/runtime-opt.part02 .github/runtime-opt.part03 \
-            | base64 --decode > .github/apply-runtime-optimization.py
+          cat .github/runtime-opt-gz.part0 .github/runtime-opt-gz.part1 \
+            | base64 --decode \
+            | gzip --decompress > .github/apply-runtime-optimization.py
           echo '6339fd687685ad470de6d02b538086e088256e43cce27c4bf14c82677d5a388e  .github/apply-runtime-optimization.py' | sha256sum --check -
 
       - name: Apply verified optimization
         run: python .github/apply-runtime-optimization.py
 
       - name: Remove transfer chunks
-        run: rm -f .github/runtime-opt.part00 .github/runtime-opt.part01 .github/runtime-opt.part02 .github/runtime-opt.part03
+        shell: bash
+        run: |
+          rm -f \
+            .github/runtime-opt.part00 .github/runtime-opt.part01 \
+            .github/runtime-opt.part02 .github/runtime-opt.part03 \
+            .github/runtime-opt-gz.part0 .github/runtime-opt-gz.part1
 
       - name: Validate optimized sources
         shell: bash
