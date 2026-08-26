@@ -260,9 +260,9 @@
   // this path is now the user's actual move history instead of a coordinate-sort
   // reconstruction, so the intended game order is preserved as far as YXDB's
   // symmetry/transposition model allows.
-  function addYXDBSetupPath(rootBoard, add, history, historyExact) {
+  function addYXDBSetupPath(rootBoard, add, history, historyExact, rootRecordText = "") {
     const setupBoard = new Uint8Array(BOARD_CELLS);
-    add(setupBoard);
+    add(setupBoard, rootRecordText);
     const stoneCount = countStones(rootBoard);
     if (stoneCount.black + stoneCount.white === 0) return;
     if (historyExact === false) {
@@ -295,7 +295,7 @@
     }
   }
 
-  function collectYXDBPositions(rootBoard, routes, attacker, rule, history = [], historyExact = null) {
+  function collectYXDBPositions(rootBoard, routes, attacker, rule, history = [], historyExact = null, rootRecordText = "") {
     const records = new Map();
     const add = (board, text = "") => {
       assertRapfiPosition(board);
@@ -309,7 +309,7 @@
       }
     };
 
-    addYXDBSetupPath(rootBoard, add, history, historyExact);
+    addYXDBSetupPath(rootBoard, add, history, historyExact, rootRecordText);
     for (const route of normalizedRoutes(routes)) {
       const board = new Uint8Array(rootBoard);
       let side = attacker;
@@ -344,7 +344,7 @@
     });
   }
 
-  function createYXDB({ board, routes = [], attacker = 0, rule = 2, history = [], historyExact = null }) {
+  function createYXDB({ board, routes = [], attacker = 0, rule = 2, history = [], historyExact = null, rootRecordText = "" }) {
     const normalizedBoard = normalizeBoard(board);
     const normalizedRule = [0, 1, 2].includes(Number(rule)) ? Number(rule) : 2;
     const routeList = normalizedRoutes(routes);
@@ -352,7 +352,7 @@
     if (routeList.length && side !== BLACK && side !== WHITE) {
       throw new Error("YXDB 匯出需要知道 VCF 攻方");
     }
-    const records = collectYXDBPositions(normalizedBoard, routeList, side, normalizedRule, history, historyExact);
+    const records = collectYXDBPositions(normalizedBoard, routeList, side, normalizedRule, history, historyExact, rootRecordText);
     const writer = new ByteWriter();
     const encoder = new TextEncoder();
     const metadata = encoder.encode('charset="UTF-8"');
@@ -608,11 +608,13 @@
     };
     let history = [];
     let exact = false;
+    let rootRecordText = "";
     let lastBoard = readBoard();
 
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
       const restored = replay(saved?.history);
+      rootRecordText = typeof saved?.rootRecordText === "string" ? saved.rootRecordText : "";
       if (restored && boardsEqual(restored, lastBoard)) {
         history = saved.history.map(item => ({
           index: Number(item.index),
@@ -627,10 +629,18 @@
       exact = true;
     }
 
+    const currentRecordText = () => history.length
+      ? String(history[history.length - 1]?.recordText || "")
+      : String(rootRecordText || "");
     const persist = () => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, exact })); } catch (_) {}
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, exact, rootRecordText })); } catch (_) {}
     };
-    const setState = (nextHistory, nextExact, board = readBoard()) => {
+    const notify = () => {
+      global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
+        detail: { recordText: currentRecordText(), exact, ply: history.length },
+      }));
+    };
+    const setState = (nextHistory, nextExact, board = readBoard(), nextRootRecordText = rootRecordText) => {
       const normalized = Array.isArray(nextHistory) ? nextHistory.map(item => ({
         index: Number(item.index ?? item.move),
         stone: Number(item.stone ?? item.color),
@@ -639,9 +649,11 @@
       const rebuilt = replay(normalized);
       history = rebuilt && boardsEqual(rebuilt, board) ? normalized : [];
       exact = Boolean(nextExact && rebuilt && boardsEqual(rebuilt, board));
+      rootRecordText = typeof nextRootRecordText === "string" ? nextRootRecordText : "";
       if (!board.some(Boolean)) exact = true;
       lastBoard = new Uint8Array(board);
       persist();
+      notify();
     };
     const syncAfterManualEdit = () => {
       const board = readBoard();
@@ -667,26 +679,43 @@
       }
       lastBoard = board;
       persist();
+      notify();
     };
 
     const boardSvg = document.getElementById("board-svg");
     boardSvg?.addEventListener("click", () => queueMicrotask(syncAfterManualEdit));
 
     document.getElementById("btn-clear")?.addEventListener("click", () => {
-      queueMicrotask(() => setState([], true, readBoard()));
+      queueMicrotask(() => setState([], true, readBoard(), ""));
     });
     document.getElementById("btn-import-apply")?.addEventListener("click", () => {
-      queueMicrotask(() => setState([], false, readBoard()));
+      queueMicrotask(() => setState([], false, readBoard(), ""));
     });
 
     global.VCFWorkbenchRecord = {
       snapshot() {
-        return { history: history.map(item => ({ ...item })), exact, board: Array.from(lastBoard) };
+        return {
+          history: history.map(item => ({ ...item })),
+          exact,
+          board: Array.from(lastBoard),
+          rootRecordText,
+        };
       },
-      setHistory(nextHistory, nextExact = true) { setState(nextHistory, nextExact, readBoard()); },
-      invalidate() { setState([], false, readBoard()); },
+      currentRecordText,
+      setCurrentRecordText(text) {
+        const value = String(text || "");
+        if (history.length) history[history.length - 1].recordText = value;
+        else rootRecordText = value;
+        persist();
+        notify();
+      },
+      setHistory(nextHistory, nextExact = true, nextRootRecordText = rootRecordText) {
+        setState(nextHistory, nextExact, readBoard(), nextRootRecordText);
+      },
+      invalidate() { setState([], false, readBoard(), ""); },
     };
     persist();
+    notify();
   }
 
   installWorkbenchRecordState();
@@ -703,8 +732,16 @@
       attacker = Number(typeof lastVCFColor !== "undefined" ? lastVCFColor : 0);
     }
     const rule = Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
-    const recordState = global.VCFWorkbenchRecord?.snapshot?.() || { history: [], exact: !board.some(Boolean) };
-    return { board, routes, attacker, rule, history: recordState.history, historyExact: recordState.exact };
+    const recordState = global.VCFWorkbenchRecord?.snapshot?.() || { history: [], exact: !board.some(Boolean), rootRecordText: "" };
+    return {
+      board,
+      routes,
+      attacker,
+      rule,
+      history: recordState.history,
+      historyExact: recordState.exact,
+      rootRecordText: recordState.rootRecordText || "",
+    };
   }
 
   function timestampName() {

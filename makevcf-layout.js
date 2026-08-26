@@ -83,6 +83,18 @@
   const controlStack = document.createElement("div");
   controlStack.className = "vcf-control-stack";
 
+  const annotationCard = makeCard("注釋", "每個盤面各自保存 Rapfi DBRecord 注釋；切換棋譜時同步顯示。", "vcf-annotation-card");
+  const recordCommentInput = document.createElement("textarea");
+  recordCommentInput.id = "vcf-record-comment-input";
+  recordCommentInput.rows = 7;
+  recordCommentInput.placeholder = "輸入目前盤面的注釋……";
+  recordCommentInput.setAttribute("aria-label", "目前盤面注釋");
+  const recordCommentMeta = document.createElement("div");
+  recordCommentMeta.id = "vcf-record-comment-meta";
+  recordCommentMeta.className = "vcf-record-comment-meta";
+  recordCommentMeta.textContent = "注釋會保存到目前盤面的 DBRecord.text。";
+  annotationCard.append(recordCommentInput, recordCommentMeta);
+
   const searchCard = makeCard("基本搜尋", "選擇規則後，直接尋找黑方或白方 VCF。", "vcf-search-card");
   ruleBox.classList.add("vcf-option-row");
   mainActions.classList.add("vcf-action-grid");
@@ -93,7 +105,7 @@
   analysisActions.classList.add("vcf-action-grid");
   analysisCard.append(analysisBox, analysisActions);
 
-  controlStack.append(searchCard, analysisCard);
+  controlStack.append(annotationCard, searchCard, analysisCard);
   topGrid.append(boardCard, controlStack);
   app.appendChild(topGrid);
 
@@ -136,12 +148,6 @@
   if (legacyNextBranchButton) legacyNextBranchButton.hidden = true;
   const recordNavigationActions = document.getElementById("vcf-record-navigation-actions");
   recordNavigationActions?.append(prevStepButton, nextStepButton, previousBranchButton, nextBranchButton);
-
-  const recordComment = document.createElement("div");
-  recordComment.id = "vcf-record-comment";
-  recordComment.className = "vcf-record-comment";
-  recordComment.textContent = "注譯：—";
-  recordNavigation.appendChild(recordComment);
 
   let replaySignature = "";
   let replayPly = 0;
@@ -432,6 +438,48 @@
     });
   }
 
+  // 修改注釋時只替換 DBRecord.text 的 comment 部分；若原 record 含 @BTXT@
+  // 盤面文字，保留其原始座標與內容，避免只改注釋卻重寫盤面標記。
+  function replaceRapfiComment(recordText, comment) {
+    const raw = String(recordText || "").replace(/\0+$/g, "");
+    const encoded = String(comment ?? "").replace(/\r\n?/g, "\n").replace(/\n/g, "\b");
+    if (!raw.startsWith("@BTXT@")) return encoded;
+    const separator = raw.indexOf("\b");
+    const prefix = separator >= 0 ? raw.slice(0, separator + 1) : `${raw}\b`;
+    return `${prefix}${encoded}`;
+  }
+
+  function setCommentEditorValue(value) {
+    const next = String(value || "");
+    if (recordCommentInput.value !== next) recordCommentInput.value = next;
+  }
+
+  function syncCommentEditorFromRecordText(recordText) {
+    const meta = parseRapfiRecordText(recordText || "");
+    setCommentEditorValue(meta.comment || "");
+    recordCommentMeta.textContent = "目前盤面注釋；修改後會自動保存，匯出 DB 時一併寫入。";
+  }
+
+  function saveCommentEditorValue() {
+    const comment = recordCommentInput.value;
+    if (importedTree?.current) {
+      const node = importedTree.current;
+      node.comment = comment;
+      node.recordText = replaceRapfiComment(node.recordText, comment);
+      window.VCFWorkbenchRecord?.setCurrentRecordText?.(node.recordText);
+    } else {
+      const currentText = window.VCFWorkbenchRecord?.currentRecordText?.() || "";
+      window.VCFWorkbenchRecord?.setCurrentRecordText?.(replaceRapfiComment(currentText, comment));
+    }
+    recordCommentMeta.textContent = "已保存於目前盤面；匯出 DB 時會寫入 DBRecord.text。";
+  }
+
+  recordCommentInput.addEventListener("input", saveCommentEditorValue);
+  window.addEventListener("vcf-record-state-changed", event => {
+    if (importedTree || document.activeElement === recordCommentInput) return;
+    syncCommentEditorFromRecordText(event.detail?.recordText || "");
+  });
+
   function parseYXDB(rawBytes) {
     const compressed = rawBytes.length >= 4 && readU32At(rawBytes, 0) === LZ4_FRAME_MAGIC;
     const bytes = decompressLZ4Frame(rawBytes);
@@ -644,7 +692,8 @@
   }
 
   function renderRecordAnnotations(node) {
-    if (recordComment) recordComment.textContent = node?.comment ? `注譯：${node.comment}` : "注譯：—";
+    setCommentEditorValue(node?.comment || "");
+    recordCommentMeta.textContent = "目前盤面注釋；修改後會自動保存，匯出 DB 時一併寫入。";
     let layer = board.querySelector("#vcf-record-text-layer");
     if (!layer) {
       layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -682,8 +731,10 @@
 
   function historyForImportedNode(node) {
     const reversed = [];
+    let rootRecordText = "";
     let cursor = node;
     while (cursor?.parent) {
+      if (!cursor.synthetic && cursor.ply === 0) rootRecordText = cursor.recordText || "";
       if (Number.isInteger(cursor.move) && cursor.move >= 0) {
         reversed.push({
           index: cursor.move,
@@ -693,7 +744,7 @@
       }
       cursor = cursor.parent;
     }
-    return reversed.reverse();
+    return { history: reversed.reverse(), rootRecordText };
   }
 
   function renderImportedNode(node) {
@@ -702,7 +753,8 @@
     window.vcfInvalidateAnalysis?.("分支棋譜回放");
     const applyBoard = () => {
       window._setBoardArr?.(Array.from(node.board), node.sideToMove);
-      window.VCFWorkbenchRecord?.setHistory?.(historyForImportedNode(node), true);
+      const recordState = historyForImportedNode(node);
+      window.VCFWorkbenchRecord?.setHistory?.(recordState.history, true, recordState.rootRecordText);
     };
     if (typeof window.vcfWithBoardChangeSource === "function") {
       window.vcfWithBoardChangeSource("record-playback", applyBoard);
@@ -841,8 +893,9 @@
   // 原始盤面被手動或其他功能改動時，退出已載入棋譜的瀏覽狀態；本模組自己的
   // record-playback _setBoardArr 事件則保留 importedTree。
   window.addEventListener("vcf-board-changed", event => {
-    if (!importedTree || event.detail?.source === "record-playback") return;
-    importedTree = null;
+    if (event.detail?.source === "record-playback") return;
+    if (importedTree) importedTree = null;
+    queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
 
   for (const container of [mainActions, analysisActions]) {
@@ -1019,17 +1072,30 @@
       width: 100%;
     }
 
-    .vcf-record-comment {
+    .vcf-annotation-card textarea {
       width: 100%;
-      min-height: 32px;
-      padding: 7px 9px;
-      border: 1px solid var(--vcf-line);
-      border-radius: 6px;
-      background: #fffdf5;
+      min-height: 150px;
+      padding: 10px 11px;
+      border: 1px solid #cfc3a4;
+      border-radius: 8px;
+      background: #fffefa;
       color: var(--vcf-text);
-      font-size: 13px;
-      line-height: 1.45;
-      white-space: pre-wrap;
+      font: inherit;
+      font-size: 14px;
+      line-height: 1.55;
+      resize: vertical;
+    }
+
+    .vcf-annotation-card textarea:focus {
+      outline: 2px solid #8ba8c455;
+      border-color: #789abb;
+    }
+
+    .vcf-record-comment-meta {
+      margin-top: 7px;
+      color: var(--vcf-muted);
+      font-size: 12px;
+      line-height: 1.4;
     }
 
     #vcf-record-navigation-actions button {

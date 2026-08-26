@@ -93,6 +93,8 @@ for (const token of [
   'button.id = "bb-import-record"',
   'window.vcfWithBoardChangeSource("record-playback"',
   'recordNavigation.id = "vcf-record-navigation"',
+  'recordCommentInput.id = "vcf-record-comment-input"',
+  'replaceRapfiComment',
 ]) if (!layout.includes(token)) throw new Error(`branch replay contract missing: ${token}`);
 if (layout.includes("MutationObserver") || layout.includes("setInterval(")) {
   throw new Error("branch replay must not poll or observe the whole page");
@@ -118,6 +120,9 @@ for (const token of [
   "createRenLib",
   'Rapfi YXDB (.db)',
   'RenLib (.lib)',
+  'rootRecordText',
+  'setCurrentRecordText',
+  'vcf-record-state-changed',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
 
 const rapfiFormats = require(path.join(root, "rapfi/rapfi-workbench-header.js"));
@@ -170,6 +175,20 @@ if (routedYXDB.recordCount !== 6) throw new Error("YXDB setup path + route prefi
 const routedPayload = unwrapTestLZ4(routedYXDB.bytes);
 if (!Buffer.from(routedPayload).includes(Buffer.from('charset="UTF-8"'))) {
   throw new Error("YXDB UTF-8 metadata is missing");
+}
+const annotatedYXDB = rapfiFormats.createYXDB({
+  board: formatBoard,
+  rule: 2,
+  history: [
+    { index: 112, stone: 1, recordText: "第一手盤面注釋" },
+    { index: 113, stone: 2, recordText: "第二手盤面注釋" },
+  ],
+  historyExact: true,
+  rootRecordText: "空盤注釋",
+});
+const annotatedPayload = Buffer.from(unwrapTestLZ4(annotatedYXDB.bytes));
+for (const text of ["空盤注釋", "第一手盤面注釋", "第二手盤面注釋"]) {
+  if (!annotatedPayload.includes(Buffer.from(text))) throw new Error(`YXDB missing per-position comment: ${text}`);
 }
 let rejectedInvalidYXDB = false;
 try {
