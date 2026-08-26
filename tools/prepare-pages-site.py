@@ -40,6 +40,7 @@ RAPFI_FILES = [
     "vcf-shortest-vcf-ui.js",
     "vcf-forbidden-overlay.js",
     "rapfi-workbench-header.js",
+    "vcf-record-tools.js",
     "rapfi-question-bank.js",
 ]
 
@@ -68,6 +69,8 @@ def main() -> None:
     copy_file(ROOT / "rapfi" / "index.html", SITE / "rapfi" / "lab.html")
     for name in RAPFI_FILES:
         copy_file(ROOT / "rapfi" / name, SITE / "rapfi" / name)
+    for source in sorted((ROOT / "rapfi" / "record-svg").glob("*.svg")):
+        copy_file(source, SITE / "rapfi" / "record-svg" / source.name)
 
     engine_dir = SITE / "rapfi" / "engine"
     engine_dir.mkdir(parents=True, exist_ok=True)

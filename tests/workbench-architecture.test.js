@@ -46,6 +46,7 @@ const noOverrides = [
   "rapfi/rapfi-question-bank.js",
   "rapfi/vcf-forbidden-overlay.js",
   "rapfi/rapfi-workbench-header.js",
+  "rapfi/vcf-record-tools.js",
   "makevcf-generator-integrated.js",
 ];
 const forbiddenAssignments = [
@@ -95,9 +96,40 @@ for (const token of [
   'recordNavigation.id = "vcf-record-navigation"',
   'recordCommentInput.id = "vcf-record-comment-input"',
   'replaceRapfiComment',
+  'window.VCFImportedRecordAPI = {',
+  'appendPass()',
+  'deleteCurrentAndFollowing()',
 ]) if (!layout.includes(token)) throw new Error(`branch replay contract missing: ${token}`);
 if (layout.includes("MutationObserver") || layout.includes("setInterval(")) {
   throw new Error("branch replay must not poll or observe the whole page");
+}
+
+const recordTools = read("rapfi/vcf-record-tools.js");
+new Function(recordTools);
+for (const token of [
+  'double_arrow_left.svg',
+  'photo.svg',
+  'edit.svg',
+  'font.svg',
+  'cancel.svg',
+  'number.svg',
+  'flip.svg',
+  'rotate_90.svg',
+  'forbidden.svg',
+  'circle.svg',
+  'circle_n.svg',
+  'vcf-record-marker-text',
+  'deleteCurrentAndFollowing',
+  'transformRecord(4)',
+  'transformRecord(1)',
+]) if (!recordTools.includes(token)) throw new Error(`record tools contract missing: ${token}`);
+for (const excluded of ['share.svg', 'link.svg', 'grid_3x3.svg', 'flag.svg', 'flag_check.svg']) {
+  if (recordTools.includes(excluded)) throw new Error(`excluded record control returned: ${excluded}`);
+}
+for (const icon of [
+  'double_arrow_left.svg','arrow_left.svg','arrow_right.svg','double_arrow_right.svg','photo.svg','edit.svg','font.svg','Aa.svg','star.svg','arrow.svg','delete.svg','cancel.svg','number.svg','settings.svg','dock_top.svg','dock_left.svg','flip.svg','rotate_90.svg','forbidden.svg','circle.svg','circle_n.svg'
+]) {
+  if (!exists(`rapfi/record-svg/${icon}`)) throw new Error(`record SVG missing: ${icon}`);
 }
 
 const questionBank = read("rapfi/rapfi-question-bank.js");
@@ -123,6 +155,10 @@ for (const token of [
   'rootRecordText',
   'setCurrentRecordText',
   'vcf-record-state-changed',
+  'appendPass()',
+  'deleteCurrentAndFollowing()',
+  'transform(transform)',
+  'YXDB 無法表示 PASS',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
 
 const rapfiFormats = require(path.join(root, "rapfi/rapfi-workbench-header.js"));
@@ -244,6 +280,10 @@ for (const file of ["README.md", "AGENTS.md", "檔案用途總覽.MD", "規格�
 const pages = read(".github/workflows/pages.yml");
 if (pages.includes("cp -R eval emoji bitboard rapfi")) throw new Error("Pages still deploys whole source directories");
 if (!pages.includes("prepare-pages-site.py")) throw new Error("Pages does not use the deployment allowlist builder");
+const pagesBuilder = read("tools/prepare-pages-site.py");
+if (!pagesBuilder.includes('"vcf-record-tools.js"') || !pagesBuilder.includes('"record-svg"')) {
+  throw new Error("Pages allowlist is missing record tools or SVG assets");
+}
 
 console.log("Workbench and repository architecture checks passed");
 
@@ -281,6 +321,8 @@ for (const token of [
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260826-branch-jump-v4') || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-branch-jump-v4')) {
-  throw new Error("record UI scripts must be cache-busted after branch-jump navigation change");
+if (!entry.includes('makevcf-layout.js?v=20260826-record-tools-v1')
+    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v1')
+    || !entry.includes('rapfi/vcf-record-tools.js?v=20260826-record-tools-v1')) {
+  throw new Error("record UI scripts must be cache-busted and load the record tools module");
 }

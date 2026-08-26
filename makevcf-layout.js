@@ -518,6 +518,25 @@
     });
   }
 
+
+  function transformRapfiRecordText(text, transform) {
+    const raw = String(text || "").replace(/\0+$/g, "");
+    if (!raw.startsWith("@BTXT@")) return raw;
+    const separator = raw.indexOf("\b");
+    const markerPart = raw.slice(6, separator >= 0 ? separator : raw.length);
+    const suffix = separator >= 0 ? raw.slice(separator) : "";
+    const encode = number => Number(number).toString(16).toUpperCase();
+    const lines = markerPart.split("\n").map(line => {
+      if (line.length <= 2) return line;
+      const x = rapfiHexCoord(line[0]);
+      const y = rapfiHexCoord(line[1]);
+      if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) return line;
+      const [tx, ty] = transformXY(x, y, transform);
+      return `${encode(tx)}${encode(ty)}${line.slice(2)}`;
+    });
+    return `@BTXT@${lines.join("\n")}${suffix}`;
+  }
+
   // 修改注釋時只替換 DBRecord.text 的 comment 部分；若原 record 含 @BTXT@
   // 盤面文字，保留其原始座標與內容，避免只改注釋卻重寫盤面標記。
   function replaceRapfiComment(recordText, comment) {
@@ -812,7 +831,7 @@
     let cursor = node;
     while (cursor?.parent) {
       if (!cursor.synthetic && cursor.ply === 0) rootRecordText = cursor.recordText || "";
-      if (Number.isInteger(cursor.move) && cursor.move >= 0) {
+      if (Number.isInteger(cursor.move)) {
         reversed.push({
           index: cursor.move,
           stone: opposite(cursor.sideToMove),
@@ -842,6 +861,77 @@
     updateImportedBranchButtons();
     importedStatus();
   }
+
+
+  window.VCFImportedRecordAPI = {
+    isActive() {
+      return Boolean(importedTree?.current);
+    },
+    setCurrentRecordText(text) {
+      if (!importedTree?.current) return false;
+      const node = importedTree.current;
+      node.recordText = String(text || "");
+      const meta = parseRapfiRecordText(node.recordText);
+      node.comment = meta.comment;
+      node.boardTexts = meta.boardTexts;
+      renderRecordAnnotations(node);
+      return true;
+    },
+    appendPass() {
+      if (!importedTree?.current) return false;
+      const current = importedTree.current;
+      let child = current.children.find(item => item.move === PASS_MOVE);
+      if (!child) {
+        child = makeRecordNode({
+          move: PASS_MOVE,
+          board: current.board,
+          sideToMove: opposite(current.sideToMove),
+          ply: current.ply + 1,
+          rule: current.rule,
+        });
+        child.parent = current;
+        current.children.push(child);
+      }
+      current.selectedChild = current.children.indexOf(child);
+      renderImportedNode(child);
+      return true;
+    },
+    deleteCurrentAndFollowing() {
+      if (!importedTree?.current) return false;
+      const current = importedTree.current;
+      const parent = current.parent;
+      if (!parent || parent.navigable === false || current.synthetic || current.move == null) return false;
+      const index = parent.children.indexOf(current);
+      if (index < 0) return false;
+      parent.children.splice(index, 1);
+      parent.selectedChild = parent.children.length
+        ? Math.max(0, Math.min(parent.children.length - 1, Number(parent.selectedChild || 0)))
+        : 0;
+      renderImportedNode(parent);
+      return true;
+    },
+    transform(transform) {
+      if (!importedTree?.root || !Number.isInteger(Number(transform)) || Number(transform) < 0 || Number(transform) > 7) return false;
+      const t = Number(transform);
+      const transformNode = node => {
+        if (Number.isInteger(node.move) && node.move >= 0) {
+          const x = node.move % BOARD_SIZE;
+          const y = Math.floor(node.move / BOARD_SIZE);
+          const [tx, ty] = transformXY(x, y, t);
+          node.move = ty * BOARD_SIZE + tx;
+        }
+        node.board = transformBoard(node.board, t);
+        node.recordText = transformRapfiRecordText(node.recordText, t);
+        const meta = parseRapfiRecordText(node.recordText);
+        node.comment = meta.comment;
+        node.boardTexts = meta.boardTexts;
+        for (const child of node.children) transformNode(child);
+      };
+      transformNode(importedTree.root);
+      renderImportedNode(importedTree.current);
+      return true;
+    },
+  };
 
   function moveImportedStep(direction) {
     if (!importedTree) return false;
@@ -980,7 +1070,48 @@
   // record-playback _setBoardArr 事件則保留 importedTree。
   window.addEventListener("vcf-board-changed", event => {
     if (event.detail?.source === "record-playback") return;
-    if (importedTree) importedTree = null;
+    if (importedTree?.current && typeof window._getArr === "function") {
+      const current = importedTree.current;
+      const live = Uint8Array.from(window._getArr().slice(0, BOARD_CELLS));
+      let added = -1;
+      let additions = 0;
+      let valid = true;
+      for (let idx = 0; idx < BOARD_CELLS; idx++) {
+        const before = current.board[idx];
+        const after = live[idx];
+        if (before === after) continue;
+        if (before === EMPTY && after === current.sideToMove && ++additions === 1) {
+          added = idx;
+        } else {
+          valid = false;
+          break;
+        }
+      }
+      if (valid && additions === 1) {
+        let child = current.children.find(item => item.move === added);
+        if (!child) {
+          child = makeRecordNode({
+            move: added,
+            board: live,
+            sideToMove: opposite(current.sideToMove),
+            ply: current.ply + 1,
+            rule: current.rule,
+          });
+          child.parent = current;
+          current.children.push(child);
+        } else {
+          child.board = new Uint8Array(live);
+        }
+        current.selectedChild = current.children.indexOf(child);
+        importedTree.current = child;
+        queueMicrotask(() => {
+          renderRecordAnnotations(child);
+          importedStatus();
+        });
+      } else {
+        importedTree = null;
+      }
+    }
     queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
 

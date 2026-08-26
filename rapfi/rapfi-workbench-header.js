@@ -242,9 +242,12 @@
     for (const raw of history) {
       const index = Number(raw?.index ?? raw?.move);
       const stone = Number(raw?.stone ?? raw?.color);
-      if (!Number.isInteger(index) || index < 0 || index >= BOARD_CELLS) return null;
-      if (stone !== expectedStone || replay[index] !== EMPTY) return null;
-      replay[index] = stone;
+      if (!Number.isInteger(index) || (index !== PASS && (index < 0 || index >= BOARD_CELLS))) return null;
+      if (stone !== expectedStone) return null;
+      if (index !== PASS) {
+        if (replay[index] !== EMPTY) return null;
+        replay[index] = stone;
+      }
       normalized.push({
         index,
         stone,
@@ -348,6 +351,9 @@
     const normalizedBoard = normalizeBoard(board);
     const normalizedRule = [0, 1, 2].includes(Number(rule)) ? Number(rule) : 2;
     const routeList = normalizedRoutes(routes);
+    if (Array.isArray(history) && history.some(raw => Number(raw?.index ?? raw?.move) === PASS)) {
+      throw new Error("YXDB 無法表示 PASS 後改變輪次但盤面不變的手順；含 PASS 的棋譜請改用 RenLib (.lib)。");
+    }
     const side = routeList.length ? Number(attacker) : 0;
     if (routeList.length && side !== BLACK && side !== WHITE) {
       throw new Error("YXDB 匯出需要知道 VCF 攻方");
@@ -639,8 +645,11 @@
       for (const raw of history) {
         const index = Number(raw?.index ?? raw?.move);
         const stone = Number(raw?.stone ?? raw?.color);
-        if (!Number.isInteger(index) || index < 0 || index >= BOARD_CELLS || stone !== expected || board[index]) return null;
-        board[index] = stone;
+        if (!Number.isInteger(index) || (index !== PASS && (index < 0 || index >= BOARD_CELLS)) || stone !== expected) return null;
+        if (index !== PASS) {
+          if (board[index]) return null;
+          board[index] = stone;
+        }
         expected = oppositeStone(expected);
       }
       return board;
@@ -854,6 +863,42 @@
       });
     });
 
+
+    const transformRecordText = (value, transform) => {
+      const raw = String(value || "").replace(/\0+$/g, "");
+      if (!raw.startsWith("@BTXT@")) return raw;
+      const separator = raw.indexOf("\b");
+      const markerPart = raw.slice(6, separator >= 0 ? separator : raw.length);
+      const suffix = separator >= 0 ? raw.slice(separator) : "";
+      const decode = char => {
+        if (/^[0-9]$/.test(char)) return char.charCodeAt(0) - 48;
+        if (/^[A-F]$/i.test(char)) return char.toUpperCase().charCodeAt(0) - 55;
+        return -1;
+      };
+      const encode = number => Number(number).toString(16).toUpperCase();
+      const lines = markerPart.split("\n").map(line => {
+        if (line.length <= 2) return line;
+        const x = decode(line[0]);
+        const y = decode(line[1]);
+        if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) return line;
+        const [tx, ty] = transformXY(x, y, transform);
+        return `${encode(tx)}${encode(ty)}${line.slice(2)}`;
+      });
+      return `@BTXT@${lines.join("\n")}${suffix}`;
+    };
+    const transformMove = (move, transform) => {
+      if (!Number.isInteger(move) || move === PASS) return move;
+      const x = move % BOARD_SIZE;
+      const y = Math.floor(move / BOARD_SIZE);
+      const [tx, ty] = transformXY(x, y, transform);
+      return ty * BOARD_SIZE + tx;
+    };
+    const transformTree = (node, transform) => {
+      node.move = transformMove(node.move, transform);
+      node.recordText = transformRecordText(node.recordText, transform);
+      for (const child of node.children) transformTree(child, transform);
+    };
+
     global.VCFWorkbenchRecord = {
       snapshot() {
         return {
@@ -900,6 +945,37 @@
           target = target.children[target.selectedChild];
         } while (target.children.length === 1);
         current = target;
+        return applyCurrentBoard();
+      },
+
+      appendPass() {
+        if (!exact) return false;
+        const expected = currentHistory().length % 2 === 0 ? BLACK : WHITE;
+        let childIndex = current.children.findIndex(child => child.move === PASS && child.stone === expected);
+        if (childIndex < 0) {
+          const child = makeNode(PASS, expected, "", current);
+          current.children.push(child);
+          childIndex = current.children.length - 1;
+        }
+        current.selectedChild = childIndex;
+        current = current.children[childIndex];
+        return applyCurrentBoard();
+      },
+      deleteCurrentAndFollowing() {
+        if (!exact || !current.parent) return false;
+        const parent = current.parent;
+        const index = parent.children.indexOf(current);
+        if (index < 0) return false;
+        parent.children.splice(index, 1);
+        parent.selectedChild = parent.children.length
+          ? Math.max(0, Math.min(parent.children.length - 1, Number(parent.selectedChild || 0)))
+          : 0;
+        current = parent;
+        return applyCurrentBoard();
+      },
+      transform(transform) {
+        if (!exact || !Number.isInteger(Number(transform)) || Number(transform) < 0 || Number(transform) > 7) return false;
+        transformTree(root, Number(transform));
         return applyCurrentBoard();
       },
       invalidate() {
