@@ -141,6 +141,10 @@ if (Array.from(lib.bytes.slice(0, 10)).join(",") !== "255,82,101,110,76,105,98,2
 }
 const arbitraryLib = rapfiFormats.createRenLib({ board: boardOf([[0, 1], [1, 1], [2, 1], [30, 2]]) });
 if (arbitraryLib.bytes.length <= 20) throw new Error("RenLib did not encode an arbitrary static setup with PASS");
+const whiteFirstLib = rapfiFormats.createRenLib({ board: boardOf([[30, 2]]) });
+if (whiteFirstLib.bytes[20] !== 0 || whiteFirstLib.bytes[22] !== 0) {
+  throw new Error("RenLib white-first static setup is missing the legacy ROOT plus real PASS");
+}
 
 const image = read("makevcf-generator-image-import-fix.js");
 for (const token of ["vcfRegisterImageDataProcessor", "vcfRegisterHoughLineProvider", "installWhenCvReady"]) {
