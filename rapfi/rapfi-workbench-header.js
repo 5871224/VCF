@@ -750,6 +750,7 @@
           canPrev: Boolean(exact && current?.parent),
           canNext: Boolean(next),
           selectedNextMove: next?.move ?? null,
+          nextMoves: exact ? current.children.map(child => child.move) : [],
           nextBranchCount: current?.children?.length || 0,
           siblingCount: siblings.length,
           siblingIndex: siblings.indexOf(current),
@@ -885,22 +886,21 @@
       },
       navigateBranch(direction) {
         if (!exact) return false;
-        const siblings = current?.parent?.children || [];
-        if (siblings.length > 1) {
-          const index = siblings.indexOf(current);
-          const nextIndex = (index + Number(direction || 1) + siblings.length) % siblings.length;
-          current.parent.selectedChild = nextIndex;
-          current = siblings[nextIndex];
+        if (direction < 0) {
+          if (!current.parent) return false;
+          let target = current.parent;
+          while (target.parent && target.children.length <= 1) target = target.parent;
+          current = target;
           return applyCurrentBoard();
         }
-        if (current.children.length > 1) {
-          const count = current.children.length;
-          current.selectedChild = (Number(current.selectedChild || 0) + Number(direction || 1) + count) % count;
-          persist();
-          notify();
-          return true;
-        }
-        return false;
+        if (!current.children.length) return false;
+        let target = current;
+        do {
+          target.selectedChild = Math.max(0, Math.min(target.children.length - 1, Number(target.selectedChild || 0)));
+          target = target.children[target.selectedChild];
+        } while (target.children.length === 1);
+        current = target;
+        return applyCurrentBoard();
       },
       invalidate() {
         exact = false;

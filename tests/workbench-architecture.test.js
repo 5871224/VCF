@@ -260,21 +260,27 @@ if (!header.includes('normalizeSetupHistory')) throw new Error('YXDB setup path 
 for (const token of [
   'boardCard.appendChild(annotationCard)',
   'recordCommentInput.id = "vcf-record-comment-input"',
-  'renderNextMoveMarker',
+  'renderNextMoveMarkers',
   'vcf-record-next-move-layer',
   'VCFWorkbenchRecord?.navigateStep?.(-1)',
   'VCFWorkbenchRecord?.navigateStep?.(1)',
   'VCFWorkbenchRecord?.navigateBranch?.(-1)',
   'VCFWorkbenchRecord?.navigateBranch?.(1)',
+  'renderNextMoveMarkers(children.map(child => child.move))',
+  'moveVcfBranch(direction)',
+  'vcfNextMoves(route, replayPly).length <= 1',
 ]) if (!layout.includes(token)) throw new Error(`manual record navigation contract missing: ${token}`);
 for (const token of [
   'vcf_board_record_tree_v3',
   'navigateStep(direction)',
   'navigateBranch(direction)',
   'selectedNextMove',
+  'nextMoves: exact ? current.children.map(child => child.move) : []',
+  'while (target.parent && target.children.length <= 1)',
+  'while (target.children.length === 1)',
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260826-record-v3') || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-v3')) {
-  throw new Error("record UI scripts must be cache-busted after navigation model change");
+if (!entry.includes('makevcf-layout.js?v=20260826-branch-jump-v4') || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-branch-jump-v4')) {
+  throw new Error("record UI scripts must be cache-busted after branch-jump navigation change");
 }

@@ -154,7 +154,7 @@
   let replayPly = 0;
   let importedTree = null;
 
-  function renderNextMoveMarker(move) {
+  function renderNextMoveMarkers(moves) {
     let layer = board.querySelector("#vcf-record-next-move-layer");
     if (!layer) {
       layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -163,19 +163,21 @@
       board.appendChild(layer);
     }
     while (layer.firstChild) layer.firstChild.remove();
-    const index = Number(move);
-    if (!Number.isInteger(index) || index < 0 || index >= BOARD_CELLS) return;
-    const x = index % BOARD_SIZE;
-    const y = Math.floor(index / BOARD_SIZE);
-    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    circle.setAttribute("cx", 22 + x * 34);
-    circle.setAttribute("cy", 22 + y * 34);
-    circle.setAttribute("r", 13);
-    circle.setAttribute("fill", "none");
-    circle.setAttribute("stroke", "#1976c9");
-    circle.setAttribute("stroke-width", "3");
-    circle.setAttribute("vector-effect", "non-scaling-stroke");
-    layer.appendChild(circle);
+    const uniqueMoves = Array.from(new Set(Array.from(moves || [], move => Number(move))))
+      .filter(index => Number.isInteger(index) && index >= 0 && index < BOARD_CELLS);
+    for (const index of uniqueMoves) {
+      const x = index % BOARD_SIZE;
+      const y = Math.floor(index / BOARD_SIZE);
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", 22 + x * 34);
+      circle.setAttribute("cy", 22 + y * 34);
+      circle.setAttribute("r", 13);
+      circle.setAttribute("fill", "none");
+      circle.setAttribute("stroke", "#1976c9");
+      circle.setAttribute("stroke-width", "3");
+      circle.setAttribute("vector-effect", "non-scaling-stroke");
+      layer.appendChild(circle);
+    }
   }
 
   function currentReplayRoute() {
@@ -216,16 +218,69 @@
     if (typeof setStatus === "function") setStatus(`${color}方 ${branchText}，${stepText}`);
   }
 
+  function vcfRoutesForPrefix(route, ply) {
+    const prefix = route.slice(0, ply);
+    const groups = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length
+      ? vcfGroups
+      : [route];
+    return groups.filter(candidate => {
+      if (!candidate || candidate.length < ply) return false;
+      for (let i = 0; i < ply; i++) if (Number(candidate[i]) !== Number(prefix[i])) return false;
+      return true;
+    });
+  }
+
+  function vcfNextMoves(route, ply) {
+    return Array.from(new Set(
+      vcfRoutesForPrefix(route, ply)
+        .map(candidate => Number(candidate[ply]))
+        .filter(move => Number.isInteger(move) && move >= 0 && move < BOARD_CELLS)
+    ));
+  }
+
+  function renderVcfReplay(route) {
+    const color = typeof lastVCFColor !== "undefined" ? Number(lastVCFColor) : 1;
+    window._showVCF?.(route.slice(0, replayPly), color);
+    renderNextMoveMarkers(vcfNextMoves(route, replayPly));
+    replayStatus(route);
+  }
+
   function moveVcfReplay(delta) {
     const route = ensureReplayState();
     if (!route.length) {
       if (typeof setStatus === "function") setStatus("目前沒有可回放的 VCF 分支");
-      return;
+      return false;
     }
     replayPly = Math.max(0, Math.min(route.length, replayPly + delta));
-    const color = typeof lastVCFColor !== "undefined" ? Number(lastVCFColor) : 1;
-    window._showVCF?.(route.slice(0, replayPly), color);
-    replayStatus(route);
+    renderVcfReplay(route);
+    return true;
+  }
+
+  // 「前一分支／後一分支」不是切換 sibling，而是跳到上一個／下一個
+  // 有多個次一手的分岔盤面。若該方向沒有分岔，分別停在起點／末端。
+  function moveVcfBranch(direction) {
+    const route = ensureReplayState();
+    if (!route.length) return false;
+    if (direction < 0) {
+      if (replayPly <= 0) {
+        renderVcfReplay(route);
+        return true;
+      }
+      do {
+        replayPly--;
+      } while (replayPly > 0 && vcfNextMoves(route, replayPly).length <= 1);
+      renderVcfReplay(route);
+      return true;
+    }
+    if (replayPly >= route.length) {
+      renderVcfReplay(route);
+      return true;
+    }
+    do {
+      replayPly++;
+    } while (replayPly < route.length && vcfNextMoves(route, replayPly).length <= 1);
+    renderVcfReplay(route);
+    return true;
   }
 
   class BinaryReader {
@@ -505,7 +560,13 @@
     if (document.activeElement !== recordCommentInput) {
       syncCommentEditorFromRecordText(event.detail?.recordText || "");
     }
-    renderNextMoveMarker(event.detail?.selectedNextMove);
+    renderNextMoveMarkers(event.detail?.nextMoves || []);
+    if (!currentReplayRoute().length) {
+      prevStepButton.disabled = !event.detail?.canPrev;
+      nextStepButton.disabled = !event.detail?.canNext;
+      previousBranchButton.disabled = !event.detail?.canPrev;
+      nextBranchButton.disabled = !event.detail?.canNext;
+    }
   });
 
   function parseYXDB(rawBytes) {
@@ -692,16 +753,15 @@
     return { siblings, index };
   }
 
-  function importedHasBranchChoice(node) {
-    const { siblings } = importedSiblingInfo(node);
-    return siblings.length > 1 || (node?.children?.length || 0) > 1;
-  }
-
   function updateImportedBranchButtons() {
     if (!importedTree) return;
-    const enabled = importedHasBranchChoice(importedTree.current);
-    if (previousBranchButton) previousBranchButton.disabled = !enabled;
-    if (nextBranchButton) nextBranchButton.disabled = !enabled;
+    const current = importedTree.current;
+    const canPrev = Boolean(current?.parent && current.parent.navigable !== false);
+    const canNext = Boolean(current?.children?.length);
+    if (prevStepButton) prevStepButton.disabled = !canPrev;
+    if (nextStepButton) nextStepButton.disabled = !canNext;
+    if (previousBranchButton) previousBranchButton.disabled = !canPrev;
+    if (nextBranchButton) nextBranchButton.disabled = !canNext;
   }
 
   function importedStatus() {
@@ -723,8 +783,7 @@
     setCommentEditorValue(node?.comment || "");
     recordCommentMeta.textContent = "目前盤面注釋；修改後會自動保存，匯出 DB 時一併寫入。";
     const children = node?.children || [];
-    const selectedIndex = Math.max(0, Math.min(children.length - 1, Number(node?.selectedChild || 0)));
-    renderNextMoveMarker(children[selectedIndex]?.move);
+    renderNextMoveMarkers(children.map(child => child.move));
     let layer = board.querySelector("#vcf-record-text-layer");
     if (!layer) {
       layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -821,22 +880,28 @@
   function moveImportedBranch(direction) {
     if (!importedTree) return false;
     const current = importedTree.current;
-    const { siblings, index } = importedSiblingInfo(current);
-    if (siblings.length > 1 && index >= 0) {
-      const nextIndex = (index + direction + siblings.length) % siblings.length;
-      current.parent.selectedChild = nextIndex;
-      renderImportedNode(siblings[nextIndex]);
+    if (direction < 0) {
+      let target = current.parent;
+      if (!target || target.navigable === false) {
+        importedStatus();
+        return true;
+      }
+      while (target.parent && target.parent.navigable !== false && target.children.length <= 1) {
+        target = target.parent;
+      }
+      renderImportedNode(target);
       return true;
     }
-    if (current.children.length > 1) {
-      const count = current.children.length;
-      const nextIndex = ((current.selectedChild || 0) + direction + count) % count;
-      current.selectedChild = nextIndex;
-      renderNextMoveMarker(current.children[nextIndex]?.move);
+    if (!current.children.length) {
       importedStatus();
       return true;
     }
-    importedStatus();
+    let target = current;
+    do {
+      target.selectedChild = Math.max(0, Math.min(target.children.length - 1, Number(target.selectedChild || 0)));
+      target = target.children[target.selectedChild];
+    } while (target.children.length === 1);
+    renderImportedNode(target);
     return true;
   }
 
@@ -896,8 +961,6 @@
     if (moveImportedStep(-1)) return;
     if (currentReplayRoute().length) {
       moveVcfReplay(-1);
-      const route = ensureReplayState();
-      renderNextMoveMarker(route[replayPly]);
       return;
     }
     if (window.VCFWorkbenchRecord?.navigateStep?.(-1)) return;
@@ -907,8 +970,6 @@
     if (moveImportedStep(1)) return;
     if (currentReplayRoute().length) {
       moveVcfReplay(1);
-      const route = ensureReplayState();
-      renderNextMoveMarker(route[replayPly]);
       return;
     }
     if (window.VCFWorkbenchRecord?.navigateStep?.(1)) return;
@@ -917,27 +978,15 @@
 
   previousBranchButton.addEventListener("click", () => {
     if (moveImportedBranch(-1)) return;
-    if (typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length && typeof setVcfGroup === "function") {
-      if (Number(vcfGroupIdx) > 0) setVcfGroup(Number(vcfGroupIdx) - 1);
-      else if (typeof setStatus === "function") setStatus("目前已是第一個 VCF 分支");
-      replaySignature = "";
-      replayPly = 0;
-      return;
-    }
+    if (currentReplayRoute().length && moveVcfBranch(-1)) return;
     if (window.VCFWorkbenchRecord?.navigateBranch?.(-1)) return;
-    if (typeof setStatus === "function") setStatus("目前沒有可切換的前一分支");
+    if (typeof setStatus === "function") setStatus("已停在棋譜起點");
   });
   nextBranchButton.addEventListener("click", () => {
     if (moveImportedBranch(1)) return;
-    if (typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length && typeof setVcfGroup === "function") {
-      if (Number(vcfGroupIdx) < vcfGroups.length - 1) setVcfGroup(Number(vcfGroupIdx) + 1);
-      else if (typeof setStatus === "function") setStatus("目前已是最後一個 VCF 分支");
-      replaySignature = "";
-      replayPly = 0;
-      return;
-    }
+    if (currentReplayRoute().length && moveVcfBranch(1)) return;
     if (window.VCFWorkbenchRecord?.navigateBranch?.(1)) return;
-    if (typeof setStatus === "function") setStatus("目前沒有可切換的後一分支");
+    if (typeof setStatus === "function") setStatus("已停在棋譜末端");
   });
 
   // 原始盤面被手動或其他功能改動時，退出已載入棋譜的瀏覽狀態；本模組自己的
