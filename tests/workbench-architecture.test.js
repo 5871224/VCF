@@ -90,6 +90,57 @@ if (!header.includes("vcfSetRules")) throw new Error("header does not use canoni
 if (header.includes("MutationObserver") || header.includes("setInterval(")) {
   throw new Error("header still polls or observes the whole page");
 }
+for (const token of [
+  "global.VCFRapfiFormats = RapfiFormats",
+  "createYXDB",
+  "createRenLib",
+  'Rapfi YXDB (.db)',
+  'RenLib (.lib)',
+]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
+
+const rapfiFormats = require(path.join(root, "rapfi/rapfi-workbench-header.js"));
+const boardOf = stones => {
+  const board = new Array(225).fill(0);
+  for (const [idx, color] of stones) board[idx] = color;
+  return board;
+};
+const formatBoard = boardOf([[112, 1], [113, 2]]);
+const yxdb = rapfiFormats.createYXDB({ board: formatBoard, rule: 2 });
+if (yxdb.recordCount !== 1) throw new Error("YXDB root record count is invalid");
+if (Array.from(yxdb.bytes.slice(0, 4)).join(",") !== "2,0,0,0") {
+  throw new Error("YXDB record-count header is invalid");
+}
+const mirroredBoard = boardOf([[112, 1], [111, 2]]);
+const mirroredYXDB = rapfiFormats.createYXDB({ board: mirroredBoard, rule: 2 });
+if (Buffer.compare(Buffer.from(yxdb.bytes), Buffer.from(mirroredYXDB.bytes)) !== 0) {
+  throw new Error("YXDB symmetry canonicalization is inconsistent");
+}
+const formatRoutes = [[111, 126, 110]];
+const routedYXDB = rapfiFormats.createYXDB({ board: formatBoard, routes: formatRoutes, attacker: 1, rule: 2 });
+if (routedYXDB.recordCount !== 4) throw new Error("YXDB route prefixes were not persisted");
+if (!routedYXDB.bytes.includes(Buffer.from('charset="UTF-8"')[0])) {
+  throw new Error("YXDB UTF-8 metadata is missing");
+}
+let rejectedInvalidYXDB = false;
+try {
+  rapfiFormats.createYXDB({ board: boardOf([[10, 1], [11, 1]]) });
+} catch (error) {
+  rejectedInvalidYXDB = /無法無損表示/.test(String(error.message));
+}
+if (!rejectedInvalidYXDB) throw new Error("YXDB accepted a non-alternating static position");
+let rejectedWrongAttacker = false;
+try {
+  rapfiFormats.createYXDB({ board: formatBoard, routes: [[111]], attacker: 2, rule: 2 });
+} catch (error) {
+  rejectedWrongAttacker = /下一手應為黑/.test(String(error.message));
+}
+if (!rejectedWrongAttacker) throw new Error("YXDB accepted a route with the wrong side to move");
+const lib = rapfiFormats.createRenLib({ board: formatBoard, routes: formatRoutes, attacker: 1 });
+if (Array.from(lib.bytes.slice(0, 10)).join(",") !== "255,82,101,110,76,105,98,255,3,0") {
+  throw new Error("RenLib 3.x header is invalid");
+}
+const arbitraryLib = rapfiFormats.createRenLib({ board: boardOf([[0, 1], [1, 1], [2, 1], [30, 2]]) });
+if (arbitraryLib.bytes.length <= 20) throw new Error("RenLib did not encode an arbitrary static setup with PASS");
 
 const image = read("makevcf-generator-image-import-fix.js");
 for (const token of ["vcfRegisterImageDataProcessor", "vcfRegisterHoughLineProvider", "installWhenCvReady"]) {
