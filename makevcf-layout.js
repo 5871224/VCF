@@ -105,7 +105,8 @@
   analysisActions.classList.add("vcf-action-grid");
   analysisCard.append(analysisBox, analysisActions);
 
-  controlStack.append(annotationCard, searchCard, analysisCard);
+  boardCard.appendChild(annotationCard);
+  controlStack.append(searchCard, analysisCard);
   topGrid.append(boardCard, controlStack);
   app.appendChild(topGrid);
 
@@ -152,6 +153,30 @@
   let replaySignature = "";
   let replayPly = 0;
   let importedTree = null;
+
+  function renderNextMoveMarker(move) {
+    let layer = board.querySelector("#vcf-record-next-move-layer");
+    if (!layer) {
+      layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      layer.id = "vcf-record-next-move-layer";
+      layer.setAttribute("pointer-events", "none");
+      board.appendChild(layer);
+    }
+    while (layer.firstChild) layer.firstChild.remove();
+    const index = Number(move);
+    if (!Number.isInteger(index) || index < 0 || index >= BOARD_CELLS) return;
+    const x = index % BOARD_SIZE;
+    const y = Math.floor(index / BOARD_SIZE);
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", 22 + x * 34);
+    circle.setAttribute("cy", 22 + y * 34);
+    circle.setAttribute("r", 13);
+    circle.setAttribute("fill", "none");
+    circle.setAttribute("stroke", "#1976c9");
+    circle.setAttribute("stroke-width", "3");
+    circle.setAttribute("vector-effect", "non-scaling-stroke");
+    layer.appendChild(circle);
+  }
 
   function currentReplayRoute() {
     if (typeof lastVCFMoves === "undefined" || !lastVCFMoves || typeof lastVCFMoves.length !== "number") {
@@ -476,8 +501,11 @@
 
   recordCommentInput.addEventListener("input", saveCommentEditorValue);
   window.addEventListener("vcf-record-state-changed", event => {
-    if (importedTree || document.activeElement === recordCommentInput) return;
-    syncCommentEditorFromRecordText(event.detail?.recordText || "");
+    if (importedTree) return;
+    if (document.activeElement !== recordCommentInput) {
+      syncCommentEditorFromRecordText(event.detail?.recordText || "");
+    }
+    renderNextMoveMarker(event.detail?.selectedNextMove);
   });
 
   function parseYXDB(rawBytes) {
@@ -694,6 +722,9 @@
   function renderRecordAnnotations(node) {
     setCommentEditorValue(node?.comment || "");
     recordCommentMeta.textContent = "目前盤面注釋；修改後會自動保存，匯出 DB 時一併寫入。";
+    const children = node?.children || [];
+    const selectedIndex = Math.max(0, Math.min(children.length - 1, Number(node?.selectedChild || 0)));
+    renderNextMoveMarker(children[selectedIndex]?.move);
     let layer = board.querySelector("#vcf-record-text-layer");
     if (!layer) {
       layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -801,7 +832,8 @@
       const count = current.children.length;
       const nextIndex = ((current.selectedChild || 0) + direction + count) % count;
       current.selectedChild = nextIndex;
-      renderImportedNode(current.children[nextIndex]);
+      renderNextMoveMarker(current.children[nextIndex]?.move);
+      importedStatus();
       return true;
     }
     importedStatus();
@@ -861,10 +893,26 @@
   }
 
   prevStepButton.addEventListener("click", () => {
-    if (!moveImportedStep(-1)) moveVcfReplay(-1);
+    if (moveImportedStep(-1)) return;
+    if (currentReplayRoute().length) {
+      moveVcfReplay(-1);
+      const route = ensureReplayState();
+      renderNextMoveMarker(route[replayPly]);
+      return;
+    }
+    if (window.VCFWorkbenchRecord?.navigateStep?.(-1)) return;
+    if (typeof setStatus === "function") setStatus("目前已是棋譜起點");
   });
   nextStepButton.addEventListener("click", () => {
-    if (!moveImportedStep(1)) moveVcfReplay(1);
+    if (moveImportedStep(1)) return;
+    if (currentReplayRoute().length) {
+      moveVcfReplay(1);
+      const route = ensureReplayState();
+      renderNextMoveMarker(route[replayPly]);
+      return;
+    }
+    if (window.VCFWorkbenchRecord?.navigateStep?.(1)) return;
+    if (typeof setStatus === "function") setStatus("目前沒有下一手");
   });
 
   previousBranchButton.addEventListener("click", () => {
@@ -876,6 +924,7 @@
       replayPly = 0;
       return;
     }
+    if (window.VCFWorkbenchRecord?.navigateBranch?.(-1)) return;
     if (typeof setStatus === "function") setStatus("目前沒有可切換的前一分支");
   });
   nextBranchButton.addEventListener("click", () => {
@@ -887,6 +936,7 @@
       replayPly = 0;
       return;
     }
+    if (window.VCFWorkbenchRecord?.navigateBranch?.(1)) return;
     if (typeof setStatus === "function") setStatus("目前沒有可切換的後一分支");
   });
 
@@ -1000,6 +1050,14 @@
     .vcf-control-stack {
       display: grid;
       gap: 14px;
+    }
+
+    .vcf-board-card > .vcf-annotation-card {
+      margin-top: 12px;
+      padding: 11px;
+      border-radius: 9px;
+      background: #faf6e9;
+      box-shadow: none;
     }
 
     .vcf-card,

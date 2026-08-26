@@ -590,9 +590,48 @@
   }
 
   function installWorkbenchRecordState() {
-    const STORAGE_KEY = "vcf_board_history_v2";
+    const STORAGE_KEY = "vcf_board_record_tree_v3";
+    const LEGACY_STORAGE_KEY = "vcf_board_history_v2";
     const readBoard = () => normalizeBoard(global._getArr?.());
     const oppositeStone = stone => stone === BLACK ? WHITE : BLACK;
+
+    const makeNode = (move = null, stone = 0, recordText = "", parent = null) => ({
+      move,
+      stone,
+      recordText: String(recordText || ""),
+      children: [],
+      selectedChild: 0,
+      parent,
+    });
+    const hydrateNode = (raw, parent = null) => {
+      const node = makeNode(
+        Number.isInteger(Number(raw?.move)) ? Number(raw.move) : null,
+        Number(raw?.stone) === BLACK || Number(raw?.stone) === WHITE ? Number(raw.stone) : 0,
+        typeof raw?.recordText === "string" ? raw.recordText : "",
+        parent,
+      );
+      node.children = Array.isArray(raw?.children) ? raw.children.map(child => hydrateNode(child, node)) : [];
+      node.selectedChild = node.children.length
+        ? Math.max(0, Math.min(node.children.length - 1, Number(raw?.selectedChild || 0)))
+        : 0;
+      return node;
+    };
+    const serializeNode = node => ({
+      move: node.move,
+      stone: node.stone,
+      recordText: node.recordText || "",
+      selectedChild: Number(node.selectedChild || 0),
+      children: node.children.map(serializeNode),
+    });
+    const historyForNode = node => {
+      const result = [];
+      let cursor = node;
+      while (cursor?.parent) {
+        result.push({ index: cursor.move, stone: cursor.stone, recordText: cursor.recordText || "" });
+        cursor = cursor.parent;
+      }
+      return result.reverse();
+    };
     const replay = history => {
       const board = new Uint8Array(BOARD_CELLS);
       let expected = BLACK;
@@ -606,55 +645,153 @@
       }
       return board;
     };
-    let history = [];
+    const pathIndices = node => {
+      const result = [];
+      let cursor = node;
+      while (cursor?.parent) {
+        const index = cursor.parent.children.indexOf(cursor);
+        if (index < 0) return [];
+        result.push(index);
+        cursor = cursor.parent;
+      }
+      return result.reverse();
+    };
+    const nodeAtPath = (root, path) => {
+      let node = root;
+      for (const rawIndex of Array.isArray(path) ? path : []) {
+        const index = Number(rawIndex);
+        if (!Number.isInteger(index) || !node.children[index]) return null;
+        node = node.children[index];
+      }
+      return node;
+    };
+    const buildLinearTree = (history, rootRecordText = "") => {
+      const root = makeNode(null, 0, rootRecordText, null);
+      let node = root;
+      for (const raw of history || []) {
+        const child = makeNode(Number(raw.index), Number(raw.stone), raw.recordText || "", node);
+        node.children.push(child);
+        node.selectedChild = 0;
+        node = child;
+      }
+      return { root, current: node };
+    };
+
+    let root = makeNode();
+    let current = root;
     let exact = false;
-    let rootRecordText = "";
     let lastBoard = readBoard();
+    let restored = false;
 
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      const restored = replay(saved?.history);
-      rootRecordText = typeof saved?.rootRecordText === "string" ? saved.rootRecordText : "";
-      if (restored && boardsEqual(restored, lastBoard)) {
-        history = saved.history.map(item => ({
+      if (saved?.tree) {
+        const candidateRoot = hydrateNode(saved.tree);
+        const candidateCurrent = nodeAtPath(candidateRoot, saved.currentPath) || candidateRoot;
+        const candidateBoard = replay(historyForNode(candidateCurrent));
+        if (candidateBoard && boardsEqual(candidateBoard, lastBoard)) {
+          root = candidateRoot;
+          current = candidateCurrent;
+          exact = saved.exact !== false;
+          restored = true;
+        }
+      }
+    } catch (_) {}
+
+    if (!restored) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "null");
+        const legacyHistory = Array.isArray(saved?.history) ? saved.history.map(item => ({
           index: Number(item.index),
           stone: Number(item.stone),
           recordText: typeof item.recordText === "string" ? item.recordText : "",
-        }));
-        exact = saved.exact !== false;
-      }
-    } catch (_) {}
-    if (!lastBoard.some(Boolean)) {
-      history = [];
+        })) : [];
+        const legacyBoard = replay(legacyHistory);
+        if (legacyBoard && boardsEqual(legacyBoard, lastBoard)) {
+          const linear = buildLinearTree(legacyHistory, typeof saved?.rootRecordText === "string" ? saved.rootRecordText : "");
+          root = linear.root;
+          current = linear.current;
+          exact = saved?.exact !== false;
+          restored = true;
+        }
+      } catch (_) {}
+    }
+
+    if (!lastBoard.some(Boolean) && !restored) {
+      root = makeNode();
+      current = root;
       exact = true;
     }
 
-    const currentRecordText = () => history.length
-      ? String(history[history.length - 1]?.recordText || "")
-      : String(rootRecordText || "");
+    const currentHistory = () => historyForNode(current);
+    const currentRecordText = () => String(current?.recordText || "");
+    const selectedNextNode = () => {
+      if (!exact || !current?.children?.length) return null;
+      current.selectedChild = Math.max(0, Math.min(current.children.length - 1, Number(current.selectedChild || 0)));
+      return current.children[current.selectedChild] || null;
+    };
     const persist = () => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ history, exact, rootRecordText })); } catch (_) {}
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          tree: serializeNode(root),
+          currentPath: pathIndices(current),
+          exact,
+        }));
+      } catch (_) {}
     };
     const notify = () => {
+      const next = selectedNextNode();
+      const siblings = current?.parent?.children || [];
       global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
-        detail: { recordText: currentRecordText(), exact, ply: history.length },
+        detail: {
+          recordText: currentRecordText(),
+          exact,
+          ply: currentHistory().length,
+          canPrev: Boolean(exact && current?.parent),
+          canNext: Boolean(next),
+          selectedNextMove: next?.move ?? null,
+          nextBranchCount: current?.children?.length || 0,
+          siblingCount: siblings.length,
+          siblingIndex: siblings.indexOf(current),
+        },
       }));
     };
-    const setState = (nextHistory, nextExact, board = readBoard(), nextRootRecordText = rootRecordText) => {
+    const applyCurrentBoard = () => {
+      if (!exact) return false;
+      const history = currentHistory();
+      const board = replay(history);
+      if (!board) return false;
+      const sideToMove = history.length % 2 === 0 ? BLACK : WHITE;
+      const apply = () => global._setBoardArr?.(Array.from(board), sideToMove);
+      if (typeof global.vcfWithBoardChangeSource === "function") {
+        global.vcfWithBoardChangeSource("record-navigation", apply);
+      } else {
+        apply();
+      }
+      lastBoard = new Uint8Array(board);
+      persist();
+      notify();
+      return true;
+    };
+    const resetToHistory = (nextHistory, nextExact, nextRootRecordText = "") => {
       const normalized = Array.isArray(nextHistory) ? nextHistory.map(item => ({
         index: Number(item.index ?? item.move),
         stone: Number(item.stone ?? item.color),
         recordText: typeof item.recordText === "string" ? item.recordText : "",
       })) : [];
       const rebuilt = replay(normalized);
-      history = rebuilt && boardsEqual(rebuilt, board) ? normalized : [];
-      exact = Boolean(nextExact && rebuilt && boardsEqual(rebuilt, board));
-      rootRecordText = typeof nextRootRecordText === "string" ? nextRootRecordText : "";
+      const board = readBoard();
+      const valid = Boolean(rebuilt && boardsEqual(rebuilt, board));
+      const linear = buildLinearTree(valid ? normalized : [], nextRootRecordText);
+      root = linear.root;
+      current = linear.current;
+      exact = Boolean(nextExact && valid);
       if (!board.some(Boolean)) exact = true;
       lastBoard = new Uint8Array(board);
       persist();
       notify();
     };
+
     const syncAfterManualEdit = () => {
       const board = readBoard();
       const changed = [];
@@ -664,12 +801,22 @@
         const before = lastBoard[index];
         const after = board[index];
         if (!before && (after === BLACK || after === WHITE)) {
-          const expected = history.length % 2 === 0 ? BLACK : WHITE;
-          if (after === expected) history.push({ index, stone: after, recordText: "" });
-          else exact = false;
-        } else if (before && !after) {
-          const tail = history[history.length - 1];
-          if (tail?.index === index && tail?.stone === before) history.pop();
+          const expected = currentHistory().length % 2 === 0 ? BLACK : WHITE;
+          if (after === expected) {
+            let childIndex = current.children.findIndex(child => child.move === index && child.stone === after);
+            if (childIndex < 0) {
+              const child = makeNode(index, after, "", current);
+              current.children.push(child);
+              childIndex = current.children.length - 1;
+            }
+            current.selectedChild = childIndex;
+            current = current.children[childIndex];
+          } else {
+            exact = false;
+          }
+        } else if (before && !after && current?.parent && current.move === index && current.stone === before) {
+          const parentBoard = replay(historyForNode(current.parent));
+          if (parentBoard && boardsEqual(parentBoard, board)) current = current.parent;
           else exact = false;
         } else {
           exact = false;
@@ -686,33 +833,81 @@
     boardSvg?.addEventListener("click", () => queueMicrotask(syncAfterManualEdit));
 
     document.getElementById("btn-clear")?.addEventListener("click", () => {
-      queueMicrotask(() => setState([], true, readBoard(), ""));
+      queueMicrotask(() => {
+        root = makeNode();
+        current = root;
+        exact = true;
+        lastBoard = readBoard();
+        persist();
+        notify();
+      });
     });
     document.getElementById("btn-import-apply")?.addEventListener("click", () => {
-      queueMicrotask(() => setState([], false, readBoard(), ""));
+      queueMicrotask(() => {
+        root = makeNode();
+        current = root;
+        exact = false;
+        lastBoard = readBoard();
+        persist();
+        notify();
+      });
     });
 
     global.VCFWorkbenchRecord = {
       snapshot() {
         return {
-          history: history.map(item => ({ ...item })),
+          history: currentHistory().map(item => ({ ...item })),
           exact,
           board: Array.from(lastBoard),
-          rootRecordText,
+          rootRecordText: String(root.recordText || ""),
         };
       },
       currentRecordText,
       setCurrentRecordText(text) {
-        const value = String(text || "");
-        if (history.length) history[history.length - 1].recordText = value;
-        else rootRecordText = value;
+        current.recordText = String(text || "");
         persist();
         notify();
       },
-      setHistory(nextHistory, nextExact = true, nextRootRecordText = rootRecordText) {
-        setState(nextHistory, nextExact, readBoard(), nextRootRecordText);
+      setHistory(nextHistory, nextExact = true, nextRootRecordText = root.recordText || "") {
+        resetToHistory(nextHistory, nextExact, nextRootRecordText);
       },
-      invalidate() { setState([], false, readBoard(), ""); },
+      navigateStep(direction) {
+        if (!exact) return false;
+        if (direction < 0) {
+          if (!current.parent) return false;
+          current = current.parent;
+          return applyCurrentBoard();
+        }
+        const next = selectedNextNode();
+        if (!next) return false;
+        current = next;
+        return applyCurrentBoard();
+      },
+      navigateBranch(direction) {
+        if (!exact) return false;
+        const siblings = current?.parent?.children || [];
+        if (siblings.length > 1) {
+          const index = siblings.indexOf(current);
+          const nextIndex = (index + Number(direction || 1) + siblings.length) % siblings.length;
+          current.parent.selectedChild = nextIndex;
+          current = siblings[nextIndex];
+          return applyCurrentBoard();
+        }
+        if (current.children.length > 1) {
+          const count = current.children.length;
+          current.selectedChild = (Number(current.selectedChild || 0) + Number(direction || 1) + count) % count;
+          persist();
+          notify();
+          return true;
+        }
+        return false;
+      },
+      invalidate() {
+        exact = false;
+        lastBoard = readBoard();
+        persist();
+        notify();
+      },
     };
     persist();
     notify();

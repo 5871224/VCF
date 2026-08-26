@@ -254,3 +254,27 @@ if (!layout.includes('parseRapfiRecordText')) throw new Error('YXDB loader 必�
 if (!layout.includes('vcf-record-text-layer')) throw new Error('工作台必須顯示 Rapfi @BTXT@ 盤面標記');
 if (!header.includes('VCFWorkbenchRecord')) throw new Error('盤面必須保存可匯出的落子 history');
 if (!header.includes('normalizeSetupHistory')) throw new Error('YXDB setup path 必須以實際 history 驗證');
+
+
+// Manual record-tree navigation and visible annotation contract.
+for (const token of [
+  'boardCard.appendChild(annotationCard)',
+  'recordCommentInput.id = "vcf-record-comment-input"',
+  'renderNextMoveMarker',
+  'vcf-record-next-move-layer',
+  'VCFWorkbenchRecord?.navigateStep?.(-1)',
+  'VCFWorkbenchRecord?.navigateStep?.(1)',
+  'VCFWorkbenchRecord?.navigateBranch?.(-1)',
+  'VCFWorkbenchRecord?.navigateBranch?.(1)',
+]) if (!layout.includes(token)) throw new Error(`manual record navigation contract missing: ${token}`);
+for (const token of [
+  'vcf_board_record_tree_v3',
+  'navigateStep(direction)',
+  'navigateBranch(direction)',
+  'selectedNextMove',
+  'children: []',
+]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
+const entry = read("makevcf.html");
+if (!entry.includes('makevcf-layout.js?v=20260826-record-v3') || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-v3')) {
+  throw new Error("record UI scripts must be cache-busted after navigation model change");
+}
