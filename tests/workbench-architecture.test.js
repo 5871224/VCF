@@ -321,8 +321,18 @@ for (const token of [
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260826-record-tools-v1')
-    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v1')
-    || !entry.includes('rapfi/vcf-record-tools.js?v=20260826-record-tools-v1')) {
+if (!entry.includes('makevcf-layout.js?v=20260826-record-tools-v2')
+    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2')
+    || !entry.includes('rapfi/vcf-record-tools.js?v=20260826-record-tools-v2')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
 }
+
+const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");
+for (const token of [
+  'markerInput.classList.add("vcf-record-marker-control")',
+  'const markerControlsVisible = state.editMode && state.markerMode',
+  'markerInput.hidden = !markerControlsVisible',
+  'button.hidden = !markerControlsVisible',
+  'const markerText = markerInput.value.trim()',
+  'if (point.index >= 0) addOrReplaceMarker(point.index)',
+]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);

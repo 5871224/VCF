@@ -118,6 +118,10 @@
   markerInput.value = "A";
   markerInput.placeholder = "標記";
   markerInput.setAttribute("aria-label", "盤面標記文字");
+  markerInput.classList.add("vcf-record-marker-control");
+  for (const button of [markAButton, markStarButton, markArrowButton, clearMarkTextButton]) {
+    button.classList.add("vcf-record-marker-control");
+  }
 
   actions.append(
     photoButton,
@@ -322,9 +326,12 @@
     numbersButton.classList.toggle("is-active", state.showNumbers);
     titleToggleButton.classList.toggle("is-active", state.showTitle);
     commentToggleButton.classList.toggle("is-active", state.showComment);
-    markerInput.disabled = !state.editMode || !state.markerMode;
+    const markerControlsVisible = state.editMode && state.markerMode;
+    markerInput.hidden = !markerControlsVisible;
+    markerInput.disabled = !markerControlsVisible;
     for (const button of [markAButton, markStarButton, markArrowButton, clearMarkTextButton]) {
-      button.disabled = markerInput.disabled;
+      button.hidden = !markerControlsVisible;
+      button.disabled = !markerControlsVisible;
     }
     titleWrap.hidden = !state.showTitle;
     if (annotationCard) annotationCard.hidden = !state.showComment;
