@@ -228,6 +228,29 @@
     }).filter(route => route.length > 0);
   }
 
+  // Rapfi YXDB is a position DAG. A portable branch database must also
+// contain the path from the empty board to the selected root position, matching
+// Rapfi splitDatabase()/copyDatabasePathToRoot() semantics.
+function addYXDBSetupPath(rootBoard, add) {
+  const canonical = canonicalPosition(rootBoard);
+  const setupBoard = new Uint8Array(BOARD_CELLS);
+  add(setupBoard); // empty-board root
+
+  const count = Math.max(canonical.black.length, canonical.white.length);
+  for (let i = 0; i < count; i++) {
+    if (i < canonical.black.length) {
+      const [x, y] = canonical.black[i];
+      setupBoard[y * BOARD_SIZE + x] = BLACK;
+      add(setupBoard);
+    }
+    if (i < canonical.white.length) {
+      const [x, y] = canonical.white[i];
+      setupBoard[y * BOARD_SIZE + x] = WHITE;
+      add(setupBoard);
+    }
+  }
+}
+
   function collectYXDBPositions(rootBoard, routes, attacker, rule) {
     const records = new Map();
     const add = board => {
@@ -236,7 +259,7 @@
       records.set(keyString(key), { key });
     };
 
-    add(rootBoard);
+    addYXDBSetupPath(rootBoard, add);
     for (const route of normalizedRoutes(routes)) {
       const board = new Uint8Array(rootBoard);
       let side = attacker;

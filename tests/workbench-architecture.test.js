@@ -114,6 +114,7 @@ if (header.includes("MutationObserver") || header.includes("setInterval(")) {
 for (const token of [
   "global.VCFRapfiFormats = RapfiFormats",
   "createYXDB",
+  "addYXDBSetupPath",
   "createRenLib",
   'Rapfi YXDB (.db)',
   'RenLib (.lib)',
@@ -127,7 +128,7 @@ const boardOf = stones => {
 };
 const formatBoard = boardOf([[112, 1], [113, 2]]);
 const yxdb = rapfiFormats.createYXDB({ board: formatBoard, rule: 2 });
-if (yxdb.recordCount !== 1) throw new Error("YXDB root record count is invalid");
+if (yxdb.recordCount !== 3) throw new Error("YXDB must include empty→setup root path");
 if (!yxdb.compressed) throw new Error("YXDB export must use a standard LZ4 frame");
 if (Array.from(yxdb.bytes.slice(0, 7)).join(",") !== "4,34,77,24,68,64,94") {
   throw new Error("YXDB LZ4 frame header is not Rapfi-compatible");
@@ -155,7 +156,7 @@ function unwrapTestLZ4(bytes) {
   return payload;
 }
 const yxdbPayload = unwrapTestLZ4(yxdb.bytes);
-if (Array.from(yxdbPayload.slice(0, 4)).join(",") !== "2,0,0,0") {
+if (Array.from(yxdbPayload.slice(0, 4)).join(",") !== "4,0,0,0") {
   throw new Error("YXDB record-count header is invalid after LZ4 unwrap");
 }
 const mirroredBoard = boardOf([[112, 1], [111, 2]]);
@@ -165,7 +166,7 @@ if (Buffer.compare(Buffer.from(yxdb.bytes), Buffer.from(mirroredYXDB.bytes)) !==
 }
 const formatRoutes = [[111, 126, 110]];
 const routedYXDB = rapfiFormats.createYXDB({ board: formatBoard, routes: formatRoutes, attacker: 1, rule: 2 });
-if (routedYXDB.recordCount !== 4) throw new Error("YXDB route prefixes were not persisted");
+if (routedYXDB.recordCount !== 6) throw new Error("YXDB setup path + route prefixes were not persisted");
 const routedPayload = unwrapTestLZ4(routedYXDB.bytes);
 if (!Buffer.from(routedPayload).includes(Buffer.from('charset="UTF-8"'))) {
   throw new Error("YXDB UTF-8 metadata is missing");
