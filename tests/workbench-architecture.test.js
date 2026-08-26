@@ -86,6 +86,11 @@ for (const token of [
   '"btn-vcf-prev": "前一分支"',
   '"btn-vcf-next": "後一分支"',
   "route.slice(0, replayPly)",
+  "decompressLZ4Frame",
+  "parseYXDB",
+  "parseRenLib",
+  'button.id = "bb-import-record"',
+  'window.vcfWithBoardChangeSource("record-playback"',
 ]) if (!layout.includes(token)) throw new Error(`branch replay contract missing: ${token}`);
 if (layout.includes("MutationObserver") || layout.includes("setInterval(")) {
   throw new Error("branch replay must not poll or observe the whole page");
