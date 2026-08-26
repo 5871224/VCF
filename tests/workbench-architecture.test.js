@@ -128,8 +128,35 @@ const boardOf = stones => {
 const formatBoard = boardOf([[112, 1], [113, 2]]);
 const yxdb = rapfiFormats.createYXDB({ board: formatBoard, rule: 2 });
 if (yxdb.recordCount !== 1) throw new Error("YXDB root record count is invalid");
-if (Array.from(yxdb.bytes.slice(0, 4)).join(",") !== "2,0,0,0") {
-  throw new Error("YXDB record-count header is invalid");
+if (!yxdb.compressed) throw new Error("YXDB export must use a standard LZ4 frame");
+if (Array.from(yxdb.bytes.slice(0, 7)).join(",") !== "4,34,77,24,68,64,94") {
+  throw new Error("YXDB LZ4 frame header is not Rapfi-compatible");
+}
+function unwrapTestLZ4(bytes) {
+  let offset = 7;
+  const chunks = [];
+  let length = 0;
+  while (offset + 4 <= bytes.length) {
+    let blockSize = (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+    offset += 4;
+    if (blockSize === 0) break;
+    if (!(blockSize & 0x80000000)) throw new Error("test fixture expects uncompressed LZ4 blocks");
+    blockSize &= 0x7fffffff;
+    const block = bytes.slice(offset, offset + blockSize);
+    if (block.length !== blockSize) throw new Error("YXDB LZ4 block is truncated");
+    chunks.push(block);
+    length += blockSize;
+    offset += blockSize;
+  }
+  if (offset + 4 > bytes.length) throw new Error("YXDB LZ4 content checksum is missing");
+  const payload = new Uint8Array(length);
+  let out = 0;
+  for (const chunk of chunks) { payload.set(chunk, out); out += chunk.length; }
+  return payload;
+}
+const yxdbPayload = unwrapTestLZ4(yxdb.bytes);
+if (Array.from(yxdbPayload.slice(0, 4)).join(",") !== "2,0,0,0") {
+  throw new Error("YXDB record-count header is invalid after LZ4 unwrap");
 }
 const mirroredBoard = boardOf([[112, 1], [111, 2]]);
 const mirroredYXDB = rapfiFormats.createYXDB({ board: mirroredBoard, rule: 2 });
@@ -139,7 +166,8 @@ if (Buffer.compare(Buffer.from(yxdb.bytes), Buffer.from(mirroredYXDB.bytes)) !==
 const formatRoutes = [[111, 126, 110]];
 const routedYXDB = rapfiFormats.createYXDB({ board: formatBoard, routes: formatRoutes, attacker: 1, rule: 2 });
 if (routedYXDB.recordCount !== 4) throw new Error("YXDB route prefixes were not persisted");
-if (!routedYXDB.bytes.includes(Buffer.from('charset="UTF-8"')[0])) {
+const routedPayload = unwrapTestLZ4(routedYXDB.bytes);
+if (!Buffer.from(routedPayload).includes(Buffer.from('charset="UTF-8"'))) {
   throw new Error("YXDB UTF-8 metadata is missing");
 }
 let rejectedInvalidYXDB = false;

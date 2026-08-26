@@ -26,6 +26,93 @@
     finish() { return new Uint8Array(this.bytes); }
   }
 
+  // Rapfi 預設以標準 LZ4 frame 保存 Yixin DB。使用合法的 uncompressed
+  // LZ4 blocks 可避免額外壓縮相依，同時讓外部 Rapfi/Yixin reader 看到
+  // 與一般交換檔相同的 LZ4 frame magic / descriptor。
+  const LZ4_FRAME_MAGIC_BYTES = [0x04, 0x22, 0x4d, 0x18];
+  const LZ4_FLG = 0x44; // version=01, dependent blocks, content checksum
+  const LZ4_BD = 0x40;  // 64 KiB maximum block size
+  const LZ4_BLOCK_MAX = 64 * 1024;
+  const XXH32_P1 = 0x9e3779b1;
+  const XXH32_P2 = 0x85ebca77;
+  const XXH32_P3 = 0xc2b2ae3d;
+  const XXH32_P4 = 0x27d4eb2f;
+  const XXH32_P5 = 0x165667b1;
+
+  function rotl32(value, shift) {
+    return ((value << shift) | (value >>> (32 - shift))) >>> 0;
+  }
+
+  function readU32LE(bytes, offset) {
+    return (bytes[offset]
+      | (bytes[offset + 1] << 8)
+      | (bytes[offset + 2] << 16)
+      | (bytes[offset + 3] << 24)) >>> 0;
+  }
+
+  function xxhash32(value, seed = 0) {
+    const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
+    const length = bytes.length;
+    let offset = 0;
+    let hash;
+    const round = (acc, input) => {
+      acc = (acc + Math.imul(input, XXH32_P2)) >>> 0;
+      acc = rotl32(acc, 13);
+      return Math.imul(acc, XXH32_P1) >>> 0;
+    };
+
+    if (length >= 16) {
+      let v1 = (Number(seed) + XXH32_P1 + XXH32_P2) >>> 0;
+      let v2 = (Number(seed) + XXH32_P2) >>> 0;
+      let v3 = Number(seed) >>> 0;
+      let v4 = (Number(seed) - XXH32_P1) >>> 0;
+      const limit = length - 16;
+      while (offset <= limit) {
+        v1 = round(v1, readU32LE(bytes, offset)); offset += 4;
+        v2 = round(v2, readU32LE(bytes, offset)); offset += 4;
+        v3 = round(v3, readU32LE(bytes, offset)); offset += 4;
+        v4 = round(v4, readU32LE(bytes, offset)); offset += 4;
+      }
+      hash = (rotl32(v1, 1) + rotl32(v2, 7) + rotl32(v3, 12) + rotl32(v4, 18)) >>> 0;
+    } else {
+      hash = (Number(seed) + XXH32_P5) >>> 0;
+    }
+
+    hash = (hash + length) >>> 0;
+    while (offset + 4 <= length) {
+      hash = (hash + Math.imul(readU32LE(bytes, offset), XXH32_P3)) >>> 0;
+      hash = Math.imul(rotl32(hash, 17), XXH32_P4) >>> 0;
+      offset += 4;
+    }
+    while (offset < length) {
+      hash = (hash + Math.imul(bytes[offset++], XXH32_P5)) >>> 0;
+      hash = Math.imul(rotl32(hash, 11), XXH32_P1) >>> 0;
+    }
+    hash ^= hash >>> 15;
+    hash = Math.imul(hash, XXH32_P2) >>> 0;
+    hash ^= hash >>> 13;
+    hash = Math.imul(hash, XXH32_P3) >>> 0;
+    hash ^= hash >>> 16;
+    return hash >>> 0;
+  }
+
+  function wrapLZ4Frame(value) {
+    const payload = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
+    const writer = new ByteWriter();
+    writer.raw(LZ4_FRAME_MAGIC_BYTES);
+    writer.u8(LZ4_FLG);
+    writer.u8(LZ4_BD);
+    writer.u8((xxhash32(new Uint8Array([LZ4_FLG, LZ4_BD])) >>> 8) & 0xff);
+    for (let offset = 0; offset < payload.length; offset += LZ4_BLOCK_MAX) {
+      const block = payload.subarray(offset, Math.min(payload.length, offset + LZ4_BLOCK_MAX));
+      writer.u32((0x80000000 | block.length) >>> 0); // standard uncompressed block
+      writer.raw(block);
+    }
+    writer.u32(0); // EndMark
+    writer.u32(xxhash32(payload)); // content checksum (FLG bit 2)
+    return writer.finish();
+  }
+
   function normalizeBoard(value) {
     if (!value || typeof value.length !== "number") throw new TypeError("找不到目前盤面資料");
     const board = new Uint8Array(BOARD_CELLS);
@@ -213,7 +300,8 @@
       writer.u16(0);   // depth/bound
     }
 
-    return { bytes: writer.finish(), recordCount: records.length, compressed: false };
+    const rawBytes = writer.finish();
+    return { bytes: wrapLZ4Frame(rawBytes), recordCount: records.length, compressed: true };
   }
 
   function deterministicSetupMoves(board, desiredSide = 0) {
@@ -333,6 +421,8 @@
   const RapfiFormats = {
     createYXDB,
     createRenLib,
+    wrapLZ4Frame,
+    xxhash32,
     normalizeBoard,
     countStones,
     normalSideToMove,
@@ -480,7 +570,7 @@
         } else {
           const result = createYXDB(data);
           downloadBytes(result.bytes, `vcf-${stamp}.db`);
-          exportStatus.textContent = `已匯出 YXDB（${result.recordCount} 個盤面，未壓縮）`;
+          exportStatus.textContent = `已匯出 YXDB（${result.recordCount} 個盤面，標準 LZ4 frame）`;
         }
       } catch (error) {
         console.error("Rapfi 格式匯出失敗", error);
