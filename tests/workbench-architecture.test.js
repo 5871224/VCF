@@ -227,3 +227,11 @@ if (pages.includes("cp -R eval emoji bitboard rapfi")) throw new Error("Pages st
 if (!pages.includes("prepare-pages-site.py")) throw new Error("Pages does not use the deployment allowlist builder");
 
 console.log("Workbench and repository architecture checks passed");
+
+// Rapfi DB-backed record model contract.
+if (!layout.includes('btn-vcf-branch-prev')) throw new Error('棋譜導覽需固定包含前一分支按鈕');
+if (!layout.includes('btn-vcf-branch-next')) throw new Error('棋譜導覽需固定包含後一分支按鈕');
+if (!layout.includes('parseRapfiRecordText')) throw new Error('YXDB loader 必須解析 Rapfi record text');
+if (!layout.includes('vcf-record-text-layer')) throw new Error('工作台必須顯示 Rapfi @BTXT@ 盤面標記');
+if (!header.includes('VCFWorkbenchRecord')) throw new Error('盤面必須保存可匯出的落子 history');
+if (!header.includes('normalizeSetupHistory')) throw new Error('YXDB setup path 必須以實際 history 驗證');

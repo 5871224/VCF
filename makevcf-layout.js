@@ -122,19 +122,26 @@
   nextStepButton.id = "btn-vcf-step-next";
   nextStepButton.type = "button";
   nextStepButton.textContent = "下一步";
-  const previousBranchButton = document.getElementById("btn-vcf-prev");
-  const nextBranchButton = document.getElementById("btn-vcf-next");
+  const previousBranchButton = document.createElement("button");
+  previousBranchButton.id = "btn-vcf-branch-prev";
+  previousBranchButton.type = "button";
+  previousBranchButton.textContent = "前一分支";
+  const nextBranchButton = document.createElement("button");
+  nextBranchButton.id = "btn-vcf-branch-next";
+  nextBranchButton.type = "button";
+  nextBranchButton.textContent = "後一分支";
+  const legacyPreviousBranchButton = document.getElementById("btn-vcf-prev");
+  const legacyNextBranchButton = document.getElementById("btn-vcf-next");
+  if (legacyPreviousBranchButton) legacyPreviousBranchButton.hidden = true;
+  if (legacyNextBranchButton) legacyNextBranchButton.hidden = true;
   const recordNavigationActions = document.getElementById("vcf-record-navigation-actions");
-  if (recordNavigationActions) {
-    recordNavigationActions.append(prevStepButton, nextStepButton);
-    if (previousBranchButton) recordNavigationActions.appendChild(previousBranchButton);
-    if (nextBranchButton) recordNavigationActions.appendChild(nextBranchButton);
-  } else if (previousBranchButton) {
-    analysisActions.insertBefore(prevStepButton, previousBranchButton);
-    analysisActions.insertBefore(nextStepButton, previousBranchButton);
-  } else {
-    analysisActions.append(prevStepButton, nextStepButton);
-  }
+  recordNavigationActions?.append(prevStepButton, nextStepButton, previousBranchButton, nextBranchButton);
+
+  const recordComment = document.createElement("div");
+  recordComment.id = "vcf-record-comment";
+  recordComment.className = "vcf-record-comment";
+  recordComment.textContent = "注譯：—";
+  recordNavigation.appendChild(recordComment);
 
   let replaySignature = "";
   let replayPly = 0;
@@ -349,7 +356,7 @@
 
   function opposite(color) { return color === BLACK ? WHITE : BLACK; }
 
-  function makeRecordNode({ move = null, board: nodeBoard = null, sideToMove = BLACK, ply = 0, rule = null, synthetic = false, navigable = true } = {}) {
+  function makeRecordNode({ move = null, board: nodeBoard = null, sideToMove = BLACK, ply = 0, rule = null, synthetic = false, navigable = true, recordText = "", comment = "", boardTexts = [] } = {}) {
     return {
       move,
       board: nodeBoard ? new Uint8Array(nodeBoard) : new Uint8Array(BOARD_CELLS),
@@ -361,6 +368,9 @@
       parent: null,
       children: [],
       selectedChild: 0,
+      recordText,
+      comment,
+      boardTexts: Array.isArray(boardTexts) ? boardTexts.map(item => ({ ...item })) : [],
     };
   }
 
@@ -385,10 +395,41 @@
       }
       if (!valid) continue;
       if (additions === 1 || (additions === 0 && record.ply > 0)) {
-        return { board: candidate, move: additions === 1 ? added : PASS_MOVE };
+        return { board: candidate, move: additions === 1 ? added : PASS_MOVE, transform };
       }
     }
     return null;
+  }
+
+  function rapfiHexCoord(char) {
+    if (/^[0-9]$/.test(char)) return char.charCodeAt(0) - 48;
+    if (/^[A-F]$/i.test(char)) return char.toUpperCase().charCodeAt(0) - 55;
+    return -1;
+  }
+
+  function parseRapfiRecordText(text) {
+    const raw = String(text || "").replace(/\0+$/g, "");
+    const boardTexts = [];
+    let comment = raw;
+    if (raw.startsWith("@BTXT@")) {
+      const separator = raw.indexOf("\b");
+      const segment = raw.slice(6, separator >= 0 ? separator : raw.length);
+      comment = separator >= 0 ? raw.slice(separator + 1) : "";
+      for (const line of segment.split("\n")) {
+        if (line.length <= 2) continue;
+        const x = rapfiHexCoord(line[0]);
+        const y = rapfiHexCoord(line[1]);
+        if (x >= 0 && x < BOARD_SIZE && y >= 0 && y < BOARD_SIZE) boardTexts.push({ x, y, text: line.slice(2) });
+      }
+    }
+    return { comment: comment.replace(/\b/g, "\n").trim(), boardTexts };
+  }
+
+  function orientBoardTexts(boardTexts, transform) {
+    return (boardTexts || []).map(item => {
+      const [x, y] = transformXY(item.x, item.y, transform);
+      return { x, y, text: item.text };
+    });
   }
 
   function parseYXDB(rawBytes) {
@@ -403,7 +444,9 @@
       const keyLength = reader.u16();
       const key = reader.take(keyLength);
       const valueLength = reader.u16();
-      reader.skip(valueLength);
+      const valueBytes = reader.take(valueLength);
+      const recordText = valueLength > 5 ? new TextDecoder("utf-8").decode(valueBytes.subarray(5)) : "";
+      const recordMeta = parseRapfiRecordText(recordText);
       if (keyLength < 3) continue;
       const rule = key[0];
       const width = key[1];
@@ -434,6 +477,9 @@
         sideToMove: blackSlots === whiteSlots ? BLACK : WHITE,
         ply: slotCount,
         rule,
+        recordText,
+        comment: recordMeta.comment,
+        boardTexts: recordMeta.boardTexts,
       });
     }
     if (!records.length) throw new Error("YXDB 沒有可顯示的 15×15 局面");
@@ -453,13 +499,16 @@
           sideToMove: record.sideToMove,
           ply: record.ply,
           rule: record.rule,
+          recordText: record.recordText,
+          comment: record.comment,
+          boardTexts: orientBoardTexts(record.boardTexts, oriented.transform),
         });
         node.parent = parent;
         parent.children.push(node);
         break;
       }
       if (!node) {
-        node = makeRecordNode({ board: record.board, sideToMove: record.sideToMove, ply: record.ply, rule: record.rule });
+        node = makeRecordNode({ board: record.board, sideToMove: record.sideToMove, ply: record.ply, rule: record.rule, recordText: record.recordText, comment: record.comment, boardTexts: record.boardTexts });
         roots.push(node);
       }
       nodes.push(node);
@@ -594,16 +643,73 @@
     if (quickStatus) quickStatus.textContent = text;
   }
 
+  function renderRecordAnnotations(node) {
+    if (recordComment) recordComment.textContent = node?.comment ? `注譯：${node.comment}` : "注譯：—";
+    let layer = board.querySelector("#vcf-record-text-layer");
+    if (!layer) {
+      layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      layer.id = "vcf-record-text-layer";
+      layer.setAttribute("pointer-events", "none");
+      board.appendChild(layer);
+    }
+    while (layer.firstChild) layer.firstChild.remove();
+    for (const item of node?.boardTexts || []) {
+      const x = Number(item.x);
+      const y = Number(item.y);
+      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) continue;
+      const cx = 22 + x * 34;
+      const cy = 22 + y * 34;
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", cx);
+      circle.setAttribute("cy", cy);
+      circle.setAttribute("r", 10.5);
+      circle.setAttribute("fill", "#fff7c2");
+      circle.setAttribute("stroke", "#b56b00");
+      circle.setAttribute("stroke-width", "1.6");
+      layer.appendChild(circle);
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.setAttribute("x", cx);
+      text.setAttribute("y", cy);
+      text.setAttribute("text-anchor", "middle");
+      text.setAttribute("dominant-baseline", "central");
+      text.setAttribute("font-size", "10");
+      text.setAttribute("font-weight", "700");
+      text.setAttribute("fill", "#6b3b00");
+      text.textContent = String(item.text || "");
+      layer.appendChild(text);
+    }
+  }
+
+  function historyForImportedNode(node) {
+    const reversed = [];
+    let cursor = node;
+    while (cursor?.parent) {
+      if (Number.isInteger(cursor.move) && cursor.move >= 0) {
+        reversed.push({
+          index: cursor.move,
+          stone: opposite(cursor.sideToMove),
+          recordText: cursor.recordText || "",
+        });
+      }
+      cursor = cursor.parent;
+    }
+    return reversed.reverse();
+  }
+
   function renderImportedNode(node) {
     if (!importedTree || !node) return;
     importedTree.current = node;
     window.vcfInvalidateAnalysis?.("分支棋譜回放");
-    const applyBoard = () => window._setBoardArr?.(Array.from(node.board), node.sideToMove);
+    const applyBoard = () => {
+      window._setBoardArr?.(Array.from(node.board), node.sideToMove);
+      window.VCFWorkbenchRecord?.setHistory?.(historyForImportedNode(node), true);
+    };
     if (typeof window.vcfWithBoardChangeSource === "function") {
       window.vcfWithBoardChangeSource("record-playback", applyBoard);
     } else {
       applyBoard();
     }
+    renderRecordAnnotations(node);
     updateImportedBranchButtons();
     importedStatus();
   }
@@ -709,15 +815,27 @@
     if (!moveImportedStep(1)) moveVcfReplay(1);
   });
 
-  previousBranchButton?.addEventListener("click", () => {
+  previousBranchButton.addEventListener("click", () => {
     if (moveImportedBranch(-1)) return;
-    replaySignature = "";
-    replayPly = 0;
+    if (typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length && typeof setVcfGroup === "function") {
+      if (Number(vcfGroupIdx) > 0) setVcfGroup(Number(vcfGroupIdx) - 1);
+      else if (typeof setStatus === "function") setStatus("目前已是第一個 VCF 分支");
+      replaySignature = "";
+      replayPly = 0;
+      return;
+    }
+    if (typeof setStatus === "function") setStatus("目前沒有可切換的前一分支");
   });
-  nextBranchButton?.addEventListener("click", () => {
+  nextBranchButton.addEventListener("click", () => {
     if (moveImportedBranch(1)) return;
-    replaySignature = "";
-    replayPly = 0;
+    if (typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length && typeof setVcfGroup === "function") {
+      if (Number(vcfGroupIdx) < vcfGroups.length - 1) setVcfGroup(Number(vcfGroupIdx) + 1);
+      else if (typeof setStatus === "function") setStatus("目前已是最後一個 VCF 分支");
+      replaySignature = "";
+      replayPly = 0;
+      return;
+    }
+    if (typeof setStatus === "function") setStatus("目前沒有可切換的後一分支");
   });
 
   // 原始盤面被手動或其他功能改動時，退出已載入棋譜的瀏覽狀態；本模組自己的
@@ -730,7 +848,7 @@
   for (const container of [mainActions, analysisActions]) {
     container.addEventListener("click", event => {
       const id = event.target?.id || "";
-      if (!importedTree || ["btn-vcf-step-prev", "btn-vcf-step-next", "btn-vcf-prev", "btn-vcf-next"].includes(id)) return;
+      if (!importedTree || ["btn-vcf-step-prev", "btn-vcf-step-next", "btn-vcf-branch-prev", "btn-vcf-branch-next"].includes(id)) return;
       importedTree = null;
     });
   }
@@ -899,6 +1017,19 @@
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 6px;
       width: 100%;
+    }
+
+    .vcf-record-comment {
+      width: 100%;
+      min-height: 32px;
+      padding: 7px 9px;
+      border: 1px solid var(--vcf-line);
+      border-radius: 6px;
+      background: #fffdf5;
+      color: var(--vcf-text);
+      font-size: 13px;
+      line-height: 1.45;
+      white-space: pre-wrap;
     }
 
     #vcf-record-navigation-actions button {
