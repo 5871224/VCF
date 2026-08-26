@@ -66,7 +66,7 @@ anchor = '''if (!entry.includes('makevcf-layout.js?v=20260826-record-tools-v2')
 if anchor not in text:
     raise SystemExit("architecture entry anchor not found")
 extra = anchor + '''
-const recordTools = read("rapfi/vcf-record-tools.js");
+const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");
 for (const token of [
   'markerInput.classList.add("vcf-record-marker-control")',
   'const markerControlsVisible = state.editMode && state.markerMode',
@@ -74,7 +74,7 @@ for (const token of [
   'button.hidden = !markerControlsVisible',
   'const markerText = markerInput.value.trim()',
   'if (point.index >= 0) addOrReplaceMarker(point.index)',
-]) if (!recordTools.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);
+]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);
 '''
 text = text.replace(anchor, extra, 1)
 write(path, text)
