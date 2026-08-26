@@ -25,54 +25,40 @@ jobs:
 
           path = Path('rapfi/rapfi-workbench-header.js')
           s = path.read_text(encoding='utf-8')
-          needle = '''  function collectYXDBPositions(rootBoard, routes, attacker, rule) {
-            const records = new Map();
-            const add = board => {
-              assertRapfiPosition(board);
-              const key = yxdbKeyBytes(board, rule);
-              records.set(keyString(key), { key });
-            };
+          marker = '  function collectYXDBPositions(rootBoard, routes, attacker, rule) {'
+          if marker not in s:
+              raise SystemExit('collectYXDBPositions marker not found')
+          if '  function addYXDBSetupPath(rootBoard, add) {' not in s:
+              helper = '''  // Rapfi YXDB is a position DAG. A portable branch database must also
+          // contain the path from the empty board to the selected root position, matching
+          // Rapfi splitDatabase()/copyDatabasePathToRoot() semantics.
+          function addYXDBSetupPath(rootBoard, add) {
+            const canonical = canonicalPosition(rootBoard);
+            const setupBoard = new Uint8Array(BOARD_CELLS);
+            add(setupBoard); // empty-board root
 
-            add(rootBoard);
-          '''
-          replacement = '''  // Rapfi 的 YXDB 是局面 DAG，不是帶 root pointer 的棋譜檔。
-            // 可分享的分支必須包含「從空盤走到目前局面」的整條 path；Rapfi
-            // splitDatabase() 也會用 copyDatabasePathToRoot() 補齊這條路徑。
-            // 這裡以目前盤面的 canonical orientation 合成一條固定、合法的交替落子路徑，
-            // 讓任何 Rapfi/Yixin DB reader 從空盤即可逐手走到題型根節點。
-            function addYXDBSetupPath(rootBoard, add) {
-              const canonical = canonicalPosition(rootBoard);
-              const setupBoard = new Uint8Array(BOARD_CELLS);
-              add(setupBoard); // empty-board root
-
-              const count = Math.max(canonical.black.length, canonical.white.length);
-              for (let i = 0; i < count; i++) {
-                if (i < canonical.black.length) {
-                  const [x, y] = canonical.black[i];
-                  setupBoard[y * BOARD_SIZE + x] = BLACK;
-                  add(setupBoard);
-                }
-                if (i < canonical.white.length) {
-                  const [x, y] = canonical.white[i];
-                  setupBoard[y * BOARD_SIZE + x] = WHITE;
-                  add(setupBoard);
-                }
+            const count = Math.max(canonical.black.length, canonical.white.length);
+            for (let i = 0; i < count; i++) {
+              if (i < canonical.black.length) {
+                const [x, y] = canonical.black[i];
+                setupBoard[y * BOARD_SIZE + x] = BLACK;
+                add(setupBoard);
+              }
+              if (i < canonical.white.length) {
+                const [x, y] = canonical.white[i];
+                setupBoard[y * BOARD_SIZE + x] = WHITE;
+                add(setupBoard);
               }
             }
+          }
 
-            function collectYXDBPositions(rootBoard, routes, attacker, rule) {
-              const records = new Map();
-              const add = board => {
-                assertRapfiPosition(board);
-                const key = yxdbKeyBytes(board, rule);
-                records.set(keyString(key), { key });
-              };
-
-              addYXDBSetupPath(rootBoard, add);
           '''
-          if needle not in s:
-              raise SystemExit('header patch anchor not found')
-          s = s.replace(needle, replacement, 1)
+              s = s.replace(marker, helper + marker, 1)
+          if '    addYXDBSetupPath(rootBoard, add);' not in s:
+              old = '    add(rootBoard);'
+              if old not in s:
+                  raise SystemExit('root add marker not found')
+              s = s.replace(old, '    addYXDBSetupPath(rootBoard, add);', 1)
           path.write_text(s, encoding='utf-8')
 
           test = Path('tests/workbench-architecture.test.js')
@@ -90,10 +76,8 @@ jobs:
 
           workflow = Path('.github/workflows/pages.yml')
           w = workflow.read_text(encoding='utf-8')
-          old_ref = 'RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894'
-          new_ref = 'RAPFI_REF: 3c94c2a976f24a0dd1c5517623e9ab6fffe66bd7'
-          if old_ref in w:
-              w = w.replace(old_ref, new_ref, 1)
+          w = w.replace('RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894',
+                        'RAPFI_REF: 3c94c2a976f24a0dd1c5517623e9ab6fffe66bd7', 1)
           workflow.write_text(w, encoding='utf-8')
           PY
 
