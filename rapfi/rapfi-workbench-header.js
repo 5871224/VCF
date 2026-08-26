@@ -319,6 +319,13 @@
       3, 0,
       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     ]);
+    // Rapfi 會把檔案第一個 PASS 視為舊 RenLib 的 ROOT 節點並略過。
+    // 若靜態盤面本身需要以 PASS 起手（例如白子多於黑子），先補一個相容 ROOT，
+    // 讓下一個 PASS 仍作為真正的輪次資料被讀取。
+    if (tree.children[0]?.move === PASS) {
+      writer.u8(0);
+      writer.u8(0);
+    }
     writeRenLibChildren(writer, tree.children);
     return { bytes: writer.finish() };
   }
