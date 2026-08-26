@@ -1,0 +1,88 @@
+name: One-time YXDB LZ4 compatibility fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/one-time-yxdb-lz4-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Patch YXDB export to standard LZ4 frame
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          header_path = Path('rapfi/rapfi-workbench-header.js')
+          s = header_path.read_text(encoding='utf-8')
+
+          anchor = '''  class ByteWriter {\n    constructor() { this.bytes = []; }\n    u8(value) { this.bytes.push(Number(value) & 0xff); }\n    u16(value) {\n      const v = Number(value) & 0xffff;\n      this.bytes.push(v & 0xff, (v >>> 8) & 0xff);\n    }\n    u32(value) {\n      const v = Number(value) >>> 0;\n      this.bytes.push(v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff);\n    }\n    raw(values) {\n      for (const value of values) this.u8(value);\n    }\n    finish() { return new Uint8Array(this.bytes); }\n  }\n'''
+          addition = anchor + '''\n  // Rapfi 預設以標準 LZ4 frame 保存 Yixin DB。使用合法的 uncompressed\n  // LZ4 blocks 可避免額外壓縮相依，同時讓外部 Rapfi/Yixin reader 看到\n  // 與一般交換檔相同的 LZ4 frame magic / descriptor。\n  const LZ4_FRAME_MAGIC_BYTES = [0x04, 0x22, 0x4d, 0x18];\n  const LZ4_FLG = 0x44; // version=01, dependent blocks, content checksum\n  const LZ4_BD = 0x40;  // 64 KiB maximum block size\n  const LZ4_BLOCK_MAX = 64 * 1024;\n  const XXH32_P1 = 0x9e3779b1;\n  const XXH32_P2 = 0x85ebca77;\n  const XXH32_P3 = 0xc2b2ae3d;\n  const XXH32_P4 = 0x27d4eb2f;\n  const XXH32_P5 = 0x165667b1;\n\n  function rotl32(value, shift) {\n    return ((value << shift) | (value >>> (32 - shift))) >>> 0;\n  }\n\n  function readU32LE(bytes, offset) {\n    return (bytes[offset]\n      | (bytes[offset + 1] << 8)\n      | (bytes[offset + 2] << 16)\n      | (bytes[offset + 3] << 24)) >>> 0;\n  }\n\n  function xxhash32(value, seed = 0) {\n    const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || 0);\n    const length = bytes.length;\n    let offset = 0;\n    let hash;\n    const round = (acc, input) => {\n      acc = (acc + Math.imul(input, XXH32_P2)) >>> 0;\n      acc = rotl32(acc, 13);\n      return Math.imul(acc, XXH32_P1) >>> 0;\n    };\n\n    if (length >= 16) {\n      let v1 = (Number(seed) + XXH32_P1 + XXH32_P2) >>> 0;\n      let v2 = (Number(seed) + XXH32_P2) >>> 0;\n      let v3 = Number(seed) >>> 0;\n      let v4 = (Number(seed) - XXH32_P1) >>> 0;\n      const limit = length - 16;\n      while (offset <= limit) {\n        v1 = round(v1, readU32LE(bytes, offset)); offset += 4;\n        v2 = round(v2, readU32LE(bytes, offset)); offset += 4;\n        v3 = round(v3, readU32LE(bytes, offset)); offset += 4;\n        v4 = round(v4, readU32LE(bytes, offset)); offset += 4;\n      }\n      hash = (rotl32(v1, 1) + rotl32(v2, 7) + rotl32(v3, 12) + rotl32(v4, 18)) >>> 0;\n    } else {\n      hash = (Number(seed) + XXH32_P5) >>> 0;\n    }\n\n    hash = (hash + length) >>> 0;\n    while (offset + 4 <= length) {\n      hash = (hash + Math.imul(readU32LE(bytes, offset), XXH32_P3)) >>> 0;\n      hash = Math.imul(rotl32(hash, 17), XXH32_P4) >>> 0;\n      offset += 4;\n    }\n    while (offset < length) {\n      hash = (hash + Math.imul(bytes[offset++], XXH32_P5)) >>> 0;\n      hash = Math.imul(rotl32(hash, 11), XXH32_P1) >>> 0;\n    }\n    hash ^= hash >>> 15;\n    hash = Math.imul(hash, XXH32_P2) >>> 0;\n    hash ^= hash >>> 13;\n    hash = Math.imul(hash, XXH32_P3) >>> 0;\n    hash ^= hash >>> 16;\n    return hash >>> 0;\n  }\n\n  function wrapLZ4Frame(value) {\n    const payload = value instanceof Uint8Array ? value : new Uint8Array(value || 0);\n    const writer = new ByteWriter();\n    writer.raw(LZ4_FRAME_MAGIC_BYTES);\n    writer.u8(LZ4_FLG);\n    writer.u8(LZ4_BD);\n    writer.u8((xxhash32(new Uint8Array([LZ4_FLG, LZ4_BD])) >>> 8) & 0xff);\n    for (let offset = 0; offset < payload.length; offset += LZ4_BLOCK_MAX) {\n      const block = payload.subarray(offset, Math.min(payload.length, offset + LZ4_BLOCK_MAX));\n      writer.u32((0x80000000 | block.length) >>> 0); // standard uncompressed block\n      writer.raw(block);\n    }\n    writer.u32(0); // EndMark\n    writer.u32(xxhash32(payload)); // content checksum (FLG bit 2)\n    return writer.finish();\n  }\n'''
+          if anchor not in s:
+              raise SystemExit('ByteWriter anchor not found')
+          s = s.replace(anchor, addition, 1)
+
+          old = '''    for (const record of records) {\n      writer.u16(record.key.length);\n      writer.raw(record.key);\n      writer.u16(5);\n      writer.u8(0xff); // Database::LABEL_NONE (-1)\n      writer.u16(0);   // value\n      writer.u16(0);   // depth/bound\n    }\n\n    return { bytes: writer.finish(), recordCount: records.length, compressed: false };\n  }\n'''
+          new = '''    for (const record of records) {\n      writer.u16(record.key.length);\n      writer.raw(record.key);\n      writer.u16(5);\n      writer.u8(0xff); // Database::LABEL_NONE (-1)\n      writer.u16(0);   // value\n      writer.u16(0);   // depth/bound\n    }\n\n    const rawBytes = writer.finish();\n    return { bytes: wrapLZ4Frame(rawBytes), recordCount: records.length, compressed: true };\n  }\n'''
+          if old not in s:
+              raise SystemExit('createYXDB return anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''    createYXDB,\n    createRenLib,\n    normalizeBoard,\n'''
+          new = '''    createYXDB,\n    createRenLib,\n    wrapLZ4Frame,\n    xxhash32,\n    normalizeBoard,\n'''
+          if old not in s:
+              raise SystemExit('RapfiFormats export anchor not found')
+          s = s.replace(old, new, 1)
+
+          old = '''          exportStatus.textContent = `已匯出 YXDB（${result.recordCount} 個盤面，未壓縮）`;\n'''
+          new = '''          exportStatus.textContent = `已匯出 YXDB（${result.recordCount} 個盤面，標準 LZ4 frame）`;\n'''
+          if old not in s:
+              raise SystemExit('YXDB status anchor not found')
+          s = s.replace(old, new, 1)
+          header_path.write_text(s, encoding='utf-8')
+
+          test_path = Path('tests/workbench-architecture.test.js')
+          t = test_path.read_text(encoding='utf-8')
+          old = '''const yxdb = rapfiFormats.createYXDB({ board: formatBoard, rule: 2 });\nif (yxdb.recordCount !== 1) throw new Error("YXDB root record count is invalid");\nif (Array.from(yxdb.bytes.slice(0, 4)).join(",") !== "2,0,0,0") {\n  throw new Error("YXDB record-count header is invalid");\n}\n'''
+          new = '''const yxdb = rapfiFormats.createYXDB({ board: formatBoard, rule: 2 });\nif (yxdb.recordCount !== 1) throw new Error("YXDB root record count is invalid");\nif (!yxdb.compressed) throw new Error("YXDB export must use a standard LZ4 frame");\nif (Array.from(yxdb.bytes.slice(0, 7)).join(",") !== "4,34,77,24,68,64,94") {\n  throw new Error("YXDB LZ4 frame header is not Rapfi-compatible");\n}\nfunction unwrapTestLZ4(bytes) {\n  let offset = 7;\n  const chunks = [];\n  let length = 0;\n  while (offset + 4 <= bytes.length) {\n    let blockSize = (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;\n    offset += 4;\n    if (blockSize === 0) break;\n    if (!(blockSize & 0x80000000)) throw new Error("test fixture expects uncompressed LZ4 blocks");\n    blockSize &= 0x7fffffff;\n    const block = bytes.slice(offset, offset + blockSize);\n    if (block.length !== blockSize) throw new Error("YXDB LZ4 block is truncated");\n    chunks.push(block);\n    length += blockSize;\n    offset += blockSize;\n  }\n  if (offset + 4 > bytes.length) throw new Error("YXDB LZ4 content checksum is missing");\n  const payload = new Uint8Array(length);\n  let out = 0;\n  for (const chunk of chunks) { payload.set(chunk, out); out += chunk.length; }\n  return payload;\n}\nconst yxdbPayload = unwrapTestLZ4(yxdb.bytes);\nif (Array.from(yxdbPayload.slice(0, 4)).join(",") !== "2,0,0,0") {\n  throw new Error("YXDB record-count header is invalid after LZ4 unwrap");\n}\n'''
+          if old not in t:
+              raise SystemExit('YXDB test anchor not found')
+          t = t.replace(old, new, 1)
+
+          old = '''if (!routedYXDB.bytes.includes(Buffer.from('charset="UTF-8"')[0])) {\n  throw new Error("YXDB UTF-8 metadata is missing");\n}\n'''
+          new = '''const routedPayload = unwrapTestLZ4(routedYXDB.bytes);\nif (!Buffer.from(routedPayload).includes(Buffer.from('charset="UTF-8"'))) {\n  throw new Error("YXDB UTF-8 metadata is missing");\n}\n'''
+          if old not in t:
+              raise SystemExit('metadata test anchor not found')
+          t = t.replace(old, new, 1)
+          test_path.write_text(t, encoding='utf-8')
+
+          spec_path = Path('規格書.MD')
+          spec = spec_path.read_text(encoding='utf-8')
+          old = '- 瀏覽器匯出的 YXDB 使用 Rapfi 可直接讀取的未壓縮檔案格式與 UTF-8 metadata，不另外引入 LZ4 相依。\n'
+          new = '- 瀏覽器匯出的 YXDB 使用 Rapfi／Yixin 通用的標準 LZ4 frame 與 UTF-8 metadata；為避免額外壓縮相依，frame 內可使用標準 uncompressed LZ4 blocks，但檔案外觀、header checksum、EndMark 與 content checksum 必須完整合法。\n'
+          if old not in spec:
+              raise SystemExit('spec YXDB compression anchor not found')
+          spec = spec.replace(old, new, 1)
+          spec_path.write_text(spec, encoding='utf-8')
+          PY
+
+          node --check rapfi/rapfi-workbench-header.js
+          npm run test:architecture
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rapfi/rapfi-workbench-header.js tests/workbench-architecture.test.js 規格書.MD
+          git commit -m "修正 YXDB 匯出為標準 LZ4 frame"
+          git push origin HEAD:main
