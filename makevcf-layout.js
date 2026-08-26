@@ -4,6 +4,13 @@
 (function initVCFCardLayout() {
   if (document.getElementById("vcf-app-shell")) return;
 
+  // rapfi-bitboard-dashboard.js 會在稍後載入時設定舊標題；DOMContentLoaded 再統一
+  // 覆寫一次，確保瀏覽器頁籤最後固定顯示正式產品名稱。
+  document.title = "五子棋工作台";
+  document.addEventListener("DOMContentLoaded", () => {
+    document.title = "五子棋工作台";
+  }, { once: true });
+
   const board = document.getElementById("board-svg");
   const ruleBox = document.getElementById("rule-box");
   const mainActions = document.getElementById("btns");
@@ -41,8 +48,8 @@
   pageHeader.className = "vcf-app-header";
   pageHeader.innerHTML = `
     <div>
-      <h1>VCF 分析與題目工具</h1>
-      <p>擺好棋型後，依需求選擇搜尋、進階分析或自動產生題目。</p>
+      <h1>五子棋工作台</h1>
+      <p>擺好棋型後，可搜尋、分析、產生題目，並逐手回放單組或多分支 VCF。</p>
     </div>
   `;
   app.appendChild(pageHeader);
@@ -64,7 +71,7 @@
   mainActions.classList.add("vcf-action-grid");
   searchCard.append(ruleBox, mainActions);
 
-  const analysisCard = makeCard("進階分析", "針對目前盤面查看防點、多組路線與延伸選點。", "vcf-analysis-card");
+  const analysisCard = makeCard("進階分析", "針對目前盤面查看防點、多組路線、分支回放與延伸選點。", "vcf-analysis-card");
   analysisBox.classList.add("vcf-option-row");
   analysisActions.classList.add("vcf-action-grid");
   analysisCard.append(analysisBox, analysisActions);
@@ -88,6 +95,89 @@
 
   document.body.insertBefore(app, document.body.firstChild);
 
+  // Rapfi YXDB／RenLib 都以分支棋譜概念瀏覽；工作台沿用目前單組／多組 VCF
+  // 路線作為同一棵分支樹。逐手回放只改 VCF overlay，不修改原始題型盤面。
+  const prevStepButton = document.createElement("button");
+  prevStepButton.id = "btn-vcf-step-prev";
+  prevStepButton.type = "button";
+  prevStepButton.textContent = "上一步";
+  const nextStepButton = document.createElement("button");
+  nextStepButton.id = "btn-vcf-step-next";
+  nextStepButton.type = "button";
+  nextStepButton.textContent = "下一步";
+  const previousBranchButton = document.getElementById("btn-vcf-prev");
+  if (previousBranchButton) {
+    analysisActions.insertBefore(prevStepButton, previousBranchButton);
+    analysisActions.insertBefore(nextStepButton, previousBranchButton);
+  } else {
+    analysisActions.append(prevStepButton, nextStepButton);
+  }
+
+  let replaySignature = "";
+  let replayPly = 0;
+
+  function currentReplayRoute() {
+    if (typeof lastVCFMoves === "undefined" || !lastVCFMoves || typeof lastVCFMoves.length !== "number") {
+      return [];
+    }
+    return Array.from(lastVCFMoves, move => Number(move));
+  }
+
+  function currentReplaySignature(route) {
+    const color = typeof lastVCFColor !== "undefined" ? Number(lastVCFColor) : 1;
+    const group = typeof vcfGroupIdx !== "undefined" ? Number(vcfGroupIdx) : -1;
+    return `${color}|${group}|${route.join(",")}`;
+  }
+
+  function ensureReplayState() {
+    const route = currentReplayRoute();
+    if (!route.length) {
+      replaySignature = "";
+      replayPly = 0;
+      return route;
+    }
+    const signature = currentReplaySignature(route);
+    if (signature !== replaySignature) {
+      replaySignature = signature;
+      replayPly = route.length;
+    }
+    return route;
+  }
+
+  function replayStatus(route) {
+    const color = typeof lastVCFColor !== "undefined" && Number(lastVCFColor) === 2 ? "白" : "黑";
+    const groups = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) ? vcfGroups : null;
+    const branchText = groups && groups.length
+      ? `分支 ${Math.min(groups.length, Number(vcfGroupIdx || 0) + 1)}/${groups.length}`
+      : "單一分支";
+    const stepText = replayPly === 0 ? "起始盤面" : `第 ${replayPly}/${route.length} 手`;
+    if (typeof setStatus === "function") setStatus(`${color}方 ${branchText}，${stepText}`);
+  }
+
+  function moveReplay(delta) {
+    const route = ensureReplayState();
+    if (!route.length) {
+      if (typeof setStatus === "function") setStatus("目前沒有可回放的 VCF 分支");
+      return;
+    }
+    replayPly = Math.max(0, Math.min(route.length, replayPly + delta));
+    const color = typeof lastVCFColor !== "undefined" ? Number(lastVCFColor) : 1;
+    window._showVCF?.(route.slice(0, replayPly), color);
+    replayStatus(route);
+  }
+
+  prevStepButton.addEventListener("click", () => moveReplay(-1));
+  nextStepButton.addEventListener("click", () => moveReplay(1));
+
+  // 切換完整分支時，既有 setVcfGroup() 先顯示新分支；下一次逐手操作會自動
+  // 以該新分支的最後一手為起點，不沿用前一分支的 ply。
+  for (const id of ["btn-vcf-prev", "btn-vcf-next", "btn-clear-vcf", "btn-clear"]) {
+    document.getElementById(id)?.addEventListener("click", () => {
+      replaySignature = "";
+      replayPly = 0;
+    });
+  }
+
   const labels = {
     "btn-black": "找黑 VCF",
     "btn-white": "找白 VCF",
@@ -98,8 +188,8 @@
     "btn-block-vcf": "單一路線防守",
     "btn-block-vcf-all": "全部路線防守",
     "btn-multi-vcf": "多組 VCF",
-    "btn-vcf-prev": "上一組",
-    "btn-vcf-next": "下一組",
+    "btn-vcf-prev": "前一分支",
+    "btn-vcf-next": "後一分支",
     "btn-level3": "VCT 選點",
     "btn-add-black": "補黑找 VCF",
     "btn-add-white": "補白找 VCF"
