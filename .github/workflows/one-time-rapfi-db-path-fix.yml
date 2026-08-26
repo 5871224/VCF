@@ -1,0 +1,112 @@
+name: One-time Rapfi DB root-path compatibility fix
+
+on:
+  push:
+    paths:
+      - .github/workflows/one-time-rapfi-db-path-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Patch YXDB export to include path from empty board
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('rapfi/rapfi-workbench-header.js')
+          s = path.read_text(encoding='utf-8')
+          needle = '''  function collectYXDBPositions(rootBoard, routes, attacker, rule) {
+            const records = new Map();
+            const add = board => {
+              assertRapfiPosition(board);
+              const key = yxdbKeyBytes(board, rule);
+              records.set(keyString(key), { key });
+            };
+
+            add(rootBoard);
+          '''
+          replacement = '''  // Rapfi 的 YXDB 是局面 DAG，不是帶 root pointer 的棋譜檔。
+            // 可分享的分支必須包含「從空盤走到目前局面」的整條 path；Rapfi
+            // splitDatabase() 也會用 copyDatabasePathToRoot() 補齊這條路徑。
+            // 這裡以目前盤面的 canonical orientation 合成一條固定、合法的交替落子路徑，
+            // 讓任何 Rapfi/Yixin DB reader 從空盤即可逐手走到題型根節點。
+            function addYXDBSetupPath(rootBoard, add) {
+              const canonical = canonicalPosition(rootBoard);
+              const setupBoard = new Uint8Array(BOARD_CELLS);
+              add(setupBoard); // empty-board root
+
+              const count = Math.max(canonical.black.length, canonical.white.length);
+              for (let i = 0; i < count; i++) {
+                if (i < canonical.black.length) {
+                  const [x, y] = canonical.black[i];
+                  setupBoard[y * BOARD_SIZE + x] = BLACK;
+                  add(setupBoard);
+                }
+                if (i < canonical.white.length) {
+                  const [x, y] = canonical.white[i];
+                  setupBoard[y * BOARD_SIZE + x] = WHITE;
+                  add(setupBoard);
+                }
+              }
+            }
+
+            function collectYXDBPositions(rootBoard, routes, attacker, rule) {
+              const records = new Map();
+              const add = board => {
+                assertRapfiPosition(board);
+                const key = yxdbKeyBytes(board, rule);
+                records.set(keyString(key), { key });
+              };
+
+              addYXDBSetupPath(rootBoard, add);
+          '''
+          if needle not in s:
+              raise SystemExit('header patch anchor not found')
+          s = s.replace(needle, replacement, 1)
+          path.write_text(s, encoding='utf-8')
+
+          test = Path('tests/workbench-architecture.test.js')
+          t = test.read_text(encoding='utf-8')
+          t = t.replace('if (yxdb.recordCount !== 1) throw new Error("YXDB root record count is invalid");',
+                        'if (yxdb.recordCount !== 3) throw new Error("YXDB must include empty→setup root path");')
+          t = t.replace('if (Array.from(yxdbPayload.slice(0, 4)).join(",") !== "2,0,0,0") {',
+                        'if (Array.from(yxdbPayload.slice(0, 4)).join(",") !== "4,0,0,0") {')
+          t = t.replace('if (routedYXDB.recordCount !== 4) throw new Error("YXDB route prefixes were not persisted");',
+                        'if (routedYXDB.recordCount !== 6) throw new Error("YXDB setup path + route prefixes were not persisted");')
+          token = '  "createYXDB",\n'
+          if token in t and '  "addYXDBSetupPath",\n' not in t:
+              t = t.replace(token, token + '  "addYXDBSetupPath",\n', 1)
+          test.write_text(t, encoding='utf-8')
+
+          workflow = Path('.github/workflows/pages.yml')
+          w = workflow.read_text(encoding='utf-8')
+          old_ref = 'RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894'
+          new_ref = 'RAPFI_REF: 3c94c2a976f24a0dd1c5517623e9ab6fffe66bd7'
+          if old_ref in w:
+              w = w.replace(old_ref, new_ref, 1)
+          workflow.write_text(w, encoding='utf-8')
+          PY
+
+          node --check rapfi/rapfi-workbench-header.js
+          npm run test:architecture
+          git diff --check
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add rapfi/rapfi-workbench-header.js tests/workbench-architecture.test.js .github/workflows/pages.yml
+          git commit -m "修正 YXDB 匯出補齊 Rapfi 根路徑"
+          git push origin HEAD:main
