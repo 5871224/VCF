@@ -1,0 +1,39 @@
+name: Apply record tools integration
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-record-tools.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply integration patch
+        run: python3 .github/apply-record-tools.py
+
+      - name: Verify JavaScript architecture
+        run: node scripts/verify-workbench-architecture.js
+
+      - name: Commit final sources
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/apply-record-tools.py .github/workflows/apply-record-tools.yml
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: add full 15x15 record editing tools"
+          git push origin HEAD:main
+
+      - name: Trigger Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main
