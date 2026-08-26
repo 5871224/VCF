@@ -561,12 +561,6 @@
       syncCommentEditorFromRecordText(event.detail?.recordText || "");
     }
     renderNextMoveMarkers(event.detail?.nextMoves || []);
-    if (!currentReplayRoute().length) {
-      prevStepButton.disabled = !event.detail?.canPrev;
-      nextStepButton.disabled = !event.detail?.canNext;
-      previousBranchButton.disabled = !event.detail?.canPrev;
-      nextBranchButton.disabled = !event.detail?.canNext;
-    }
   });
 
   function parseYXDB(rawBytes) {
@@ -754,14 +748,7 @@
   }
 
   function updateImportedBranchButtons() {
-    if (!importedTree) return;
-    const current = importedTree.current;
-    const canPrev = Boolean(current?.parent && current.parent.navigable !== false);
-    const canNext = Boolean(current?.children?.length);
-    if (prevStepButton) prevStepButton.disabled = !canPrev;
-    if (nextStepButton) nextStepButton.disabled = !canNext;
-    if (previousBranchButton) previousBranchButton.disabled = !canPrev;
-    if (nextBranchButton) nextBranchButton.disabled = !canNext;
+    // 四顆棋譜導覽鍵固定可按；到起點／末端時由導覽函式停在邊界並回報狀態。
   }
 
   function importedStatus() {
