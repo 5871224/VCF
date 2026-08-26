@@ -73,12 +73,6 @@ jobs:
           if token in t and '  "addYXDBSetupPath",\n' not in t:
               t = t.replace(token, token + '  "addYXDBSetupPath",\n', 1)
           test.write_text(t, encoding='utf-8')
-
-          workflow = Path('.github/workflows/pages.yml')
-          w = workflow.read_text(encoding='utf-8')
-          w = w.replace('RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894',
-                        'RAPFI_REF: 3c94c2a976f24a0dd1c5517623e9ab6fffe66bd7', 1)
-          workflow.write_text(w, encoding='utf-8')
           PY
 
           node --check rapfi/rapfi-workbench-header.js
@@ -91,6 +85,6 @@ jobs:
           set -euxo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add rapfi/rapfi-workbench-header.js tests/workbench-architecture.test.js .github/workflows/pages.yml
+          git add rapfi/rapfi-workbench-header.js tests/workbench-architecture.test.js
           git commit -m "修正 YXDB 匯出補齊 Rapfi 根路徑"
           git push origin HEAD:main
