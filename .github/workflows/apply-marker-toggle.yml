@@ -1,0 +1,39 @@
+name: Apply marker toggle correction
+
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-marker-toggle.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply marker toggle patch
+        run: python3 .github/apply-marker-toggle.py
+
+      - name: Verify workbench architecture
+        run: node tests/workbench-architecture.test.js
+
+      - name: Commit correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -f .github/apply-marker-toggle.py .github/workflows/apply-marker-toggle.yml
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: toggle marker controls with marker mode"
+          git push origin HEAD:main
+
+      - name: Trigger Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref main
