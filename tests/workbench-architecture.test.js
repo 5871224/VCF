@@ -77,6 +77,20 @@ for (const token of [
 ]) if (!dashboard.includes(token)) throw new Error(`dashboard registration missing: ${token}`);
 if (dashboard.includes("stopImmediatePropagation")) throw new Error("dashboard still intercepts button events directly");
 
+const layout = read("makevcf-layout.js");
+for (const token of [
+  'document.title = "五子棋工作台"',
+  '<h1>五子棋工作台</h1>',
+  'prevStepButton.id = "btn-vcf-step-prev"',
+  'nextStepButton.id = "btn-vcf-step-next"',
+  '"btn-vcf-prev": "前一分支"',
+  '"btn-vcf-next": "後一分支"',
+  "route.slice(0, replayPly)",
+]) if (!layout.includes(token)) throw new Error(`branch replay contract missing: ${token}`);
+if (layout.includes("MutationObserver") || layout.includes("setInterval(")) {
+  throw new Error("branch replay must not poll or observe the whole page");
+}
+
 const questionBank = read("rapfi/rapfi-question-bank.js");
 for (const token of ["vcf-board-changed", "vcfRegisterBusyHook", "vcfWithBoardChangeSource"]) {
   if (!questionBank.includes(token)) throw new Error(`question bank event contract missing: ${token}`);
