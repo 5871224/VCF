@@ -52,12 +52,7 @@ jobs:
           git -C /tmp/rapfi checkout --detach 3c94c2a976f24a0dd1c5517623e9ab6fffe66bd7
           cmake -S /tmp/rapfi/Rapfi -B /tmp/rapfi-build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DNO_MULTI_THREADING=ON \
-            -DUSE_SSE=OFF \
-            -DUSE_AVX2=OFF \
-            -DUSE_AVX512=OFF \
-            -DUSE_BMI2=OFF \
-            -DUSE_VNNI=OFF
+            -DNO_MULTI_THREADING=ON
           cmake --build /tmp/rapfi-build -j2
 
       - name: Open exported DB with Rapfi itself
@@ -67,7 +62,7 @@ jobs:
           /tmp/rapfi-build/pbrain-rapfi database \
             --url /tmp/vcf-native-test.db \
             --commands 'DBSIZE;DBTOCSV /tmp/vcf-native-test.csv;QUIT' \
-            | tee /tmp/rapfi-db-output.txt
+            2>&1 | tee /tmp/rapfi-db-output.txt
           test -s /tmp/vcf-native-test.csv
           test "$(($(wc -l < /tmp/vcf-native-test.csv) - 1))" -eq 6
           grep -F 'r-15-15---b' /tmp/vcf-native-test.csv
