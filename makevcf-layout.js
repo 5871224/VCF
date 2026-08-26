@@ -68,6 +68,18 @@
   boardWrap.appendChild(board);
   boardCard.append(boardWrap, status);
 
+  const recordNavigation = document.createElement("section");
+  recordNavigation.id = "vcf-record-navigation";
+  recordNavigation.className = "vcf-record-navigation";
+  recordNavigation.innerHTML = `
+    <div class="vcf-record-navigation-heading">
+      <strong>棋譜導覽</strong>
+      <span>逐手瀏覽目前 VCF 或已讀取的 Rapfi DB／RenLib 分支棋譜。</span>
+    </div>
+    <div id="vcf-record-navigation-actions" class="vcf-record-navigation-actions"></div>
+  `;
+  boardCard.appendChild(recordNavigation);
+
   const controlStack = document.createElement("div");
   controlStack.className = "vcf-control-stack";
 
@@ -112,7 +124,12 @@
   nextStepButton.textContent = "下一步";
   const previousBranchButton = document.getElementById("btn-vcf-prev");
   const nextBranchButton = document.getElementById("btn-vcf-next");
-  if (previousBranchButton) {
+  const recordNavigationActions = document.getElementById("vcf-record-navigation-actions");
+  if (recordNavigationActions) {
+    recordNavigationActions.append(prevStepButton, nextStepButton);
+    if (previousBranchButton) recordNavigationActions.appendChild(previousBranchButton);
+    if (nextBranchButton) recordNavigationActions.appendChild(nextBranchButton);
+  } else if (previousBranchButton) {
     analysisActions.insertBefore(prevStepButton, previousBranchButton);
     analysisActions.insertBefore(nextStepButton, previousBranchButton);
   } else {
@@ -852,6 +869,44 @@
       width: 100%;
     }
 
+    .vcf-record-navigation {
+      width: 100%;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #d8caa8;
+      border-radius: 9px;
+      background: #faf6e9;
+    }
+
+    .vcf-record-navigation-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+      color: #46391f;
+      font-size: 13px;
+    }
+
+    .vcf-record-navigation-heading span {
+      color: var(--vcf-muted);
+      font-size: 12px;
+      text-align: right;
+    }
+
+    .vcf-record-navigation-actions {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      width: 100%;
+    }
+
+    #vcf-record-navigation-actions button {
+      min-height: 38px;
+      padding: 7px 5px;
+      font-size: 13px;
+    }
+
     #vcf-app-shell #board-svg {
       width: min(520px, 100%);
       height: auto;
@@ -1011,6 +1066,9 @@
       #vcf-app-shell button { min-height: 40px; padding: 7px 6px; font-size: 13px; }
       #vcf-app-shell #import-canvases { grid-template-columns: 1fr; }
       #vcf-app-shell #status { margin-top: 9px; }
+      .vcf-record-navigation-heading { align-items: flex-start; flex-direction: column; }
+      .vcf-record-navigation-heading span { text-align: left; }
+      .vcf-record-navigation-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 380px) {

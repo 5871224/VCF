@@ -78,6 +78,7 @@ for (const token of [
 if (dashboard.includes("stopImmediatePropagation")) throw new Error("dashboard still intercepts button events directly");
 
 const layout = read("makevcf-layout.js");
+new Function(layout); // parse the actual browser layout script, not only string contracts
 for (const token of [
   'document.title = "五子棋工作台"',
   '<h1>五子棋工作台</h1>',
@@ -91,6 +92,7 @@ for (const token of [
   "parseRenLib",
   'button.id = "bb-import-record"',
   'window.vcfWithBoardChangeSource("record-playback"',
+  'recordNavigation.id = "vcf-record-navigation"',
 ]) if (!layout.includes(token)) throw new Error(`branch replay contract missing: ${token}`);
 if (layout.includes("MutationObserver") || layout.includes("setInterval(")) {
   throw new Error("branch replay must not poll or observe the whole page");
