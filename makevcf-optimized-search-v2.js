@@ -6,9 +6,9 @@
   global.__vcfLegacyBenchmarkRemoved = true;
 })(window);
 
-// 辨識預覽仍由 makevcf.html 負責繪製；這裡只在預覽模式統一顯示色彩，
-// 不碰辨識結果、盤面資料或操作流程。非棋子遮罩改為高飽和綠色，
-// 黑／白棋外圈則分別使用更醒目的藍色與黃色。
+// 辨識預覽仍由 makevcf.html 負責繪製；這裡只統一 source-canvas 上辨識標記的顯示色彩，
+// 不碰辨識結果、盤面資料或操作流程。辨識預覽第一次繪製會早於 preview-mode class 切換，
+// 因此不能以 preview-mode 作為套色條件，否則首屏仍會短暫保留舊的藍色半透明遮罩。
 (function installRecognitionPreviewPalette(global) {
   const prototype = global.CanvasRenderingContext2D?.prototype;
   if (!prototype) return;
@@ -23,22 +23,25 @@
 
   const normalizeColor = value => String(value ?? "").replace(/\s+/g, "").toLowerCase();
   const fillPalette = new Map([
-    ["rgba(108,176,255,0.6)", "rgba(0, 210, 90, 0.68)"],
-    ["rgba(22,105,220,0.46)", "rgba(0, 195, 80, 0.72)"],
+    // 非棋子區域大面積遮罩：較柔和、透明的綠色。
+    ["rgba(108,176,255,0.6)", "rgba(72, 166, 105, 0.42)"],
+    // 空點中心標記：比遮罩略清楚，但仍保留原圖辨識度。
+    ["rgba(22,105,220,0.46)", "rgba(58, 158, 96, 0.48)"],
   ]);
   const strokePalette = new Map([
-    ["rgba(28,98,205,0.34)", { color: "rgba(0, 150, 65, 0.72)", widthScale: 1.15 }],
+    // 棋盤範圍框同步改為較淡綠色。
+    ["rgba(28,98,205,0.34)", { color: "rgba(55, 137, 86, 0.48)", widthScale: 1.10 }],
+    // 黑／白棋外圈維持高辨識度。
     ["rgba(38,117,235,0.95)", { color: "rgba(0, 82, 255, 1)", widthScale: 1.25 }],
     ["rgba(235,193,36,0.95)", { color: "rgba(255, 190, 0, 1)", widthScale: 1.25 }],
   ]);
 
-  function isRecognitionPreview(context) {
-    return context?.canvas?.id === "source-canvas"
-      && document.getElementById("import-canvas-card")?.classList.contains("preview-mode");
+  function isRecognitionCanvas(context) {
+    return context?.canvas?.id === "source-canvas";
   }
 
   prototype.fill = function recognitionPreviewFill(...args) {
-    if (!isRecognitionPreview(this)) return originalFill.apply(this, args);
+    if (!isRecognitionCanvas(this)) return originalFill.apply(this, args);
     const mapped = fillPalette.get(normalizeColor(this.fillStyle));
     if (!mapped) return originalFill.apply(this, args);
 
@@ -52,7 +55,7 @@
   };
 
   function drawMappedStroke(context, draw, args) {
-    if (!isRecognitionPreview(context)) return draw.apply(context, args);
+    if (!isRecognitionCanvas(context)) return draw.apply(context, args);
     const mapped = strokePalette.get(normalizeColor(context.strokeStyle));
     if (!mapped) return draw.apply(context, args);
 
