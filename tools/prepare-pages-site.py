@@ -57,11 +57,15 @@ def inject_pages_scripts() -> None:
     """Inject deployment-only fixed scripts without runtime dynamic loading."""
     index = SITE / "index.html"
     html = index.read_text(encoding="utf-8")
-    cloud_tag = '<script src="rapfi/vcf-lz4-cloud.js?v=20260912"></script>'
-    if cloud_tag not in html:
+    tags = "\n".join([
+        '<script src="https://accounts.google.com/gsi/client" async defer></script>',
+        '<script src="rapfi/engine/vcf-yxdb-index.js"></script>',
+        '<script src="rapfi/vcf-lz4-cloud.js?v=20260913-auth-wasm"></script>',
+    ])
+    if "vcf-yxdb-index.js" not in html:
         if "</body>" not in html:
             raise RuntimeError("root entry is missing </body>")
-        html = html.replace("</body>", f"{cloud_tag}\n\n</body>", 1)
+        html = html.replace("</body>", f"{tags}\n\n</body>", 1)
         index.write_text(html, encoding="utf-8")
 
 
@@ -91,6 +95,7 @@ def main() -> None:
         (ROOT / ".cache" / "rapfi-wasm", "rapfi-single-simd128.*"),
         (ROOT / ".cache" / "vcf-pattern-engine", "vcf-pattern-engine.*"),
         (ROOT / ".cache" / "vcf-bitboard-engine", "vcf-bitboard-engine.*"),
+        (ROOT / ".cache" / "vcf-yxdb-index", "vcf-yxdb-index.*"),
     ]
     for cache_dir, pattern in cache_patterns:
         matches = sorted(cache_dir.glob(pattern))
@@ -125,7 +130,9 @@ def main() -> None:
         "rapfi-bitboard-dashboard.js",
         "vcf-shortest-vcf-ui.js",
         "vcf-forbidden-overlay.js",
+        "vcf-yxdb-index.js",
         "vcf-lz4-cloud.js",
+        "accounts.google.com/gsi/client",
     ]
     missing = [token for token in required_tokens if token not in html]
     if missing:
