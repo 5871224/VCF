@@ -323,11 +323,17 @@ for (const token of [
 const entry = read("makevcf.html");
 if (!entry.includes('makevcf-layout.js?v=20260826-record-tools-v2')
     || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2')
-    || !entry.includes('rapfi/vcf-record-tools.js?v=20260826-record-tools-v2')) {
+    || !entry.includes('rapfi/vcf-record-tools.js?v=20260913-direct-board-edit')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
 }
 
 const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");
+for (const token of [
+  'const SETTINGS_VERSION = 2;',
+  'editMode: true,',
+  'if (savedVersion < SETTINGS_VERSION) state.editMode = true;',
+  'JSON.stringify({ ...state, version: SETTINGS_VERSION })',
+]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`direct board edit contract missing: ${token}`);
 for (const token of [
   'markerInput.classList.add("vcf-record-marker-control")',
   'const markerControlsVisible = state.editMode && state.markerMode',
