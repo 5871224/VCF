@@ -129,7 +129,9 @@ function repetitiveData(size) {
   };
   const built = buildRawYXDBFromTree(tree, 2);
   assert.equal(built.nodeCount, 3);
-  assert.equal(built.recordCount, 4);
+  // The two second-ply positions are rotations of each other around center H8,
+  // so YXDB canonicalization intentionally merges them into one position.
+  assert.equal(built.recordCount, 3);
   const frame = createLZ4Frame(built.raw);
   assert.deepEqual(decodeFrame(frame), built.raw);
 }
