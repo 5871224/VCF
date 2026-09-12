@@ -42,6 +42,7 @@ RAPFI_FILES = [
     "rapfi-workbench-header.js",
     "vcf-record-tools.js",
     "rapfi-question-bank.js",
+    "vcf-lz4-cloud.js",
 ]
 
 
