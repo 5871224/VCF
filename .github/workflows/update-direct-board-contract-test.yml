@@ -29,22 +29,22 @@ jobs:
           if old not in text:
               raise SystemExit('old record-tools cache contract not found')
           text = text.replace(old, new, 1)
-
           anchor = 'const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");\n'
-          addition = '''const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");
-for (const token of [
-  'const SETTINGS_VERSION = 2;',
-  'editMode: true,',
-  'if (savedVersion < SETTINGS_VERSION) state.editMode = true;',
-  'JSON.stringify({ ...state, version: SETTINGS_VERSION })',
-]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`direct board edit contract missing: ${token}`);
-'''
+          addition = "\n".join([
+              'const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");',
+              'for (const token of [',
+              "  'const SETTINGS_VERSION = 2;',",
+              "  'editMode: true,',",
+              "  'if (savedVersion < SETTINGS_VERSION) state.editMode = true;',",
+              "  'JSON.stringify({ ...state, version: SETTINGS_VERSION })',",
+              ']) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`direct board edit contract missing: ${token}`);',
+              '',
+          ])
           if anchor not in text:
               raise SystemExit('record-tools contract anchor not found')
           text = text.replace(anchor, addition, 1)
           p.write_text(text, encoding='utf-8')
           PY
-
           node tests/workbench-architecture.test.js
           git diff --check
 
