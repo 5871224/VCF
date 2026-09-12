@@ -43,6 +43,7 @@ RAPFI_FILES = [
     "vcf-record-tools.js",
     "rapfi-question-bank.js",
     "vcf-lz4-cloud.js",
+    "vcf-google-popup-auth.js",
 ]
 
 
@@ -58,9 +59,9 @@ def inject_pages_scripts() -> None:
     index = SITE / "index.html"
     html = index.read_text(encoding="utf-8")
     tags = "\n".join([
-        '<script src="https://accounts.google.com/gsi/client" async defer></script>',
         '<script src="rapfi/engine/vcf-yxdb-index.js"></script>',
         '<script src="rapfi/vcf-lz4-cloud.js?v=20260913-auth-wasm"></script>',
+        '<script src="rapfi/vcf-google-popup-auth.js?v=20260913"></script>',
     ])
     if "vcf-yxdb-index.js" not in html:
         if "</body>" not in html:
@@ -132,7 +133,7 @@ def main() -> None:
         "vcf-forbidden-overlay.js",
         "vcf-yxdb-index.js",
         "vcf-lz4-cloud.js",
-        "accounts.google.com/gsi/client",
+        "vcf-google-popup-auth.js",
     ]
     missing = [token for token in required_tokens if token not in html]
     if missing:
