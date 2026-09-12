@@ -36,11 +36,7 @@ jobs:
               '  const SETTINGS_KEY = "vcf_record_tools_v1";\n  const TITLE_KEY = "vcf_record_title_v1";',
               '  const SETTINGS_KEY = "vcf_record_tools_v1";\n  const SETTINGS_VERSION = 2;\n  const TITLE_KEY = "vcf_record_title_v1";'
           )
-          replace_once(
-              'rapfi/vcf-record-tools.js',
-              '    editMode: false,',
-              '    editMode: true,'
-          )
+          replace_once('rapfi/vcf-record-tools.js', '    editMode: false,', '    editMode: true,')
           replace_once(
               'rapfi/vcf-record-tools.js',
               '    if (saved && typeof saved === "object") {\n      for (const key of Object.keys(state)) {',
@@ -66,11 +62,6 @@ jobs:
               '- 瀏覽模式下，棋盤左鍵為次一手、右鍵為前一手；編輯模式才可新增棋子。點已有棋子不直接刪除，刪除必須使用「刪除目前棋子及之後分支」，以避免破壞其他既有分支。',
               '- 工作台預設進入編輯模式，開啟頁面即可直接點空交點新增棋子；使用者可用編輯按鈕切換到瀏覽模式，瀏覽模式下棋盤左鍵為次一手、右鍵為前一手。點已有棋子不直接刪除，刪除必須使用「刪除目前棋子及之後分支」，以避免破壞其他既有分支。舊版 `vcf_record_tools_v1` 設定第一次載入新版時自動遷移為編輯模式開啟，之後仍保存使用者自行切換的模式。'
           )
-          replace_once(
-              '.github/workflows/workbench-ci.yml',
-              '            rapfi/rapfi-workbench-header.js \\\n            rapfi/rapfi-question-bank.js \\\n',
-              '            rapfi/rapfi-workbench-header.js \\\n            rapfi/vcf-record-tools.js \\\n            rapfi/rapfi-question-bank.js \\\n'
-          )
           PY
 
           node --check rapfi/vcf-record-tools.js
@@ -85,6 +76,6 @@ jobs:
           set -euxo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add rapfi/vcf-record-tools.js makevcf.html '規格書.MD' .github/workflows/workbench-ci.yml
+          git add rapfi/vcf-record-tools.js makevcf.html '規格書.MD'
           git commit -m 'Restore direct board placement by default'
           git push
