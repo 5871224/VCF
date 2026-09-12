@@ -47,6 +47,7 @@ jobs:
             rapfi/vcf-shortest-vcf-ui.js \
             rapfi/vcf-forbidden-overlay.js \
             rapfi/rapfi-workbench-header.js \
+            rapfi/vcf-record-tools.js \
             rapfi/rapfi-question-bank.js \
             rapfi/vcf-lz4-cloud.js \
             rapfi/vcf-google-popup-auth.js; do
