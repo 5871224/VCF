@@ -8,6 +8,7 @@
   const GRID_END = PAD + CELL * (BOARD_SIZE - 1);
   const NS = "http://www.w3.org/2000/svg";
   const SETTINGS_KEY = "vcf_record_tools_v1";
+  const SETTINGS_VERSION = 2;
   const TITLE_KEY = "vcf_record_title_v1";
   const ICON_ROOT = "rapfi/record-svg/";
 
@@ -19,7 +20,7 @@
   if (!board || !recordNavigation || !actions || !boardCard) return;
 
   const state = {
-    editMode: false,
+    editMode: true,
     markerMode: false,
     showNumbers: false,
     showTitle: true,
@@ -31,12 +32,14 @@
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
     if (saved && typeof saved === "object") {
+      const savedVersion = Math.max(1, Math.floor(Number(saved.version) || 1));
       for (const key of Object.keys(state)) {
         if (key in saved) state[key] = saved[key];
       }
       state.reduceNumbers = Math.max(0, Math.floor(Number(state.reduceNumbers) || 0));
       state.hideFirstNumbers = Math.max(0, Math.floor(Number(state.hideFirstNumbers) || 0));
       state.editMode = Boolean(state.editMode);
+      if (savedVersion < SETTINGS_VERSION) state.editMode = true;
       state.markerMode = Boolean(state.markerMode && state.editMode);
       state.showNumbers = Boolean(state.showNumbers);
       state.showTitle = state.showTitle !== false;
@@ -45,7 +48,7 @@
   } catch (_) {}
 
   function persistSettings() {
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state)); } catch (_) {}
+    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...state, version: SETTINGS_VERSION })); } catch (_) {}
   }
 
   function status(message) {
