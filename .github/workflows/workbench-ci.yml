@@ -48,7 +48,8 @@ jobs:
             rapfi/vcf-forbidden-overlay.js \
             rapfi/rapfi-workbench-header.js \
             rapfi/rapfi-question-bank.js \
-            rapfi/vcf-lz4-cloud.js; do
+            rapfi/vcf-lz4-cloud.js \
+            rapfi/vcf-google-popup-auth.js; do
             node --check "$file"
           done
 

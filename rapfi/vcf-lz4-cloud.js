@@ -2,18 +2,24 @@
 
 (function initVCFCloudYXDB(global) {
   const BOARD_SIZE = 15;
-  const BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
+  const BOARD_CELLS = 225;
   const BLACK = 1;
   const WHITE = 2;
   const PASS = -1;
   const API_URL = "https://587.renju.org.tw/vcf/yxdb.php";
   const RECORD_STORAGE_KEY = "vcf_board_record_tree_v3";
-  const OWNER_KEY = "vcf_cloud_owner_v1";
-  const TOKEN_KEY = "vcf_cloud_token_v1";
+  const AUTH_TOKEN_KEY = "vcf_google_auth_token_v1";
   const MAX_BLOCK = 64 * 1024;
-  const FLG = 0x64; // LZ4 frame v1 + independent blocks + content checksum
-  const BD = 0x40;  // 64 KiB blocks
+  const FLG = 0x64;
+  const BD = 0x40;
   const MAGIC = [0x04, 0x22, 0x4d, 0x18];
+  const textDecoder = new TextDecoder("utf-8");
+
+  let authUser = null;
+  let googleClientId = "";
+  let indexModulePromise = null;
+  let indexModule = null;
+  let indexedMeta = null;
 
   class ByteWriter {
     constructor(initial = 1024) {
@@ -21,31 +27,27 @@
       this.length = 0;
     }
     ensure(extra) {
-      const required = this.length + extra;
-      if (required <= this.buffer.length) return;
+      const needed = this.length + extra;
+      if (needed <= this.buffer.length) return;
       let size = this.buffer.length;
-      while (size < required) size *= 2;
+      while (size < needed) size *= 2;
       const next = new Uint8Array(size);
       next.set(this.buffer);
       this.buffer = next;
     }
-    u8(value) {
-      this.ensure(1);
-      this.buffer[this.length++] = Number(value) & 0xff;
-    }
-    u16(value) {
+    u8(v) { this.ensure(1); this.buffer[this.length++] = v & 255; }
+    u16(v) {
       this.ensure(2);
-      const v = Number(value) & 0xffff;
-      this.buffer[this.length++] = v & 0xff;
-      this.buffer[this.length++] = (v >>> 8) & 0xff;
+      this.buffer[this.length++] = v & 255;
+      this.buffer[this.length++] = (v >>> 8) & 255;
     }
-    u32(value) {
+    u32(v) {
       this.ensure(4);
-      const v = Number(value) >>> 0;
-      this.buffer[this.length++] = v & 0xff;
-      this.buffer[this.length++] = (v >>> 8) & 0xff;
-      this.buffer[this.length++] = (v >>> 16) & 0xff;
-      this.buffer[this.length++] = (v >>> 24) & 0xff;
+      v >>>= 0;
+      this.buffer[this.length++] = v & 255;
+      this.buffer[this.length++] = (v >>> 8) & 255;
+      this.buffer[this.length++] = (v >>> 16) & 255;
+      this.buffer[this.length++] = (v >>> 24) & 255;
     }
     raw(values) {
       const bytes = values instanceof Uint8Array ? values : Uint8Array.from(values || []);
@@ -53,42 +55,24 @@
       this.buffer.set(bytes, this.length);
       this.length += bytes.length;
     }
-    finish() {
-      return this.buffer.slice(0, this.length);
-    }
+    finish() { return this.buffer.slice(0, this.length); }
   }
 
-  function rotl32(value, shift) {
-    return ((value << shift) | (value >>> (32 - shift))) >>> 0;
-  }
-
+  function rotl32(v, n) { return ((v << n) | (v >>> (32 - n))) >>> 0; }
   function readU32LE(bytes, offset) {
-    return (bytes[offset]
-      | (bytes[offset + 1] << 8)
-      | (bytes[offset + 2] << 16)
-      | (bytes[offset + 3] << 24)) >>> 0;
+    return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
   }
-
   function xxhash32(value, seed = 0) {
     const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
-    const P1 = 0x9e3779b1;
-    const P2 = 0x85ebca77;
-    const P3 = 0xc2b2ae3d;
-    const P4 = 0x27d4eb2f;
-    const P5 = 0x165667b1;
+    const P1 = 0x9e3779b1, P2 = 0x85ebca77, P3 = 0xc2b2ae3d, P4 = 0x27d4eb2f, P5 = 0x165667b1;
     let offset = 0;
-    let hash;
     const round = (acc, input) => {
       acc = (acc + Math.imul(input, P2)) >>> 0;
-      acc = rotl32(acc, 13);
-      return Math.imul(acc, P1) >>> 0;
+      return Math.imul(rotl32(acc, 13), P1) >>> 0;
     };
-
+    let hash;
     if (bytes.length >= 16) {
-      let v1 = (Number(seed) + P1 + P2) >>> 0;
-      let v2 = (Number(seed) + P2) >>> 0;
-      let v3 = Number(seed) >>> 0;
-      let v4 = (Number(seed) - P1) >>> 0;
+      let v1 = (seed + P1 + P2) >>> 0, v2 = (seed + P2) >>> 0, v3 = seed >>> 0, v4 = (seed - P1) >>> 0;
       const limit = bytes.length - 16;
       while (offset <= limit) {
         v1 = round(v1, readU32LE(bytes, offset)); offset += 4;
@@ -97,10 +81,7 @@
         v4 = round(v4, readU32LE(bytes, offset)); offset += 4;
       }
       hash = (rotl32(v1, 1) + rotl32(v2, 7) + rotl32(v3, 12) + rotl32(v4, 18)) >>> 0;
-    } else {
-      hash = (Number(seed) + P5) >>> 0;
-    }
-
+    } else hash = (seed + P5) >>> 0;
     hash = (hash + bytes.length) >>> 0;
     while (offset + 4 <= bytes.length) {
       hash = (hash + Math.imul(readU32LE(bytes, offset), P3)) >>> 0;
@@ -111,580 +92,432 @@
       hash = (hash + Math.imul(bytes[offset++], P5)) >>> 0;
       hash = Math.imul(rotl32(hash, 11), P1) >>> 0;
     }
-    hash ^= hash >>> 15;
-    hash = Math.imul(hash, P2) >>> 0;
-    hash ^= hash >>> 13;
-    hash = Math.imul(hash, P3) >>> 0;
+    hash ^= hash >>> 15; hash = Math.imul(hash, P2) >>> 0;
+    hash ^= hash >>> 13; hash = Math.imul(hash, P3) >>> 0;
     hash ^= hash >>> 16;
     return hash >>> 0;
   }
 
-  function lz4CompressBlock(input) {
-    const source = input instanceof Uint8Array ? input : new Uint8Array(input || 0);
+  function lz4CompressBlock(value) {
+    const source = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
     const n = source.length;
     if (!n) return new Uint8Array(0);
     const output = new Uint8Array(n + Math.ceil(n / 255) + 32);
     const table = new Int32Array(1 << 16);
     table.fill(-1);
-    let out = 0;
-    let anchor = 0;
-    let i = 0;
-
-    const put = value => { output[out++] = value & 0xff; };
-    const putLength = value => {
-      let remaining = value;
-      while (remaining >= 255) {
-        put(255);
-        remaining -= 255;
-      }
-      put(remaining);
-    };
-    const emitSequence = (literalStart, literalLength, matchOffset, matchLength) => {
+    let out = 0, anchor = 0, i = 0;
+    const put = v => { output[out++] = v & 255; };
+    const putLength = value => { while (value >= 255) { put(255); value -= 255; } put(value); };
+    const emit = (literalStart, literalLength, matchOffset, matchLength) => {
       const tokenPos = out++;
       let token = Math.min(literalLength, 15) << 4;
       if (literalLength >= 15) putLength(literalLength - 15);
       output.set(source.subarray(literalStart, literalStart + literalLength), out);
       out += literalLength;
       if (matchLength > 0) {
-        put(matchOffset);
-        put(matchOffset >>> 8);
-        const encodedMatch = matchLength - 4;
-        token |= Math.min(encodedMatch, 15);
-        if (encodedMatch >= 15) putLength(encodedMatch - 15);
+        put(matchOffset); put(matchOffset >>> 8);
+        const encoded = matchLength - 4;
+        token |= Math.min(encoded, 15);
+        if (encoded >= 15) putLength(encoded - 15);
       }
       output[tokenPos] = token;
     };
-
-    // The conservative 12-byte margin follows the LZ4 block end constraints and
-    // keeps the generated blocks compatible with standard LZ4 decoders.
     const matchLimit = Math.max(0, n - 12);
+    const matchEnd = Math.max(0, n - 5); // standard LZ4 block keeps final 5 bytes as literals
     while (i <= matchLimit) {
-      const sequence = readU32LE(source, i);
-      const hash = (Math.imul(sequence, 0x9e3779b1) >>> 16) & 0xffff;
+      const seq = readU32LE(source, i);
+      const hash = (Math.imul(seq, 0x9e3779b1) >>> 16) & 0xffff;
       const ref = table[hash];
       table[hash] = i;
-      if (ref >= 0 && i - ref <= 0xffff
-          && source[ref] === source[i]
-          && source[ref + 1] === source[i + 1]
-          && source[ref + 2] === source[i + 2]
-          && source[ref + 3] === source[i + 3]) {
-        let matchLength = 4;
-        const max = n - i;
-        while (matchLength < max && source[ref + matchLength] === source[i + matchLength]) matchLength++;
-        emitSequence(anchor, i - anchor, i - ref, matchLength);
-        i += matchLength;
+      if (ref >= 0 && i - ref <= 0xffff && source[ref] === source[i] && source[ref + 1] === source[i + 1]
+          && source[ref + 2] === source[i + 2] && source[ref + 3] === source[i + 3]) {
+        let length = 4;
+        const max = Math.max(4, matchEnd - i);
+        while (length < max && source[ref + length] === source[i + length]) length++;
+        emit(anchor, i - anchor, i - ref, length);
+        i += length;
         anchor = i;
-        if (i <= matchLimit) {
-          const back = Math.max(anchor - 2, 0);
-          if (back + 4 <= n) {
-            const seq2 = readU32LE(source, back);
-            table[(Math.imul(seq2, 0x9e3779b1) >>> 16) & 0xffff] = back;
-          }
-        }
         continue;
       }
       i++;
     }
-    emitSequence(anchor, n - anchor, 0, 0);
+    emit(anchor, n - anchor, 0, 0);
     return output.slice(0, out);
   }
 
   function createLZ4Frame(rawValue) {
     const raw = rawValue instanceof Uint8Array ? rawValue : new Uint8Array(rawValue || 0);
     const writer = new ByteWriter(raw.length + 64);
-    writer.raw(MAGIC);
-    writer.u8(FLG);
-    writer.u8(BD);
-    writer.u8((xxhash32(new Uint8Array([FLG, BD])) >>> 8) & 0xff);
+    writer.raw(MAGIC); writer.u8(FLG); writer.u8(BD);
+    writer.u8((xxhash32(Uint8Array.from([FLG, BD])) >>> 8) & 255);
     for (let offset = 0; offset < raw.length; offset += MAX_BLOCK) {
       const block = raw.subarray(offset, Math.min(raw.length, offset + MAX_BLOCK));
       const compressed = lz4CompressBlock(block);
-      if (compressed.length < block.length) {
-        writer.u32(compressed.length);
-        writer.raw(compressed);
-      } else {
-        writer.u32((0x80000000 | block.length) >>> 0);
-        writer.raw(block);
-      }
+      if (compressed.length < block.length) { writer.u32(compressed.length); writer.raw(compressed); }
+      else { writer.u32((0x80000000 | block.length) >>> 0); writer.raw(block); }
     }
-    writer.u32(0);
-    writer.u32(xxhash32(raw));
+    writer.u32(0); writer.u32(xxhash32(raw));
     return writer.finish();
   }
 
-  function transformXY(x, y, transform) {
-    const m = BOARD_SIZE - 1;
-    switch (transform) {
-      case 0: return [x, y];
-      case 1: return [m - y, x];
-      case 2: return [m - x, m - y];
-      case 3: return [y, m - x];
-      case 4: return [m - x, y];
-      case 5: return [m - y, m - x];
-      case 6: return [x, m - y];
-      case 7: return [y, x];
+  function transformXY(x, y, t) {
+    const m = 14;
+    switch (t) {
+      case 0: return [x, y]; case 1: return [m - y, x]; case 2: return [m - x, m - y]; case 3: return [y, m - x];
+      case 4: return [m - x, y]; case 5: return [m - y, m - x]; case 6: return [x, m - y]; case 7: return [y, x];
       default: return [x, y];
     }
   }
-
   function positionsFor(board, stone, transform) {
-    const positions = [];
+    const result = [];
     for (let index = 0; index < BOARD_CELLS; index++) {
-      if (board[index] !== stone) continue;
-      positions.push(transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), transform));
+      if (board[index] === stone) result.push(transformXY(index % 15, Math.floor(index / 15), transform));
     }
-    positions.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-    return positions;
+    result.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return result;
   }
-
-  function comparePositions(left, right) {
-    const length = Math.min(left.length, right.length);
-    for (let i = 0; i < length; i++) {
-      const dx = left[i][0] - right[i][0];
-      if (dx) return dx;
-      const dy = left[i][1] - right[i][1];
-      if (dy) return dy;
+  function comparePositions(a, b) {
+    for (let i = 0; i < Math.min(a.length, b.length); i++) {
+      if (a[i][0] !== b[i][0]) return a[i][0] - b[i][0];
+      if (a[i][1] !== b[i][1]) return a[i][1] - b[i][1];
     }
-    return left.length - right.length;
+    return a.length - b.length;
   }
-
   function canonicalPosition(board) {
     let best = null;
-    for (let transform = 0; transform < 8; transform++) {
-      const candidate = {
-        black: positionsFor(board, BLACK, transform),
-        white: positionsFor(board, WHITE, transform),
-      };
-      if (!best) {
-        best = candidate;
-        continue;
-      }
-      const blackCompare = comparePositions(candidate.black, best.black);
-      if (blackCompare < 0 || (blackCompare === 0 && comparePositions(candidate.white, best.white) < 0)) best = candidate;
+    for (let t = 0; t < 8; t++) {
+      const candidate = { black: positionsFor(board, BLACK, t), white: positionsFor(board, WHITE, t) };
+      if (!best || comparePositions(candidate.black, best.black) < 0
+          || (comparePositions(candidate.black, best.black) === 0 && comparePositions(candidate.white, best.white) < 0)) best = candidate;
     }
     return best;
   }
-
   function yxdbKey(board, rule) {
-    const canonical = canonicalPosition(board);
-    const bytes = [rule, BOARD_SIZE, BOARD_SIZE];
-    for (const [x, y] of canonical.black) bytes.push(x, y);
-    for (const [x, y] of canonical.white) bytes.push(x, y);
+    const c = canonicalPosition(board);
+    const bytes = [rule, 15, 15];
+    for (const [x, y] of c.black) bytes.push(x, y);
+    for (const [x, y] of c.white) bytes.push(x, y);
     return Uint8Array.from(bytes);
   }
-
-  function keyId(key) {
-    let result = "";
-    for (const value of key) result += value.toString(16).padStart(2, "0");
-    return result;
-  }
-
-  function readStoredTree() {
-    let saved;
-    try {
-      saved = JSON.parse(global.localStorage?.getItem(RECORD_STORAGE_KEY) || "null");
-    } catch (_) {
-      saved = null;
-    }
-    if (!saved?.tree || saved.exact === false) {
-      throw new Error("目前棋譜沒有可驗證的完整手順，請先從空盤依原手順建立棋譜後再雲端儲存。");
-    }
-    return saved.tree;
-  }
-
+  function keyId(key) { return Array.from(key, v => v.toString(16).padStart(2, "0")).join(""); }
   function currentRule() {
-    const value = Number(global.document?.querySelector('input[name="rules"]:checked')?.value ?? 2);
+    const value = Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
     return [0, 1, 2].includes(value) ? value : 2;
+  }
+  function readStoredTree() {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(RECORD_STORAGE_KEY) || "null"); } catch (_) {}
+    if (!saved?.tree || saved.exact === false) throw new Error("目前棋譜沒有可驗證的完整手順，請先從空盤依原手順建立棋譜。");
+    return saved.tree;
   }
 
   function buildRawYXDBFromTree(tree, rule = currentRule()) {
     const records = new Map();
     const board = new Uint8Array(BOARD_CELLS);
     let nodeCount = 0;
-
-    const add = (recordText = "") => {
-      const key = yxdbKey(board, rule);
-      const id = keyId(key);
-      const text = String(recordText || "");
+    const add = text => {
+      const key = yxdbKey(board, rule), id = keyId(key), value = String(text || "");
       const existing = records.get(id);
-      if (!existing) records.set(id, { key, text });
-      else if (!existing.text && text) existing.text = text;
+      if (!existing) records.set(id, { key, text: value });
+      else if (!existing.text && value) existing.text = value;
     };
-
     const visit = (node, depth) => {
       if (depth === 0) add(node?.recordText || "");
-      const children = Array.isArray(node?.children) ? node.children : [];
-      for (const child of children) {
-        const move = Number(child?.move);
-        const stone = Number(child?.stone);
-        const expected = depth % 2 === 0 ? BLACK : WHITE;
+      for (const child of Array.isArray(node?.children) ? node.children : []) {
+        const move = Number(child?.move), stone = Number(child?.stone), expected = depth % 2 === 0 ? BLACK : WHITE;
         if (move === PASS) throw new Error("YXDB 無法表示 PASS；含 PASS 的棋譜請改用 RenLib。");
-        if (!Number.isInteger(move) || move < 0 || move >= BOARD_CELLS || board[move]) {
-          throw new Error("棋譜樹包含無效或重複落點，無法建立 YXDB。");
-        }
-        if (stone !== expected) throw new Error("棋譜樹黑白手順不一致，無法建立 YXDB。");
-        board[move] = stone;
-        nodeCount++;
-        add(child?.recordText || "");
-        visit(child, depth + 1);
-        board[move] = 0;
+        if (!Number.isInteger(move) || move < 0 || move >= BOARD_CELLS || board[move]) throw new Error("棋譜樹包含無效或重複落點。");
+        if (stone !== expected) throw new Error("棋譜樹黑白手順不一致。");
+        board[move] = stone; nodeCount++; add(child?.recordText || ""); visit(child, depth + 1); board[move] = 0;
       }
     };
     visit(tree, 0);
-
     const sorted = Array.from(records.values()).sort((a, b) => {
-      const left = a.key;
-      const right = b.key;
-      for (let i = 0; i < 3; i++) if (left[i] !== right[i]) return left[i] - right[i];
-      if (left.length !== right.length) return left.length - right.length;
-      for (let i = 3; i < left.length; i++) if (left[i] !== right[i]) return left[i] - right[i];
+      for (let i = 0; i < 3; i++) if (a.key[i] !== b.key[i]) return a.key[i] - b.key[i];
+      if (a.key.length !== b.key.length) return a.key.length - b.key.length;
+      for (let i = 3; i < a.key.length; i++) if (a.key[i] !== b.key[i]) return a.key[i] - b.key[i];
       return 0;
     });
-
     const encoder = new TextEncoder();
     const metadata = encoder.encode('charset="UTF-8"');
     const writer = new ByteWriter(Math.max(1024, sorted.length * 24));
     writer.u32(sorted.length + 1);
-    writer.u16(3);
-    writer.raw([0, 0, 0]);
-    writer.u16(5 + metadata.length);
-    writer.raw([0, 0, 0, 0, 0]);
-    writer.raw(metadata);
+    writer.u16(3); writer.raw([0, 0, 0]); writer.u16(5 + metadata.length); writer.raw([0, 0, 0, 0, 0]); writer.raw(metadata);
     for (const record of sorted) {
       const text = encoder.encode(record.text || "");
-      writer.u16(record.key.length);
-      writer.raw(record.key);
-      writer.u16(5 + text.length);
-      writer.u8(0xff);
-      writer.u16(0);
-      writer.u16(0);
-      writer.raw(text);
+      writer.u16(record.key.length); writer.raw(record.key); writer.u16(5 + text.length);
+      writer.u8(255); writer.u16(0); writer.u16(0); writer.raw(text);
     }
     return { raw: writer.finish(), recordCount: sorted.length, nodeCount };
   }
-
   function createCurrentYXDB() {
-    const tree = readStoredTree();
-    const built = buildRawYXDBFromTree(tree, currentRule());
+    const built = buildRawYXDBFromTree(readStoredTree(), currentRule());
     const bytes = createLZ4Frame(built.raw);
-    return {
-      bytes,
-      recordCount: built.recordCount,
-      nodeCount: built.nodeCount,
-      rawSize: built.raw.length,
-      compressedSize: bytes.length,
-      compressionRatio: built.raw.length ? bytes.length / built.raw.length : 1,
-    };
+    return { bytes, recordCount: built.recordCount, nodeCount: built.nodeCount, rawSize: built.raw.length, compressedSize: bytes.length };
   }
 
-  function randomHex(bytesLength) {
-    const bytes = new Uint8Array(bytesLength);
-    global.crypto.getRandomValues(bytes);
-    return Array.from(bytes, value => value.toString(16).padStart(2, "0")).join("");
-  }
-
-  function cloudIdentity() {
-    let owner = "";
-    let token = "";
-    try {
-      owner = global.localStorage?.getItem(OWNER_KEY) || "";
-      token = global.localStorage?.getItem(TOKEN_KEY) || "";
-    } catch (_) {}
-    if (!/^[0-9a-f-]{36}$/i.test(owner)) owner = global.crypto.randomUUID();
-    if (!/^[0-9a-f]{64}$/i.test(token)) token = randomHex(32);
-    try {
-      global.localStorage?.setItem(OWNER_KEY, owner);
-      global.localStorage?.setItem(TOKEN_KEY, token);
-    } catch (_) {}
-    return { owner: owner.toLowerCase(), token: token.toLowerCase() };
-  }
-
+  function getToken() { try { return localStorage.getItem(AUTH_TOKEN_KEY) || ""; } catch (_) { return ""; } }
+  function setToken(token) { try { token ? localStorage.setItem(AUTH_TOKEN_KEY, token) : localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {} }
   function authHeaders(extra = {}) {
-    const identity = cloudIdentity();
-    return {
-      "X-VCF-Owner": identity.owner,
-      "X-VCF-Token": identity.token,
-      ...extra,
-    };
+    const token = getToken();
+    return token ? { Authorization: `Bearer ${token}`, ...extra } : { ...extra };
   }
-
-  async function parseJsonResponse(response) {
+  async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
-    if (!response.ok || payload?.ok === false) {
-      throw new Error(payload?.error || `HTTP ${response.status}`);
-    }
+    if (response.status === 401) { setToken(""); authUser = null; refreshAuthUI(); }
+    if (!response.ok || payload?.ok === false) throw new Error(payload?.error || `HTTP ${response.status}`);
     return payload;
+  }
+  async function publicConfig() {
+    const response = await fetch(`${API_URL}?action=public_config`, { cache: "no-store", mode: "cors" });
+    const payload = await jsonResponse(response);
+    googleClientId = String(payload.google_client_id || "");
+    return googleClientId;
+  }
+  async function authMe() {
+    if (!getToken()) { authUser = null; return null; }
+    try {
+      const response = await fetch(`${API_URL}?action=auth_me`, { cache: "no-store", mode: "cors", headers: authHeaders() });
+      const payload = await jsonResponse(response);
+      authUser = payload.user || null;
+    } catch (_) { authUser = null; }
+    refreshAuthUI();
+    return authUser;
+  }
+  async function onGoogleCredential(response) {
+    const credential = String(response?.credential || "");
+    if (!credential) throw new Error("Google 未回傳登入憑證");
+    const http = await fetch(`${API_URL}?action=auth_google`, {
+      method: "POST", mode: "cors", cache: "no-store", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id_token: credential }),
+    });
+    const payload = await jsonResponse(http);
+    setToken(String(payload.token || ""));
+    authUser = payload.user || null;
+    refreshAuthUI();
+    status(`已登入：${authUser?.name || authUser?.email || "Google 使用者"}`);
+    return authUser;
+  }
+  async function logout() {
+    const token = getToken();
+    if (token) {
+      try { await fetch(`${API_URL}?action=auth_logout`, { method: "POST", mode: "cors", cache: "no-store", headers: authHeaders() }); } catch (_) {}
+    }
+    setToken(""); authUser = null; indexedMeta = null;
+    refreshAuthUI();
+    status("已登出 Google 帳號。");
   }
 
   async function saveCurrent(title = "") {
+    if (!authUser) throw new Error("請先使用 Google 登入");
     const result = createCurrentYXDB();
-    const params = new URLSearchParams({
-      action: "save",
-      title: String(title || ""),
-      record_count: String(result.recordCount),
-      raw_size: String(result.rawSize),
-    });
+    const params = new URLSearchParams({ action: "save", title: String(title || ""), record_count: String(result.recordCount), raw_size: String(result.rawSize) });
     const response = await fetch(`${API_URL}?${params}`, {
-      method: "POST",
-      mode: "cors",
-      cache: "no-store",
-      headers: authHeaders({ "Content-Type": "application/octet-stream" }),
-      body: result.bytes,
+      method: "POST", mode: "cors", cache: "no-store", headers: authHeaders({ "Content-Type": "application/octet-stream" }), body: result.bytes,
     });
-    return { ...(await parseJsonResponse(response)), ...result };
+    return { ...(await jsonResponse(response)), ...result };
   }
-
   async function list() {
-    const response = await fetch(`${API_URL}?action=list`, {
-      method: "GET",
-      mode: "cors",
-      cache: "no-store",
-      headers: authHeaders(),
-    });
-    const payload = await parseJsonResponse(response);
-    return Array.isArray(payload.records) ? payload.records : [];
+    if (!authUser) throw new Error("請先使用 Google 登入");
+    const response = await fetch(`${API_URL}?action=list`, { cache: "no-store", mode: "cors", headers: authHeaders() });
+    return (await jsonResponse(response)).records || [];
   }
-
-  async function load(id) {
-    const params = new URLSearchParams({ action: "get", id: String(Number(id)) });
-    const response = await fetch(`${API_URL}?${params}`, {
-      method: "GET",
-      mode: "cors",
-      cache: "no-store",
-      headers: authHeaders(),
-    });
+  async function fetchRecord(id) {
+    if (!authUser) throw new Error("請先使用 Google 登入");
+    const response = await fetch(`${API_URL}?action=get&id=${encodeURIComponent(Number(id))}`, { cache: "no-store", mode: "cors", headers: authHeaders() });
     if (!response.ok) {
+      if (response.status === 401) { setToken(""); authUser = null; refreshAuthUI(); }
       const payload = await response.json().catch(() => null);
       throw new Error(payload?.error || `HTTP ${response.status}`);
     }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    global.VCFCloudYXDB.currentBytes = bytes;
-    global.VCFCloudYXDB.currentMeta = {
-      id: Number(response.headers.get("X-VCF-Id") || id),
-      title: decodeURIComponent(response.headers.get("X-VCF-Title") || ""),
-      recordCount: Number(response.headers.get("X-VCF-Record-Count") || 0),
-      rawSize: Number(response.headers.get("X-VCF-Raw-Size") || 0),
-      compressedSize: Number(response.headers.get("X-VCF-Compressed-Size") || bytes.length),
-      sha256: response.headers.get("X-VCF-SHA256") || "",
+    return {
+      bytes: new Uint8Array(await response.arrayBuffer()),
+      meta: {
+        id: Number(response.headers.get("X-VCF-Id") || id),
+        title: decodeURIComponent(response.headers.get("X-VCF-Title") || ""),
+        recordCount: Number(response.headers.get("X-VCF-Record-Count") || 0),
+        rawSize: Number(response.headers.get("X-VCF-Raw-Size") || 0),
+        compressedSize: Number(response.headers.get("X-VCF-Compressed-Size") || 0),
+      },
     };
-    return bytes;
   }
-
   async function remove(id) {
-    const params = new URLSearchParams({ action: "delete", id: String(Number(id)) });
-    const response = await fetch(`${API_URL}?${params}`, {
-      method: "POST",
-      mode: "cors",
-      cache: "no-store",
-      headers: authHeaders(),
-    });
-    return parseJsonResponse(response);
+    if (!authUser) throw new Error("請先使用 Google 登入");
+    const response = await fetch(`${API_URL}?action=delete&id=${encodeURIComponent(Number(id))}`, { method: "POST", cache: "no-store", mode: "cors", headers: authHeaders() });
+    return jsonResponse(response);
   }
 
+  async function ensureIndexModule() {
+    if (indexModule) return indexModule;
+    if (!indexModulePromise) {
+      if (typeof global.VCFYxdbIndexModule !== "function") throw new Error("YXDB WASM 模組尚未載入");
+      indexModulePromise = global.VCFYxdbIndexModule({
+        locateFile: file => new URL(`rapfi/engine/${file}`, location.href).href,
+      }).then(module => {
+        module._yxdbLoad = module.cwrap("vcfYxdbLoadFrame", "number", ["number", "number"]);
+        module._yxdbQueryBoard = module.cwrap("vcfYxdbQueryBoard", "number", ["number", "number"]);
+        module._yxdbTextPtr = module.cwrap("vcfYxdbResultTextPtr", "number", []);
+        module._yxdbTextLength = module.cwrap("vcfYxdbResultTextLength", "number", []);
+        module._yxdbRecordCount = module.cwrap("vcfYxdbRecordCount", "number", []);
+        module._yxdbRawSize = module.cwrap("vcfYxdbRawSize", "number", []);
+        module._yxdbIndexSlots = module.cwrap("vcfYxdbIndexSlots", "number", []);
+        indexModule = module;
+        return module;
+      });
+    }
+    return indexModulePromise;
+  }
+  async function loadIntoIndex(bytes, meta = {}) {
+    const module = await ensureIndexModule();
+    const ptr = module._malloc(bytes.length);
+    try {
+      module.HEAPU8.set(bytes, ptr);
+      const count = module._yxdbLoad(ptr, bytes.length);
+      if (count < 0) throw new Error(`YXDB WASM 解析失敗（${count}）`);
+      indexedMeta = { ...meta, recordCount: count, rawSize: module._yxdbRawSize(), indexSlots: module._yxdbIndexSlots() };
+      global.VCFCloudYXDB.currentBytes = bytes;
+      global.VCFCloudYXDB.currentMeta = indexedMeta;
+      refreshQueryButton();
+      return indexedMeta;
+    } finally { module._free(ptr); }
+  }
+  async function load(id) {
+    const result = await fetchRecord(id);
+    await loadIntoIndex(result.bytes, result.meta);
+    return result.bytes;
+  }
+  function readBoard() {
+    const source = global._getArr?.() || [];
+    const board = new Uint8Array(BOARD_CELLS);
+    for (let i = 0; i < BOARD_CELLS; i++) {
+      const value = Number(source[i]) || 0;
+      board[i] = value === 1 || value === 2 ? value : 0;
+    }
+    return board;
+  }
+  async function queryCurrentBoard() {
+    if (!indexedMeta) throw new Error("請先從「雲端棋譜」載入一個 YXDB");
+    const module = await ensureIndexModule();
+    const board = readBoard();
+    const ptr = module._malloc(BOARD_CELLS);
+    try {
+      module.HEAPU8.set(board, ptr);
+      const found = module._yxdbQueryBoard(ptr, currentRule());
+      if (!found) return { found: false, text: "", meta: indexedMeta };
+      const textPtr = module._yxdbTextPtr(), textLength = module._yxdbTextLength();
+      const text = textLength > 0 ? textDecoder.decode(module.HEAPU8.slice(textPtr, textPtr + textLength)) : "";
+      return { found: true, text, meta: indexedMeta };
+    } finally { module._free(ptr); }
+  }
+
+  function formatBytes(v) {
+    const n = Number(v) || 0;
+    if (n < 1024) return `${n} B`;
+    if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1048576).toFixed(2)} MB`;
+  }
+  function status(message) { const node = document.getElementById("bb-export-status"); if (node) node.textContent = message; }
   function download(bytes, filename) {
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = filename;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
-
   function injectStyle() {
     if (document.getElementById("vcf-cloud-style")) return;
-    const style = document.createElement("style");
-    style.id = "vcf-cloud-style";
+    const style = document.createElement("style"); style.id = "vcf-cloud-style";
     style.textContent = `
-      #bb-cloud-save,#bb-cloud-open{min-height:38px;display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}
-      #bb-cloud-save:disabled,#bb-cloud-open:disabled{opacity:.6;cursor:wait}
-      #vcf-cloud-dialog{width:min(760px,calc(100vw - 24px));max-height:min(78vh,720px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}
-      #vcf-cloud-dialog::backdrop{background:rgb(0 0 0 / 35%)}
-      .vcf-cloud-dialog-body{padding:16px;display:grid;gap:12px}
-      .vcf-cloud-dialog-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
-      .vcf-cloud-dialog-head h3{margin:0;font-size:1.05rem}
-      .vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}
-      .vcf-cloud-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}
-      .vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}
-      .vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px}
-      .vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
-      .vcf-cloud-actions button,.vcf-cloud-dialog-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}
-      .vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}
-      @media(max-width:600px){.vcf-cloud-row{grid-template-columns:1fr}.vcf-cloud-actions{justify-content:flex-start}}
+      #bb-cloud-auth{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 0}
+      #bb-cloud-user{font-size:12px;color:#4f5d50}.bb-cloud-btn{min-height:36px;padding:7px 10px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}.bb-cloud-btn:disabled{opacity:.5;cursor:not-allowed}
+      #vcf-google-login{min-height:36px}#vcf-cloud-dialog{width:min(760px,calc(100vw - 24px));max-height:min(78vh,720px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop{background:rgb(0 0 0 / 35%)}
+      .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-title{font-weight:700}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
   }
-
-  function formatBytes(value) {
-    const bytes = Number(value) || 0;
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
-  }
-
-  function status(message) {
-    const node = document.getElementById("bb-export-status");
-    if (node) node.textContent = message;
-  }
-
   function ensureDialog() {
     let dialog = document.getElementById("vcf-cloud-dialog");
     if (dialog) return dialog;
-    dialog = document.createElement("dialog");
-    dialog.id = "vcf-cloud-dialog";
-    dialog.innerHTML = `
-      <div class="vcf-cloud-dialog-body">
-        <div class="vcf-cloud-dialog-head"><h3>雲端 YXDB 棋譜</h3><button type="button" data-close>關閉</button></div>
-        <div class="vcf-cloud-list" data-list></div>
-      </div>`;
-    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
-    document.body.appendChild(dialog);
-    return dialog;
+    dialog = document.createElement("dialog"); dialog.id = "vcf-cloud-dialog";
+    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端 YXDB 棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-list></div></div>';
+    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close()); document.body.appendChild(dialog); return dialog;
   }
-
   async function refreshDialog(dialog) {
-    const listNode = dialog.querySelector("[data-list]");
-    listNode.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
-    const records = await list();
-    listNode.replaceChildren();
-    if (!records.length) {
-      listNode.innerHTML = '<div class="vcf-cloud-empty">目前沒有雲端棋譜。</div>';
-      return;
-    }
+    const container = dialog.querySelector("[data-list]"); container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
+    const records = await list(); container.replaceChildren();
+    if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">這個 Google 帳號目前沒有雲端棋譜。</div>'; return; }
     for (const record of records) {
-      const row = document.createElement("div");
-      row.className = "vcf-cloud-row";
-      const info = document.createElement("div");
-      const title = document.createElement("div");
-      title.className = "vcf-cloud-title";
-      title.textContent = record.title || `棋譜 #${record.id}`;
-      const meta = document.createElement("div");
-      meta.className = "vcf-cloud-meta";
-      meta.textContent = `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
-      info.append(title, meta);
-      const actions = document.createElement("div");
-      actions.className = "vcf-cloud-actions";
-      const loadButton = document.createElement("button");
-      loadButton.type = "button";
-      loadButton.textContent = "載入二進位";
-      loadButton.addEventListener("click", async () => {
-        loadButton.disabled = true;
-        try {
-          const bytes = await load(record.id);
-          status(`已載入 ${formatBytes(bytes.length)} YXDB 到 Uint8Array（未展開 JS 結構）`);
-          dialog.close();
-        } catch (error) {
-          status(error?.message || String(error));
-        } finally {
-          loadButton.disabled = false;
-        }
-      });
-      const downloadButton = document.createElement("button");
-      downloadButton.type = "button";
-      downloadButton.textContent = "下載 .db";
-      downloadButton.addEventListener("click", async () => {
-        downloadButton.disabled = true;
-        try {
-          const bytes = await load(record.id);
-          download(bytes, `vcf-cloud-${record.id}.db`);
-        } catch (error) {
-          status(error?.message || String(error));
-        } finally {
-          downloadButton.disabled = false;
-        }
-      });
-      const deleteButton = document.createElement("button");
-      deleteButton.type = "button";
-      deleteButton.textContent = "刪除";
-      deleteButton.addEventListener("click", async () => {
-        if (!global.confirm(`確定刪除「${record.title || `棋譜 #${record.id}`}」？`)) return;
-        deleteButton.disabled = true;
-        try {
-          await remove(record.id);
-          await refreshDialog(dialog);
-          status("雲端棋譜已刪除。");
-        } catch (error) {
-          status(error?.message || String(error));
-        }
-      });
-      actions.append(loadButton, downloadButton, deleteButton);
-      row.append(info, actions);
-      listNode.appendChild(row);
+      const row = document.createElement("div"); row.className = "vcf-cloud-row";
+      const info = document.createElement("div"); info.innerHTML = `<div class="vcf-cloud-title"></div><div class="vcf-cloud-meta"></div>`;
+      info.firstElementChild.textContent = record.title || `棋譜 #${record.id}`;
+      info.lastElementChild.textContent = `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
+      const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
+      const loadButton = document.createElement("button"); loadButton.textContent = "載入＋建立索引";
+      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { await load(record.id); status(`已建立 WASM 索引：${indexedMeta.recordCount} 局面 / ${indexedMeta.indexSlots} slots / raw ${formatBytes(indexedMeta.rawSize)}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
+      const dl = document.createElement("button"); dl.textContent = "下載 .db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `vcf-cloud-${record.id}.db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
+      const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${record.title || `棋譜 #${record.id}`}」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
+      actions.append(loadButton, dl, del); row.append(info, actions); container.appendChild(row);
     }
   }
-
+  function refreshQueryButton() { const b = document.getElementById("bb-cloud-query"); if (b) b.disabled = !authUser || !indexedMeta; }
+  function refreshAuthUI() {
+    const login = document.getElementById("vcf-google-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
+    const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open");
+    if (user) user.textContent = authUser ? `${authUser.name || authUser.email}｜只顯示此帳號棋譜` : "未登入";
+    if (login) login.hidden = Boolean(authUser);
+    if (logoutButton) logoutButton.hidden = !authUser;
+    if (saveButton) saveButton.disabled = !authUser;
+    if (openButton) openButton.disabled = !authUser;
+    refreshQueryButton();
+  }
+  function renderGoogleButton() {
+    const target = document.getElementById("vcf-google-login");
+    if (!target || authUser || !googleClientId || !global.google?.accounts?.id) return false;
+    target.replaceChildren();
+    global.google.accounts.id.initialize({ client_id: googleClientId, callback: credential => onGoogleCredential(credential).catch(e => status(e.message || String(e))) });
+    global.google.accounts.id.renderButton(target, { theme: "outline", size: "medium", text: "signin_with", shape: "rectangular" });
+    return true;
+  }
   function installUI() {
     const panel = document.getElementById("bitboard-architecture-panel");
-    if (!panel || document.getElementById("bb-cloud-save")) return false;
+    if (!panel || document.getElementById("bb-cloud-auth")) return false;
     injectStyle();
     const exportStatus = panel.querySelector("#bb-export-status");
-    const saveButton = document.createElement("button");
-    saveButton.id = "bb-cloud-save";
-    saveButton.type = "button";
-    saveButton.textContent = "雲端儲存";
-    const openButton = document.createElement("button");
-    openButton.id = "bb-cloud-open";
-    openButton.type = "button";
-    openButton.textContent = "雲端棋譜";
-    panel.insertBefore(saveButton, exportStatus || null);
-    panel.insertBefore(openButton, exportStatus || null);
-
+    const auth = document.createElement("div"); auth.id = "bb-cloud-auth";
+    auth.innerHTML = '<div id="vcf-google-login"></div><span id="bb-cloud-user"></span><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
+    const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
+    const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
+    const queryButton = document.createElement("button"); queryButton.id = "bb-cloud-query"; queryButton.className = "bb-cloud-btn"; queryButton.textContent = "查目前盤面"; queryButton.disabled = true;
+    panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(queryButton, exportStatus || null);
+    auth.querySelector("#bb-cloud-logout").addEventListener("click", () => logout());
     saveButton.addEventListener("click", async () => {
-      saveButton.disabled = true;
-      status("正在建立真正 LZ4 壓縮的 YXDB……");
+      saveButton.disabled = true; status("正在建立 LZ4 YXDB……");
       try {
-        const defaultTitle = String(document.getElementById("vcf-record-title")?.value || "").trim();
-        const title = global.prompt("棋譜標題", defaultTitle) ?? null;
-        if (title === null) return;
+        const title = prompt("棋譜標題", "") ?? null; if (title === null) return;
         const result = await saveCurrent(title.trim());
-        const percent = result.rawSize ? Math.round((1 - result.compressedSize / result.rawSize) * 100) : 0;
-        status(`已存雲端 #${result.id}：${result.recordCount} 局面，${formatBytes(result.compressedSize)}（LZ4 節省 ${percent}%）`);
-      } catch (error) {
-        console.error("VCF 雲端儲存失敗", error);
-        status(error?.message || String(error));
-      } finally {
-        saveButton.disabled = false;
-      }
+        status(`已存入你的帳號 #${result.id}：${result.recordCount} 局面 / ${formatBytes(result.compressedSize)}`);
+      } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
-
-    openButton.addEventListener("click", async () => {
-      openButton.disabled = true;
+    openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
+    queryButton.addEventListener("click", async () => {
+      queryButton.disabled = true;
       try {
-        const dialog = ensureDialog();
-        if (!dialog.open) dialog.showModal();
-        await refreshDialog(dialog);
-      } catch (error) {
-        status(error?.message || String(error));
-      } finally {
-        openButton.disabled = false;
-      }
+        const result = await queryCurrentBoard();
+        status(result.found ? `YXDB 命中${result.text ? `：${result.text}` : "（無註解）"}` : "目前盤面在這份 YXDB 中找不到。");
+      } catch (e) { status(e.message || String(e)); } finally { refreshQueryButton(); }
     });
-    return true;
+    refreshAuthUI(); return true;
   }
 
   const api = {
-    API_URL,
-    xxhash32,
-    lz4CompressBlock,
-    createLZ4Frame,
-    buildRawYXDBFromTree,
-    createCurrentYXDB,
-    saveCurrent,
-    list,
-    load,
-    remove,
-    currentBytes: null,
-    currentMeta: null,
+    API_URL, xxhash32, lz4CompressBlock, createLZ4Frame, buildRawYXDBFromTree, createCurrentYXDB,
+    publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, loadIntoIndex, queryCurrentBoard,
+    currentBytes: null, currentMeta: null,
+    get authUser() { return authUser; },
   };
   global.VCFCloudYXDB = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-
   if (typeof document === "undefined") return;
-  if (!installUI()) {
-    const observer = new MutationObserver(() => {
-      if (installUI()) observer.disconnect();
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-  }
+
+  installUI();
+  Promise.all([publicConfig(), authMe()]).then(() => { refreshAuthUI(); renderGoogleButton(); }).catch(e => status(e.message || String(e)));
+  global.addEventListener("load", () => { renderGoogleButton(); }, { once: true });
 })(typeof window !== "undefined" ? window : globalThis);
