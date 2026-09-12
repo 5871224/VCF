@@ -47,7 +47,8 @@ jobs:
             rapfi/vcf-shortest-vcf-ui.js \
             rapfi/vcf-forbidden-overlay.js \
             rapfi/rapfi-workbench-header.js \
-            rapfi/rapfi-question-bank.js; do
+            rapfi/rapfi-question-bank.js \
+            rapfi/vcf-lz4-cloud.js; do
             node --check "$file"
           done
 
