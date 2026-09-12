@@ -53,6 +53,18 @@ def copy_file(source: Path, destination: Path) -> None:
     shutil.copy2(source, destination)
 
 
+def inject_pages_scripts() -> None:
+    """Inject deployment-only fixed scripts without runtime dynamic loading."""
+    index = SITE / "index.html"
+    html = index.read_text(encoding="utf-8")
+    cloud_tag = '<script src="rapfi/vcf-lz4-cloud.js?v=20260912"></script>'
+    if cloud_tag not in html:
+        if "</body>" not in html:
+            raise RuntimeError("root entry is missing </body>")
+        html = html.replace("</body>", f"{cloud_tag}\n\n</body>", 1)
+        index.write_text(html, encoding="utf-8")
+
+
 def main() -> None:
     shutil.rmtree(SITE, ignore_errors=True)
     SITE.mkdir(parents=True)
@@ -87,6 +99,7 @@ def main() -> None:
         for source in matches:
             copy_file(source, engine_dir / source.name)
 
+    inject_pages_scripts()
     (SITE / ".nojekyll").touch()
 
     forbidden = [
@@ -112,6 +125,7 @@ def main() -> None:
         "rapfi-bitboard-dashboard.js",
         "vcf-shortest-vcf-ui.js",
         "vcf-forbidden-overlay.js",
+        "vcf-lz4-cloud.js",
     ]
     missing = [token for token in required_tokens if token not in html]
     if missing:
