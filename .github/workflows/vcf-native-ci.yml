@@ -10,6 +10,8 @@ on:
       - 'rapfi/vcf-bitboard-search-v2.cpp'
       - 'rapfi/vcf-bitboard-search-*.inc'
       - 'rapfi/vcf-bitboard-legacy-extra.cpp'
+      - 'rapfi/vcf-yxdb-index.cpp'
+      - 'rapfi/vcf-lz4-cloud.js'
       - 'rapfi/vcf-bitboard-main.js'
       - 'rapfi/vcf-bitboard-worker.js'
       - 'rapfi/vcf-shortest-vcf-ui.js'
@@ -47,6 +49,16 @@ jobs:
       - name: Run production search self-tests
         run: /tmp/vcf-bitboard-engine-test
 
+      - name: Build and run YXDB binary-index self-test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          g++ rapfi/vcf-yxdb-index.cpp \
+              -O3 -flto -DNDEBUG -std=c++17 \
+              -DVCF_YXDB_INDEX_TEST_MAIN \
+              -o /tmp/vcf-yxdb-index-test
+          /tmp/vcf-yxdb-index-test
+
       - name: Check JavaScript syntax
         shell: bash
         run: |
@@ -55,7 +67,8 @@ jobs:
             rapfi/vcf-bitboard-main.js \
             rapfi/vcf-bitboard-worker.js \
             rapfi/vcf-shortest-vcf-ui.js \
-            rapfi/rapfi-bitboard-dashboard.js; do
+            rapfi/rapfi-bitboard-dashboard.js \
+            rapfi/vcf-lz4-cloud.js; do
             node --check "$file"
           done
 
@@ -87,8 +100,8 @@ jobs:
         run: |
           set -euxo pipefail
           source .build/emsdk/emsdk_env.sh
-          rm -rf /tmp/vcf-wasm-test
-          mkdir -p /tmp/vcf-wasm-test
+          rm -rf /tmp/vcf-wasm-test /tmp/vcf-yxdb-test
+          mkdir -p /tmp/vcf-wasm-test /tmp/vcf-yxdb-test
           em++ rapfi/vcf-pattern-engine.cpp \
                rapfi/vcf-bitboard-engine.cpp \
                rapfi/vcf-bitboard-search-v2.cpp \
@@ -104,6 +117,19 @@ jobs:
                -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
                -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
                -o /tmp/vcf-wasm-test/vcf-bitboard-engine.js
+
+          em++ rapfi/vcf-yxdb-index.cpp \
+               -O3 -flto -DNDEBUG -std=c++17 \
+               --no-entry \
+               -s WASM=1 \
+               -s MODULARIZE=1 \
+               -s EXPORT_NAME=VCFYxdbIndexModule \
+               -s ENVIRONMENT='web,worker,node' \
+               -s FILESYSTEM=0 \
+               -s ALLOW_MEMORY_GROWTH=1 \
+               -s "EXPORTED_FUNCTIONS=['_vcfYxdbLoadFrame','_vcfYxdbQueryKey','_vcfYxdbQueryBoard','_vcfYxdbResultTextPtr','_vcfYxdbResultTextLength','_vcfYxdbQueryKeyPtr','_vcfYxdbQueryKeyLength','_vcfYxdbRecordCount','_vcfYxdbRawSize','_vcfYxdbIndexSlots','_vcfYxdbLastError','_malloc','_free']" \
+               -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+               -o /tmp/vcf-yxdb-test/vcf-yxdb-index.js
 
       - name: Run production Wasm ABI tests
         shell: bash
@@ -122,15 +148,10 @@ jobs:
             const searchTest = module.cwrap("vcfBbSearchV2SelfTest", "number", []);
             const findModeV3 = module.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"));
             const findShortestOne = module.cwrap("vcfBbFindShortestOne", "number", Array(9).fill("number"));
-
             const baseCode = selfTest();
-            fs.appendFileSync(diagnostic, `base self-test=${baseCode}\n`);
             if (baseCode !== 0) throw new Error(`base self-test failed: ${baseCode}`);
-
             const searchCode = searchTest();
-            fs.appendFileSync(diagnostic, `search self-test=${searchCode}\n`);
             if (searchCode !== 0) throw new Error(`search self-test failed: ${searchCode}`);
-
             const board = module._malloc(225);
             const moves = module._malloc(224);
             const lengths = module._malloc(2);
@@ -139,35 +160,34 @@ jobs:
             module.HEAPU8.fill(0, moves, moves + 224);
             module.HEAPU16[lengths >>> 1] = 0;
             for (let x = 3; x <= 6; x++) module.HEAPU8[board + 7 * 15 + x] = 1;
-
-            const count = findModeV3(board, 1, 2, 0, 0, 0, 1, 15, 100000,
-                                     moves, lengths, 224, stats);
+            const count = findModeV3(board, 1, 2, 0, 0, 0, 1, 15, 100000, moves, lengths, 224, stats);
             const routeLength = module.HEAPU16[lengths >>> 1];
-            fs.appendFileSync(diagnostic,
-              `production find count=${count}; route length=${routeLength}; first=${module.HEAPU8[moves]}\n`);
-            if (count < 1 || routeLength !== 1)
-              throw new Error("production find ABI route mismatch");
-
+            if (count < 1 || routeLength !== 1) throw new Error("production find ABI route mismatch");
             module.HEAPU16[lengths >>> 1] = 0;
-            const shortestStatus = findShortestOne(board, 1, 2, 15, 100000,
-                                                   moves, lengths, 224, stats);
+            const shortestStatus = findShortestOne(board, 1, 2, 15, 100000, moves, lengths, 224, stats);
             const shortestLength = module.HEAPU16[lengths >>> 1];
-            fs.appendFileSync(diagnostic,
-              `shortest-one status=${shortestStatus}; route length=${shortestLength}; first=${module.HEAPU8[moves]}\n`);
-            if (shortestStatus !== 2 || shortestLength !== 1)
-              throw new Error("shortest-one ABI proof mismatch");
-
-            module._free(stats);
-            module._free(lengths);
-            module._free(moves);
-            module._free(board);
+            if (shortestStatus !== 2 || shortestLength !== 1) throw new Error("shortest-one ABI proof mismatch");
+            module._free(stats); module._free(lengths); module._free(moves); module._free(board);
             fs.appendFileSync(diagnostic, "VCF production Wasm ABI tests passed\n");
             console.log("VCF production Wasm ABI tests passed");
           }).catch(error => {
             fs.appendFileSync(diagnostic, `${error.stack || error.message || String(error)}\n`);
-            console.error(error);
-            process.exit(1);
+            console.error(error); process.exit(1);
           });
+          NODE
+
+      - name: Run YXDB Wasm ABI smoke test
+        shell: bash
+        run: |
+          node - <<'NODE'
+          const path = require('path');
+          const create = require('/tmp/vcf-yxdb-test/vcf-yxdb-index.js');
+          create({ locateFile: file => path.join('/tmp/vcf-yxdb-test', file) }).then(module => {
+            for (const name of ['vcfYxdbLoadFrame','vcfYxdbQueryBoard','vcfYxdbResultTextPtr','vcfYxdbResultTextLength','vcfYxdbRecordCount']) {
+              if (typeof module.cwrap(name, 'number', []) !== 'function') throw new Error(`missing ${name}`);
+            }
+            console.log('YXDB Wasm ABI smoke test passed');
+          }).catch(error => { console.error(error); process.exit(1); });
           NODE
 
       - name: Run Worker runtime regressions
