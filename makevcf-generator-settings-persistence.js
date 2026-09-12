@@ -180,3 +180,14 @@
   global.addEventListener("DOMContentLoaded", initialize, { once: true });
   global.addEventListener("load", initialize, { once: true });
 })(window);
+
+// Cloud YXDB is intentionally loaded after the record/export modules so it can
+// add cloud controls without making the main HTML entry point larger.
+(function loadVCFCloudYXDB(global) {
+  if (global.__vcfCloudYXDBLoaderAdded) return;
+  global.__vcfCloudYXDBLoaderAdded = true;
+  const script = global.document.createElement("script");
+  script.src = "rapfi/vcf-lz4-cloud.js?v=20260912";
+  script.async = true;
+  global.document.head.appendChild(script);
+})(window);
