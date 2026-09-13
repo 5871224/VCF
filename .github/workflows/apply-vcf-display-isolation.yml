@@ -29,6 +29,7 @@ jobs:
           s = s.replace('calcNextBranchButton.id = "btn-vcf-calc-branch-next"', 'calcNextGroupButton.id = "btn-vcf-calc-group-next"')
           s = s.replace('makevcf-layout.js?v=20260913-calc-display', 'makevcf-layout.js?v=20260913-calc-display-v2')
           s = s.replace('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display', 'rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2')
+          s = s.replace('renderNextMoveMarkers(', 'renderRecordNextMoveMarkers(')
           s = s.replace("'renderNextMoveMarkers',", "'renderRecordNextMoveMarkers',")
           p.write_text(s, encoding='utf-8')
           PY
