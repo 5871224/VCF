@@ -31,6 +31,8 @@ jobs:
           s = s.replace('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display', 'rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2')
           s = s.replace('renderNextMoveMarkers(', 'renderRecordNextMoveMarkers(')
           s = s.replace("'renderNextMoveMarkers',", "'renderRecordNextMoveMarkers',")
+          s = s.replace("  'moveVcfBranch(direction)',\n", "")
+          s = s.replace("  'vcfNextMoves(route, replayPly).length <= 1',\n", "")
           p.write_text(s, encoding='utf-8')
           PY
       - name: Validate JavaScript
