@@ -18,6 +18,20 @@ jobs:
         uses: actions/checkout@v6
       - name: Apply patch
         run: python tools/one_time_vcf_display_isolation.py
+      - name: Refresh stale calculation-display contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('tests/workbench-architecture.test.js')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('calcPreviousBranchButton.id = "btn-vcf-calc-branch-prev"', 'calcPrevGroupButton.id = "btn-vcf-calc-group-prev"')
+          s = s.replace('calcNextBranchButton.id = "btn-vcf-calc-branch-next"', 'calcNextGroupButton.id = "btn-vcf-calc-group-next"')
+          s = s.replace('makevcf-layout.js?v=20260913-calc-display', 'makevcf-layout.js?v=20260913-calc-display-v2')
+          s = s.replace('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display', 'rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2')
+          s = s.replace("'renderNextMoveMarkers',", "'renderRecordNextMoveMarkers',")
+          p.write_text(s, encoding='utf-8')
+          PY
       - name: Validate JavaScript
         run: |
           node --check makevcf-layout.js
