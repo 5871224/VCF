@@ -5,7 +5,7 @@
   const STORAGE_KEY = "vcf_same_type_trim_live_four";
 
   // 所有會建立新計算結果的入口，先走既有「清除標記」流程。
-  // 單一路線防守（btn-block-vcf）刻意排除，因為它需要目前 VCF 路線作為輸入。
+  // 單一路線防守與全部路線防守刻意排除，因為防守計算需要保留目前標記／路線。
   if (!global.__vcfCalculationAutoClearInstalled) {
     global.__vcfCalculationAutoClearInstalled = true;
     const AUTO_CLEAR_CALCULATION_IDS = new Set([
@@ -13,7 +13,6 @@
       "btn-white",
       "btn-multi-vcf",
       "btn-shortest-vcf",
-      "btn-block-vcf-all",
       "btn-level3",
       "btn-add-black",
       "btn-add-white",
