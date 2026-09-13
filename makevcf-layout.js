@@ -319,7 +319,7 @@
     }
   }
 
-  function renderCalculationDisplay() {
+  function renderCalculationDisplay({ updateStatus = true } = {}) {
     const route = currentCalculationRoute();
     if (!route.length) {
       window._clearVCF?.();
@@ -333,7 +333,7 @@
     window._showVCF?.(route.slice(0, ply), calculationDisplay.color);
     renderCalculationNextMoveMarkers(ply < route.length ? [route[ply]] : []);
     syncCalculationNavigation();
-    if (typeof setStatus === "function") {
+    if (updateStatus && typeof setStatus === "function") {
       const color = calculationDisplay.color === WHITE ? "白" : "黑";
       setStatus(`展示計算：${color}方第 ${calculationDisplay.groupIndex + 1}/${calculationDisplay.groups.length} 組，第 ${ply}/${route.length} 手`);
     }
@@ -1168,7 +1168,8 @@
   calcNextStepButton.addEventListener("click", () => moveCalculationStep(1));
   window.addEventListener("vcf-result-changed", event => {
     if (event.detail?.hasResult && captureCalculationResult()) {
-      renderCalculationDisplay();
+      // 搜尋完成後只同步展示面板；保留搜尋本身的耗時、節點與速度完成提示。
+      renderCalculationDisplay({ updateStatus: false });
     } else {
       resetCalculationDisplay({ clearOverlay: false });
     }

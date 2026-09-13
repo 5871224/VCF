@@ -317,7 +317,7 @@
         }
         case "getBlockVCF": {
           const result = await this.main.call("getBlockVCF", { ...normalized, rules: this.rules });
-          return result.points;
+          return normalized.includeStats ? result : result.points;
         }
         case "getLevelPoints": return this.main.call("getLevelPoints", { ...normalized, rules: this.rules });
         case "trimVCFGroups": return this.main.call("trimVCFGroups", { ...normalized, rules: this.rules });

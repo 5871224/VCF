@@ -303,7 +303,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 
   window.__vcfRootBitboardWorkbench = true;
   document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\/script>');
-  document.write('<script src="rapfi/vcf-bitboard-main.js"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20260913-search-stats"><\/script>');
 })();
 </script>
 <script>
@@ -389,7 +389,7 @@ class VCFEngine {
 
   async getBlockVCF({ arr, color, vcfMoves }) {
     await this._initP;
-    return await this._post("getBlockVCF", { arr, color, vcfMoves, includeFour: true });
+    return await this._post("getBlockVCF", { arr, color, vcfMoves, includeFour: true, includeStats: true });
   }
 
   async getLevelPoints({ arr, color, placeColor, maxDepth = 200, maxNode = 5000000 }) {
@@ -927,10 +927,12 @@ document.getElementById("btn-block-vcf").addEventListener("click", async () => {
     setStatus(`計算 ${cName} VCF 防守點...`);
     const result = await engine.getBlockVCF({ arr, color, vcfMoves: lastVCFMoves });
     if (!result) return;
-    if (result.length) {
-      window._showAnalysisTriangles(result, "#00cc44");
-      setStatus(`${cName} VCF 防守點：${result.length} 個（${elapsed(t0)}）`);
-    } else { window._clearAnalysis(); setStatus(`${cName} 未找到 VCF 防守點（${elapsed(t0)}）`); }
+    const points = Array.isArray(result) ? result : (Array.isArray(result.points) ? result.points : []);
+    const nodeCount = Array.isArray(result) ? 0 : Number(result.nodeCount || 0);
+    if (points.length) {
+      window._showAnalysisTriangles(points, "#00cc44");
+      setStatus(`${cName} VCF 防守點：${points.length} 個（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`);
+    } else { window._clearAnalysis(); setStatus(`${cName} 未找到 VCF 防守點（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`); }
   } finally {
     setBusy(false);
   }
@@ -958,11 +960,14 @@ document.getElementById("btn-block-vcf-all").addEventListener("click", async () 
     document.getElementById("btn-block-vcf").disabled = false;
 
     setStatus(`取得 ${cName} VCF 防守候選點...`);
-    const candidates = await engine.getBlockVCF({ arr, color, vcfMoves: lastVCFMoves });
-    if (!candidates) return;
+    const blockResult = await engine.getBlockVCF({ arr, color, vcfMoves: lastVCFMoves });
+    if (!blockResult) return;
+    const candidates = Array.isArray(blockResult) ? blockResult : (Array.isArray(blockResult.points) ? blockResult.points : []);
+    const blockNodeCount = Array.isArray(blockResult) ? 0 : Number(blockResult.nodeCount || 0);
     if (!candidates.length) {
       window._clearAnalysis();
-      setStatus(`${cName} 未找到 VCF 防守候選點（${elapsed(t0)}）`);
+      const totalNodes = Number(vcfResult.nodeCount || 0) + blockNodeCount;
+      setStatus(`${cName} 未找到 VCF 防守候選點（${elapsed(t0)}，${fmtNodes(totalNodes)}，${fmtRate(totalNodes, t0)}）`);
       return;
     }
 
@@ -971,13 +976,14 @@ document.getElementById("btn-block-vcf-all").addEventListener("click", async () 
     if (!data) return;
     const stillVCF = new Set(data.items.map(r => r.idx));
     const confirmed = candidates.filter(idx => !stillVCF.has(idx));
+    const totalNodes = Number(vcfResult.nodeCount || 0) + blockNodeCount + Number(data.nodeCount || 0);
 
     window._clearAnalysis();
     if (confirmed.length) {
       window._showAnalysisTriangles(confirmed, "#4488ff");
-      setStatus(`${cName} 全部VCF防守：${confirmed.length} 個有效防守點（${elapsed(t0)}，${fmtNodes(data.nodeCount)}，${fmtRate(data.nodeCount, t0)}）`);
+      setStatus(`${cName} 全部VCF防守：${confirmed.length} 個有效防守點（${elapsed(t0)}，${fmtNodes(totalNodes)}，${fmtRate(totalNodes, t0)}）`);
     } else {
-      setStatus(`${cName} 無有效防守點（${elapsed(t0)}，${fmtNodes(data.nodeCount)}，${fmtRate(data.nodeCount, t0)}）`);
+      setStatus(`${cName} 無有效防守點（${elapsed(t0)}，${fmtNodes(totalNodes)}，${fmtRate(totalNodes, t0)}）`);
     }
   } finally {
     setBusy(false);
@@ -3139,7 +3145,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-generator-progress.js"></script>
 <script src="makevcf-generator-status-detail.js"></script>
 <!-- 卡片化工作台與產生器介面 -->
-<script src="makevcf-layout.js?v=20260913-calc-display-v2"></script>
+<script src="makevcf-layout.js?v=20260913-search-stats"></script>
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20260913-defense-preserve"></script>
 <script src="rapfi/vcf-forbidden-overlay.js"></script>

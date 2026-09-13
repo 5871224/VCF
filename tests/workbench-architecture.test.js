@@ -113,6 +113,19 @@ if (layout.includes("if (currentReplayRoute().length)")) {
 if (!layout.includes("VCF 計算展示只使用 SVG overlay，不呼叫 _setBoardArr，也不寫入 VCFWorkbenchRecord")) {
   throw new Error("calculation display isolation contract missing");
 }
+if (!layout.includes("function renderCalculationDisplay({ updateStatus = true } = {})")
+    || !layout.includes("renderCalculationDisplay({ updateStatus: false })")
+    || !layout.includes('if (updateStatus && typeof setStatus === "function")')) {
+  throw new Error("calculation result sync must preserve completed search statistics");
+}
+const workbenchHtml = read("makevcf.html");
+if (!workbenchHtml.includes("includeStats: true")
+    || !workbenchHtml.includes("const totalNodes = Number(vcfResult.nodeCount || 0) + blockNodeCount + Number(data.nodeCount || 0)")) {
+  throw new Error("defense statistics display contract missing");
+}
+if (!main.includes("normalized.includeStats ? result : result.points")) {
+  throw new Error("getBlockVCF detailed statistics bridge missing");
+}
 
 const recordTools = read("rapfi/vcf-record-tools.js");
 new Function(recordTools);
@@ -333,7 +346,7 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("makevcf.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260913-calc-display-v2')
+if (!calculationEntry.includes('makevcf-layout.js?v=20260913-search-stats')
     || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
@@ -360,7 +373,7 @@ for (const token of [
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260913-calc-display-v2')
+if (!entry.includes('makevcf-layout.js?v=20260913-search-stats')
     || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2')
     || !entry.includes('rapfi/vcf-record-tools.js?v=20260913-direct-board-edit')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
