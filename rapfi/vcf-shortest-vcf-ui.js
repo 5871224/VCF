@@ -3,6 +3,28 @@
 (function installShortestVcfUi(global) {
   const CHECKBOX_ID = "vcf-same-type-trim-live-four";
   const STORAGE_KEY = "vcf_same_type_trim_live_four";
+
+  // 所有會建立新計算結果的入口，先走既有「清除標記」流程。
+  // 單一路線防守（btn-block-vcf）刻意排除，因為它需要目前 VCF 路線作為輸入。
+  if (!global.__vcfCalculationAutoClearInstalled) {
+    global.__vcfCalculationAutoClearInstalled = true;
+    const AUTO_CLEAR_CALCULATION_IDS = new Set([
+      "btn-black",
+      "btn-white",
+      "btn-multi-vcf",
+      "btn-shortest-vcf",
+      "btn-block-vcf-all",
+      "btn-level3",
+      "btn-add-black",
+      "btn-add-white",
+    ]);
+    document.addEventListener("click", event => {
+      const button = event.target?.closest?.("button");
+      if (!button || !AUTO_CLEAR_CALCULATION_IDS.has(button.id)) return;
+      document.getElementById("btn-clear-vcf")?.click();
+    }, true);
+  }
+
   const multiButton = document.getElementById("btn-multi-vcf");
   if (!multiButton || document.getElementById("btn-shortest-vcf")) return;
 
