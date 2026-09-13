@@ -982,20 +982,49 @@
     return true;
   }
 
-  async function loadRecordFile(file) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const lowerName = String(file.name || "").toLowerCase();
+  function deepestImportedNode(tree) {
+    let best = tree?.current || null;
+    const visit = node => {
+      if (!node) return;
+      if (!node.synthetic && (!best || Number(node.ply || 0) > Number(best.ply || 0))) best = node;
+      for (const child of node.children || []) visit(child);
+    };
+    visit(tree?.root);
+    return best || tree?.current || null;
+  }
+
+  async function loadRecordBytes(rawBytes, fileName = "棋譜.db", options = {}) {
+    const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes || 0);
+    const lowerName = String(fileName || "").toLowerCase();
     const looksRenLib = lowerName.endsWith(".lib")
       || (bytes.length >= 8 && bytes[0] === 0xff && bytes[1] === 0x52 && bytes[2] === 0x65 && bytes[3] === 0x6e);
     const tree = looksRenLib ? parseRenLib(bytes) : parseYXDB(bytes);
     document.getElementById("btn-clear-vcf")?.click();
     importedTree = tree;
-    importedTree.fileName = file.name || (looksRenLib ? "棋譜.lib" : "棋譜.db");
+    importedTree.fileName = fileName || (looksRenLib ? "棋譜.lib" : "棋譜.db");
     replaySignature = "";
     replayPly = 0;
     if (tree.rule != null && typeof window.vcfSetRules === "function") await window.vcfSetRules(tree.rule);
-    renderImportedNode(tree.current);
+    const target = options?.openAtEnd ? deepestImportedNode(tree) : tree.current;
+    renderImportedNode(target || tree.current);
+    return {
+      format: tree.format,
+      nodeCount: tree.nodeCount,
+      rootCount: tree.rootCount,
+      currentPly: Number(importedTree.current?.ply || 0),
+    };
   }
+
+  async function loadRecordFile(file) {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return loadRecordBytes(bytes, file.name || "棋譜.db", { openAtEnd: false });
+  }
+
+  window.VCFRecordImportAPI = {
+    loadBytes(bytes, fileName = "雲端棋譜.db", options = {}) {
+      return loadRecordBytes(bytes, fileName, options);
+    },
+  };
 
   function installRecordImportControls() {
     const panel = document.getElementById("bitboard-architecture-panel");

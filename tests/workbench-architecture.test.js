@@ -321,10 +321,26 @@ for (const token of [
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260826-record-tools-v2')
+if (!entry.includes('makevcf-layout.js?v=20260913-cloud-load-board')
     || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2')
     || !entry.includes('rapfi/vcf-record-tools.js?v=20260913-direct-board-edit')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
+}
+
+const cloudYXDB = read("rapfi/vcf-lz4-cloud.js");
+for (const token of [
+  'window.VCFRecordImportAPI = {',
+  'loadRecordBytes(rawBytes',
+  'options?.openAtEnd ? deepestImportedNode(tree) : tree.current',
+]) if (!layout.includes(token)) throw new Error(`record byte importer contract missing: ${token}`);
+for (const token of [
+  'const importer = global.VCFRecordImportAPI;',
+  'importer.loadBytes(result.bytes',
+  'loadButton.textContent = "載入棋譜";',
+]) if (!cloudYXDB.includes(token)) throw new Error(`cloud record load contract missing: ${token}`);
+const pagesBuilderCloud = read("tools/prepare-pages-site.py");
+if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260913-cloud-load-board')) {
+  throw new Error("cloud record script must be cache-busted in Pages artifact");
 }
 
 const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");

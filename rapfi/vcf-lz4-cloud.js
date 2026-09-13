@@ -384,7 +384,11 @@
   async function load(id) {
     const result = await fetchRecord(id);
     await loadIntoIndex(result.bytes, result.meta);
-    return result.bytes;
+    const importer = global.VCFRecordImportAPI;
+    if (!importer?.loadBytes) throw new Error("棋譜載入模組尚未就緒，請重新整理頁面後再試");
+    const title = String(result.meta?.title || "").trim();
+    const imported = await importer.loadBytes(result.bytes, title ? `${title}.db` : `雲端棋譜-${id}.db`, { openAtEnd: true });
+    return { ...result, imported, indexedMeta };
   }
   function readBoard() {
     const source = global._getArr?.() || [];
@@ -450,8 +454,8 @@
       info.firstElementChild.textContent = record.title || `棋譜 #${record.id}`;
       info.lastElementChild.textContent = `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
       const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
-      const loadButton = document.createElement("button"); loadButton.textContent = "載入＋建立索引";
-      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { await load(record.id); status(`已建立 WASM 索引：${indexedMeta.recordCount} 局面 / ${indexedMeta.indexSlots} slots / raw ${formatBytes(indexedMeta.rawSize)}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
+      const loadButton = document.createElement("button"); loadButton.textContent = "載入棋譜";
+      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${record.title || `棋譜 #${record.id}`}」：${loaded.imported?.nodeCount || indexedMeta.recordCount} 個局面；WASM 索引 ${indexedMeta.recordCount} 局面`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
       const dl = document.createElement("button"); dl.textContent = "下載 .db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `vcf-cloud-${record.id}.db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
       const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${record.title || `棋譜 #${record.id}`}」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
       actions.append(loadButton, dl, del); row.append(info, actions); container.appendChild(row);
