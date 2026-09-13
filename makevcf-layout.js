@@ -165,6 +165,14 @@
   const recordNavigationActions = document.getElementById("vcf-record-navigation-actions");
   recordNavigationActions?.append(prevStepButton, nextStepButton, previousBranchButton, nextBranchButton);
 
+  const calcPrevGroupButton = document.createElement("button");
+  calcPrevGroupButton.id = "btn-vcf-calc-group-prev";
+  calcPrevGroupButton.type = "button";
+  calcPrevGroupButton.textContent = "上一組";
+  const calcNextGroupButton = document.createElement("button");
+  calcNextGroupButton.id = "btn-vcf-calc-group-next";
+  calcNextGroupButton.type = "button";
+  calcNextGroupButton.textContent = "下一組";
   const calcPrevStepButton = document.createElement("button");
   calcPrevStepButton.id = "btn-vcf-calc-step-prev";
   calcPrevStepButton.type = "button";
@@ -173,26 +181,31 @@
   calcNextStepButton.id = "btn-vcf-calc-step-next";
   calcNextStepButton.type = "button";
   calcNextStepButton.textContent = "計算下一步";
-  const calcPreviousBranchButton = document.createElement("button");
-  calcPreviousBranchButton.id = "btn-vcf-calc-branch-prev";
-  calcPreviousBranchButton.type = "button";
-  calcPreviousBranchButton.textContent = "前一分岔";
-  const calcNextBranchButton = document.createElement("button");
-  calcNextBranchButton.id = "btn-vcf-calc-branch-next";
-  calcNextBranchButton.type = "button";
-  calcNextBranchButton.textContent = "後一分岔";
+  const calcGroupSelect = document.createElement("select");
+  calcGroupSelect.id = "vcf-calculation-group-select";
+  calcGroupSelect.setAttribute("aria-label", "VCF 計算組別");
+  const calculationGroupRow = document.createElement("div");
+  calculationGroupRow.className = "vcf-calculation-group-row";
+  const calculationGroupLabel = document.createElement("span");
+  calculationGroupLabel.textContent = "計算路線";
+  calculationGroupRow.append(calculationGroupLabel, calcGroupSelect);
   const calculationNavigationActions = document.getElementById("vcf-calculation-navigation-actions");
-  calculationNavigationActions?.append(calcPrevStepButton, calcNextStepButton, calcPreviousBranchButton, calcNextBranchButton);
+  calculationNavigation.insertBefore(calculationGroupRow, calculationNavigationActions || null);
+  calculationNavigationActions?.append(calcPrevGroupButton, calcNextGroupButton, calcPrevStepButton, calcNextStepButton);
 
-  let replaySignature = "";
-  let replayPly = 0;
+  let calculationDisplay = {
+    groups: [],
+    groupIndex: 0,
+    color: BLACK,
+    ply: 0,
+  };
   let importedTree = null;
 
-  function renderNextMoveMarkers(moves) {
-    let layer = board.querySelector("#vcf-record-next-move-layer");
+  function renderMarkerLayer(layerId, moves, { stroke, dash = "" } = {}) {
+    let layer = board.querySelector(`#${layerId}`);
     if (!layer) {
       layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      layer.id = "vcf-record-next-move-layer";
+      layer.id = layerId;
       layer.setAttribute("pointer-events", "none");
       board.appendChild(layer);
     }
@@ -207,137 +220,145 @@
       circle.setAttribute("cy", 22 + y * 34);
       circle.setAttribute("r", 13);
       circle.setAttribute("fill", "none");
-      circle.setAttribute("stroke", "#1976c9");
+      circle.setAttribute("stroke", stroke);
       circle.setAttribute("stroke-width", "3");
+      if (dash) circle.setAttribute("stroke-dasharray", dash);
       circle.setAttribute("vector-effect", "non-scaling-stroke");
       layer.appendChild(circle);
     }
   }
 
-  function currentReplayRoute() {
-    if (typeof lastVCFMoves === "undefined" || !lastVCFMoves || typeof lastVCFMoves.length !== "number") {
-      return [];
-    }
-    return Array.from(lastVCFMoves, move => Number(move));
+  function renderRecordNextMoveMarkers(moves) {
+    renderMarkerLayer("vcf-record-next-move-layer", moves, { stroke: "#1976c9" });
   }
 
-  function currentReplaySignature(route) {
-    const color = typeof lastVCFColor !== "undefined" ? Number(lastVCFColor) : 1;
-    const group = typeof vcfGroupIdx !== "undefined" ? Number(vcfGroupIdx) : -1;
-    return `${color}|${group}|${route.join(",")}`;
+  function renderCalculationNextMoveMarkers(moves) {
+    renderMarkerLayer("vcf-calculation-next-move-layer", moves, { stroke: "#d28b00", dash: "5 3" });
   }
 
-  function ensureReplayState() {
-    const route = currentReplayRoute();
-    if (!route.length) {
-      replaySignature = "";
-      replayPly = 0;
-      return route;
+  function clearCalculationNextMoveMarkers() {
+    renderCalculationNextMoveMarkers([]);
+  }
+
+  function currentCalculationRoute() {
+    return calculationDisplay.groups[calculationDisplay.groupIndex] || [];
+  }
+
+  function calculationGroupsFromEngine() {
+    const multi = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length
+      ? vcfGroups
+      : null;
+    if (multi) {
+      return multi
+        .filter(route => route && typeof route.length === "number" && route.length)
+        .map(route => Array.from(route, move => Number(move)));
     }
-    const signature = currentReplaySignature(route);
-    if (signature !== replaySignature) {
-      replaySignature = signature;
-      replayPly = route.length;
+    if (typeof lastVCFMoves !== "undefined" && lastVCFMoves && typeof lastVCFMoves.length === "number" && lastVCFMoves.length) {
+      return [Array.from(lastVCFMoves, move => Number(move))];
     }
-    return route;
+    return [];
+  }
+
+  function resetCalculationDisplay({ clearOverlay = true } = {}) {
+    calculationDisplay = { groups: [], groupIndex: 0, color: BLACK, ply: 0 };
+    if (clearOverlay) window._clearVCF?.();
+    clearCalculationNextMoveMarkers();
+    syncCalculationNavigation();
+  }
+
+  function captureCalculationResult() {
+    const groups = calculationGroupsFromEngine();
+    if (!groups.length) {
+      resetCalculationDisplay({ clearOverlay: false });
+      return false;
+    }
+    const color = typeof lastVCFColor !== "undefined" ? Number(lastVCFColor) || BLACK : BLACK;
+    const engineGroup = typeof vcfGroupIdx !== "undefined" ? Number(vcfGroupIdx) : 0;
+    const groupIndex = Math.max(0, Math.min(groups.length - 1, Number.isInteger(engineGroup) ? engineGroup : 0));
+    calculationDisplay = {
+      groups,
+      groupIndex,
+      color,
+      ply: groups[groupIndex].length,
+    };
+    syncCalculationNavigation();
+    return true;
   }
 
   function syncCalculationNavigation() {
-    const route = currentReplayRoute();
+    const groups = calculationDisplay.groups;
+    const route = currentCalculationRoute();
     const hasResult = route.length > 0;
     const badge = document.getElementById("vcf-calculation-badge");
     const state = document.getElementById("vcf-calculation-navigation-state");
-    const color = typeof lastVCFColor !== "undefined" && Number(lastVCFColor) === 2 ? "白" : "黑";
-    const groups = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) ? vcfGroups : null;
-    const branchText = groups && groups.length
-      ? `分支 ${Math.min(groups.length, Number(vcfGroupIdx || 0) + 1)}/${groups.length}`
-      : "單一分支";
+    const color = calculationDisplay.color === WHITE ? "白" : "黑";
     calculationNavigation.classList.toggle("is-active", hasResult);
     if (badge) badge.textContent = hasResult ? "展示計算中" : "尚無結果";
+
+    const expectedOptions = groups.length;
+    if (calcGroupSelect.options.length !== expectedOptions) {
+      calcGroupSelect.replaceChildren();
+      groups.forEach((candidate, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `第 ${index + 1} 組（${candidate.length} 手）`;
+        calcGroupSelect.appendChild(option);
+      });
+    }
+    if (hasResult) calcGroupSelect.value = String(calculationDisplay.groupIndex);
+    calcGroupSelect.disabled = groups.length <= 1;
+    calcPrevGroupButton.disabled = !hasResult || calculationDisplay.groupIndex <= 0;
+    calcNextGroupButton.disabled = !hasResult || calculationDisplay.groupIndex >= groups.length - 1;
+    calcPrevStepButton.disabled = !hasResult || calculationDisplay.ply <= 0;
+    calcNextStepButton.disabled = !hasResult || calculationDisplay.ply >= route.length;
+
     if (state) {
       state.textContent = hasResult
-        ? `${color}方 VCF｜${branchText}｜第 ${replayPly}/${route.length} 手；此處只展示計算，不改變棋譜節點。`
-        : "VCF 計算完成後，可在這裡獨立逐手展示計算結果。";
-    }
-    for (const button of [calcPrevStepButton, calcNextStepButton, calcPreviousBranchButton, calcNextBranchButton]) {
-      button.disabled = !hasResult;
+        ? `${color}方 VCF｜第 ${calculationDisplay.groupIndex + 1}/${groups.length} 組｜第 ${calculationDisplay.ply}/${route.length} 手。橘框棋子只是計算覆蓋層，不會寫入原棋譜。`
+        : "VCF 計算完成後，可在這裡獨立逐組、逐手展示；不會改動原棋譜。";
     }
   }
 
-  function replayStatus(route) {
-    const color = typeof lastVCFColor !== "undefined" && Number(lastVCFColor) === 2 ? "白" : "黑";
-    const groups = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) ? vcfGroups : null;
-    const branchText = groups && groups.length
-      ? `分支 ${Math.min(groups.length, Number(vcfGroupIdx || 0) + 1)}/${groups.length}`
-      : "單一分支";
-    const stepText = replayPly === 0 ? "起始盤面" : `第 ${replayPly}/${route.length} 手`;
-    syncCalculationNavigation();
-    if (typeof setStatus === "function") setStatus(`展示計算：${color}方 ${branchText}，${stepText}`);
-  }
-
-  function vcfRoutesForPrefix(route, ply) {
-    const prefix = route.slice(0, ply);
-    const groups = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length
-      ? vcfGroups
-      : [route];
-    return groups.filter(candidate => {
-      if (!candidate || candidate.length < ply) return false;
-      for (let i = 0; i < ply; i++) if (Number(candidate[i]) !== Number(prefix[i])) return false;
-      return true;
-    });
-  }
-
-  function vcfNextMoves(route, ply) {
-    return Array.from(new Set(
-      vcfRoutesForPrefix(route, ply)
-        .map(candidate => Number(candidate[ply]))
-        .filter(move => Number.isInteger(move) && move >= 0 && move < BOARD_CELLS)
-    ));
-  }
-
-  function renderVcfReplay(route) {
-    const color = typeof lastVCFColor !== "undefined" ? Number(lastVCFColor) : 1;
-    window._showVCF?.(route.slice(0, replayPly), color);
-    renderNextMoveMarkers(vcfNextMoves(route, replayPly));
-    replayStatus(route);
-  }
-
-  function moveVcfReplay(delta) {
-    const route = ensureReplayState();
+  function renderCalculationDisplay() {
+    const route = currentCalculationRoute();
     if (!route.length) {
-      if (typeof setStatus === "function") setStatus("目前沒有可回放的 VCF 分支");
+      window._clearVCF?.();
+      clearCalculationNextMoveMarkers();
+      syncCalculationNavigation();
       return false;
     }
-    replayPly = Math.max(0, Math.min(route.length, replayPly + delta));
-    renderVcfReplay(route);
+    const ply = Math.max(0, Math.min(route.length, calculationDisplay.ply));
+    calculationDisplay.ply = ply;
+    // VCF 計算展示只使用 SVG overlay，不呼叫 _setBoardArr，也不寫入 VCFWorkbenchRecord。
+    window._showVCF?.(route.slice(0, ply), calculationDisplay.color);
+    renderCalculationNextMoveMarkers(ply < route.length ? [route[ply]] : []);
+    syncCalculationNavigation();
+    if (typeof setStatus === "function") {
+      const color = calculationDisplay.color === WHITE ? "白" : "黑";
+      setStatus(`展示計算：${color}方第 ${calculationDisplay.groupIndex + 1}/${calculationDisplay.groups.length} 組，第 ${ply}/${route.length} 手`);
+    }
     return true;
   }
 
-  // 「前一分支／後一分支」不是切換 sibling，而是跳到上一個／下一個
-  // 有多個次一手的分岔盤面。若該方向沒有分岔，分別停在起點／末端。
-  function moveVcfBranch(direction) {
-    const route = ensureReplayState();
+  function moveCalculationStep(delta) {
+    const route = currentCalculationRoute();
     if (!route.length) return false;
-    if (direction < 0) {
-      if (replayPly <= 0) {
-        renderVcfReplay(route);
-        return true;
-      }
-      do {
-        replayPly--;
-      } while (replayPly > 0 && vcfNextMoves(route, replayPly).length <= 1);
-      renderVcfReplay(route);
-      return true;
+    calculationDisplay.ply = Math.max(0, Math.min(route.length, calculationDisplay.ply + delta));
+    return renderCalculationDisplay();
+  }
+
+  function switchCalculationGroup(index) {
+    const groups = calculationDisplay.groups;
+    if (!groups.length) return false;
+    const nextIndex = Math.max(0, Math.min(groups.length - 1, Number(index) || 0));
+    calculationDisplay.groupIndex = nextIndex;
+    calculationDisplay.ply = groups[nextIndex].length;
+    // 同步引擎目前組別，讓「單一路線防守」等後續分析仍針對使用者正在看的那一組；
+    // setVcfGroup 只改 VCF 計算狀態與 SVG overlay，不會寫入棋譜。
+    if (typeof setVcfGroup === "function" && typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length === groups.length) {
+      setVcfGroup(nextIndex);
     }
-    if (replayPly >= route.length) {
-      renderVcfReplay(route);
-      return true;
-    }
-    do {
-      replayPly++;
-    } while (replayPly < route.length && vcfNextMoves(route, replayPly).length <= 1);
-    renderVcfReplay(route);
-    return true;
+    return renderCalculationDisplay();
   }
 
   class BinaryReader {
@@ -636,7 +657,7 @@
     if (document.activeElement !== recordCommentInput) {
       syncCommentEditorFromRecordText(event.detail?.recordText || "");
     }
-    renderNextMoveMarkers(event.detail?.nextMoves || []);
+    renderRecordNextMoveMarkers(event.detail?.nextMoves || []);
   });
 
   function parseYXDB(rawBytes) {
@@ -846,7 +867,7 @@
     setCommentEditorValue(node?.comment || "");
     recordCommentMeta.textContent = "目前盤面注釋；修改後會自動保存，匯出 DB 時一併寫入。";
     const children = node?.children || [];
-    renderNextMoveMarkers(children.map(child => child.move));
+    renderRecordNextMoveMarkers(children.map(child => child.move));
     let layer = board.querySelector("#vcf-record-text-layer");
     if (!layer) {
       layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
@@ -1059,8 +1080,6 @@
     document.getElementById("btn-clear-vcf")?.click();
     importedTree = tree;
     importedTree.fileName = fileName || (looksRenLib ? "棋譜.lib" : "棋譜.db");
-    replaySignature = "";
-    replayPly = 0;
     if (tree.rule != null && typeof window.vcfSetRules === "function") await window.vcfSetRules(tree.rule);
     const target = options?.openAtEnd ? deepestImportedNode(tree) : tree.current;
     renderImportedNode(target || tree.current);
@@ -1142,15 +1161,19 @@
     if (typeof setStatus === "function") setStatus("已停在棋譜末端");
   });
 
-  calcPrevStepButton.addEventListener("click", () => moveVcfReplay(-1));
-  calcNextStepButton.addEventListener("click", () => moveVcfReplay(1));
-  calcPreviousBranchButton.addEventListener("click", () => moveVcfBranch(-1));
-  calcNextBranchButton.addEventListener("click", () => moveVcfBranch(1));
-  window.addEventListener("vcf-result-changed", () => {
-    const route = ensureReplayState();
-    if (route.length) replayPly = route.length;
-    syncCalculationNavigation();
+  calcPrevGroupButton.addEventListener("click", () => switchCalculationGroup(calculationDisplay.groupIndex - 1));
+  calcNextGroupButton.addEventListener("click", () => switchCalculationGroup(calculationDisplay.groupIndex + 1));
+  calcGroupSelect.addEventListener("change", () => switchCalculationGroup(Number(calcGroupSelect.value)));
+  calcPrevStepButton.addEventListener("click", () => moveCalculationStep(-1));
+  calcNextStepButton.addEventListener("click", () => moveCalculationStep(1));
+  window.addEventListener("vcf-result-changed", event => {
+    if (event.detail?.hasResult && captureCalculationResult()) {
+      renderCalculationDisplay();
+    } else {
+      resetCalculationDisplay({ clearOverlay: false });
+    }
   });
+  syncCalculationNavigation();
 
   // 原始盤面被手動或其他功能改動時，退出已載入棋譜的瀏覽狀態；本模組自己的
   // record-playback _setBoardArr 事件則保留 importedTree。
@@ -1201,13 +1224,13 @@
     queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
 
-  for (const id of ["btn-clear-vcf", "btn-clear"]) {
-    document.getElementById(id)?.addEventListener("click", () => {
-      replaySignature = "";
-      replayPly = 0;
-      importedTree = null;
-    });
-  }
+  document.getElementById("btn-clear-vcf")?.addEventListener("click", () => {
+    resetCalculationDisplay({ clearOverlay: false });
+  });
+  document.getElementById("btn-clear")?.addEventListener("click", () => {
+    resetCalculationDisplay({ clearOverlay: false });
+    importedTree = null;
+  });
 
   const labels = {
     "btn-black": "找黑 VCF",
@@ -1219,8 +1242,8 @@
     "btn-block-vcf": "單一路線防守",
     "btn-block-vcf-all": "全部路線防守",
     "btn-multi-vcf": "多組 VCF",
-    "btn-vcf-prev": "前一分支",
-    "btn-vcf-next": "後一分支",
+    "btn-vcf-prev": "上一組",
+    "btn-vcf-next": "下一組",
     "btn-level3": "VCT 選點",
     "btn-add-black": "補黑找 VCF",
     "btn-add-white": "補白找 VCF"
@@ -1389,6 +1412,29 @@
       display: flex;
       align-items: center;
       gap: 8px;
+    }
+
+    .vcf-calculation-group-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0;
+      color: #6f592c;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .vcf-calculation-group-row select {
+      flex: 1;
+      min-width: 0;
+      min-height: 36px;
+      padding: 6px 9px;
+      border: 1px solid #c99028;
+      border-radius: 7px;
+      background: #fffdf6;
+      color: #4f3b17;
+      font: inherit;
+      font-weight: 600;
     }
 
     .vcf-calculation-badge {

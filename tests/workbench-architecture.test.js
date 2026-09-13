@@ -85,9 +85,13 @@ for (const token of [
   '<h1>五子棋工作台</h1>',
   'prevStepButton.id = "btn-vcf-step-prev"',
   'nextStepButton.id = "btn-vcf-step-next"',
-  '"btn-vcf-prev": "前一分支"',
-  '"btn-vcf-next": "後一分支"',
-  "route.slice(0, replayPly)",
+  '"btn-vcf-prev": "上一組"',
+  '"btn-vcf-next": "下一組"',
+  'calcGroupSelect.id = "vcf-calculation-group-select"',
+  "calculationDisplay",
+  "renderRecordNextMoveMarkers",
+  "renderCalculationNextMoveMarkers",
+  "route.slice(0, ply)",
   "decompressLZ4Frame",
   "parseYXDB",
   "parseRenLib",
@@ -102,6 +106,12 @@ for (const token of [
 ]) if (!layout.includes(token)) throw new Error(`branch replay contract missing: ${token}`);
 if (layout.includes("MutationObserver") || layout.includes("setInterval(")) {
   throw new Error("branch replay must not poll or observe the whole page");
+}
+if (layout.includes("if (currentReplayRoute().length)")) {
+  throw new Error("record navigation must never fall through to VCF calculation playback");
+}
+if (!layout.includes("VCF 計算展示只使用 SVG overlay，不呼叫 _setBoardArr，也不寫入 VCFWorkbenchRecord")) {
+  throw new Error("calculation display isolation contract missing");
 }
 
 const recordTools = read("rapfi/vcf-record-tools.js");
@@ -302,8 +312,8 @@ for (const token of [
   '<strong>展示計算</strong>',
   'calcPrevStepButton.id = "btn-vcf-calc-step-prev"',
   'calcNextStepButton.id = "btn-vcf-calc-step-next"',
-  'calcPreviousBranchButton.id = "btn-vcf-calc-branch-prev"',
-  'calcNextBranchButton.id = "btn-vcf-calc-branch-next"',
+  'calcPrevGroupButton.id = "btn-vcf-calc-group-prev"',
+  'calcNextGroupButton.id = "btn-vcf-calc-group-next"',
   'window.addEventListener("vcf-result-changed"',
   'calculationNavigation.classList.toggle("is-active", hasResult)',
 ]) if (!layout.includes(token)) throw new Error(`calculation display contract missing: ${token}`);
@@ -323,23 +333,21 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("makevcf.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260913-calc-display')
-    || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display')) {
+if (!calculationEntry.includes('makevcf-layout.js?v=20260913-calc-display-v2')
+    || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
 
 for (const token of [
   'boardCard.appendChild(annotationCard)',
   'recordCommentInput.id = "vcf-record-comment-input"',
-  'renderNextMoveMarkers',
+  'renderRecordNextMoveMarkers',
   'vcf-record-next-move-layer',
   'VCFWorkbenchRecord?.navigateStep?.(-1)',
   'VCFWorkbenchRecord?.navigateStep?.(1)',
   'VCFWorkbenchRecord?.navigateBranch?.(-1)',
   'VCFWorkbenchRecord?.navigateBranch?.(1)',
-  'renderNextMoveMarkers(children.map(child => child.move))',
-  'moveVcfBranch(direction)',
-  'vcfNextMoves(route, replayPly).length <= 1',
+  'renderRecordNextMoveMarkers(children.map(child => child.move))',
 ]) if (!layout.includes(token)) throw new Error(`manual record navigation contract missing: ${token}`);
 for (const token of [
   'vcf_board_record_tree_v3',
@@ -352,7 +360,7 @@ for (const token of [
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260913-calc-display')
+if (!entry.includes('makevcf-layout.js?v=20260913-calc-display-v2')
     || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2')
     || !entry.includes('rapfi/vcf-record-tools.js?v=20260913-direct-board-edit')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
