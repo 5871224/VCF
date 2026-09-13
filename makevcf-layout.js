@@ -74,11 +74,26 @@
   recordNavigation.innerHTML = `
     <div class="vcf-record-navigation-heading">
       <strong>棋譜導覽</strong>
-      <span>逐手瀏覽目前 VCF 或已讀取的 Rapfi DB／RenLib 分支棋譜。</span>
+      <span>只控制棋譜本身；VCF 計算結果由下方「展示計算」另外控制。</span>
     </div>
     <div id="vcf-record-navigation-actions" class="vcf-record-navigation-actions"></div>
   `;
   boardCard.appendChild(recordNavigation);
+
+  const calculationNavigation = document.createElement("section");
+  calculationNavigation.id = "vcf-calculation-navigation";
+  calculationNavigation.className = "vcf-calculation-navigation";
+  calculationNavigation.innerHTML = `
+    <div class="vcf-calculation-navigation-heading">
+      <div class="vcf-calculation-title-row">
+        <strong>展示計算</strong>
+        <span id="vcf-calculation-badge" class="vcf-calculation-badge">尚無結果</span>
+      </div>
+      <span id="vcf-calculation-navigation-state">VCF 計算完成後，可在這裡獨立逐手展示計算結果。</span>
+    </div>
+    <div id="vcf-calculation-navigation-actions" class="vcf-calculation-navigation-actions"></div>
+  `;
+  boardCard.appendChild(calculationNavigation);
 
   const controlStack = document.createElement("div");
   controlStack.className = "vcf-control-stack";
@@ -150,6 +165,25 @@
   const recordNavigationActions = document.getElementById("vcf-record-navigation-actions");
   recordNavigationActions?.append(prevStepButton, nextStepButton, previousBranchButton, nextBranchButton);
 
+  const calcPrevStepButton = document.createElement("button");
+  calcPrevStepButton.id = "btn-vcf-calc-step-prev";
+  calcPrevStepButton.type = "button";
+  calcPrevStepButton.textContent = "計算上一步";
+  const calcNextStepButton = document.createElement("button");
+  calcNextStepButton.id = "btn-vcf-calc-step-next";
+  calcNextStepButton.type = "button";
+  calcNextStepButton.textContent = "計算下一步";
+  const calcPreviousBranchButton = document.createElement("button");
+  calcPreviousBranchButton.id = "btn-vcf-calc-branch-prev";
+  calcPreviousBranchButton.type = "button";
+  calcPreviousBranchButton.textContent = "前一分岔";
+  const calcNextBranchButton = document.createElement("button");
+  calcNextBranchButton.id = "btn-vcf-calc-branch-next";
+  calcNextBranchButton.type = "button";
+  calcNextBranchButton.textContent = "後一分岔";
+  const calculationNavigationActions = document.getElementById("vcf-calculation-navigation-actions");
+  calculationNavigationActions?.append(calcPrevStepButton, calcNextStepButton, calcPreviousBranchButton, calcNextBranchButton);
+
   let replaySignature = "";
   let replayPly = 0;
   let importedTree = null;
@@ -208,6 +242,28 @@
     return route;
   }
 
+  function syncCalculationNavigation() {
+    const route = currentReplayRoute();
+    const hasResult = route.length > 0;
+    const badge = document.getElementById("vcf-calculation-badge");
+    const state = document.getElementById("vcf-calculation-navigation-state");
+    const color = typeof lastVCFColor !== "undefined" && Number(lastVCFColor) === 2 ? "白" : "黑";
+    const groups = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) ? vcfGroups : null;
+    const branchText = groups && groups.length
+      ? `分支 ${Math.min(groups.length, Number(vcfGroupIdx || 0) + 1)}/${groups.length}`
+      : "單一分支";
+    calculationNavigation.classList.toggle("is-active", hasResult);
+    if (badge) badge.textContent = hasResult ? "展示計算中" : "尚無結果";
+    if (state) {
+      state.textContent = hasResult
+        ? `${color}方 VCF｜${branchText}｜第 ${replayPly}/${route.length} 手；此處只展示計算，不改變棋譜節點。`
+        : "VCF 計算完成後，可在這裡獨立逐手展示計算結果。";
+    }
+    for (const button of [calcPrevStepButton, calcNextStepButton, calcPreviousBranchButton, calcNextBranchButton]) {
+      button.disabled = !hasResult;
+    }
+  }
+
   function replayStatus(route) {
     const color = typeof lastVCFColor !== "undefined" && Number(lastVCFColor) === 2 ? "白" : "黑";
     const groups = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) ? vcfGroups : null;
@@ -215,7 +271,8 @@
       ? `分支 ${Math.min(groups.length, Number(vcfGroupIdx || 0) + 1)}/${groups.length}`
       : "單一分支";
     const stepText = replayPly === 0 ? "起始盤面" : `第 ${replayPly}/${route.length} 手`;
-    if (typeof setStatus === "function") setStatus(`${color}方 ${branchText}，${stepText}`);
+    syncCalculationNavigation();
+    if (typeof setStatus === "function") setStatus(`展示計算：${color}方 ${branchText}，${stepText}`);
   }
 
   function vcfRoutesForPrefix(route, ply) {
@@ -1065,34 +1122,34 @@
 
   prevStepButton.addEventListener("click", () => {
     if (moveImportedStep(-1)) return;
-    if (currentReplayRoute().length) {
-      moveVcfReplay(-1);
-      return;
-    }
     if (window.VCFWorkbenchRecord?.navigateStep?.(-1)) return;
     if (typeof setStatus === "function") setStatus("目前已是棋譜起點");
   });
   nextStepButton.addEventListener("click", () => {
     if (moveImportedStep(1)) return;
-    if (currentReplayRoute().length) {
-      moveVcfReplay(1);
-      return;
-    }
     if (window.VCFWorkbenchRecord?.navigateStep?.(1)) return;
     if (typeof setStatus === "function") setStatus("目前沒有下一手");
   });
 
   previousBranchButton.addEventListener("click", () => {
     if (moveImportedBranch(-1)) return;
-    if (currentReplayRoute().length && moveVcfBranch(-1)) return;
     if (window.VCFWorkbenchRecord?.navigateBranch?.(-1)) return;
     if (typeof setStatus === "function") setStatus("已停在棋譜起點");
   });
   nextBranchButton.addEventListener("click", () => {
     if (moveImportedBranch(1)) return;
-    if (currentReplayRoute().length && moveVcfBranch(1)) return;
     if (window.VCFWorkbenchRecord?.navigateBranch?.(1)) return;
     if (typeof setStatus === "function") setStatus("已停在棋譜末端");
+  });
+
+  calcPrevStepButton.addEventListener("click", () => moveVcfReplay(-1));
+  calcNextStepButton.addEventListener("click", () => moveVcfReplay(1));
+  calcPreviousBranchButton.addEventListener("click", () => moveVcfBranch(-1));
+  calcNextBranchButton.addEventListener("click", () => moveVcfBranch(1));
+  window.addEventListener("vcf-result-changed", () => {
+    const route = ensureReplayState();
+    if (route.length) replayPly = route.length;
+    syncCalculationNavigation();
   });
 
   // 原始盤面被手動或其他功能改動時，退出已載入棋譜的瀏覽狀態；本模組自己的
@@ -1143,14 +1200,6 @@
     }
     queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
-
-  for (const container of [mainActions, analysisActions]) {
-    container.addEventListener("click", event => {
-      const id = event.target?.id || "";
-      if (!importedTree || ["btn-vcf-step-prev", "btn-vcf-step-next", "btn-vcf-branch-prev", "btn-vcf-branch-next"].includes(id)) return;
-      importedTree = null;
-    });
-  }
 
   for (const id of ["btn-clear-vcf", "btn-clear"]) {
     document.getElementById(id)?.addEventListener("click", () => {
@@ -1294,7 +1343,8 @@
       width: 100%;
     }
 
-    .vcf-record-navigation {
+    .vcf-record-navigation,
+    .vcf-calculation-navigation {
       width: 100%;
       margin-top: 12px;
       padding: 10px;
@@ -1303,7 +1353,22 @@
       background: #faf6e9;
     }
 
-    .vcf-record-navigation-heading {
+    .vcf-calculation-navigation {
+      border-color: #c8c0ad;
+      background: #f5f3ed;
+      opacity: .72;
+      transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
+    }
+
+    .vcf-calculation-navigation.is-active {
+      border-color: #d29a2e;
+      background: #fff7df;
+      box-shadow: inset 4px 0 0 #d29a2e;
+      opacity: 1;
+    }
+
+    .vcf-record-navigation-heading,
+    .vcf-calculation-navigation-heading {
       display: flex;
       align-items: baseline;
       justify-content: space-between;
@@ -1313,13 +1378,38 @@
       font-size: 13px;
     }
 
-    .vcf-record-navigation-heading span {
+    .vcf-record-navigation-heading span,
+    .vcf-calculation-navigation-heading > span {
       color: var(--vcf-muted);
       font-size: 12px;
       text-align: right;
     }
 
-    .vcf-record-navigation-actions {
+    .vcf-calculation-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .vcf-calculation-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #dedad0;
+      color: #6f685a;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .vcf-calculation-navigation.is-active .vcf-calculation-badge {
+      background: #d29a2e;
+      color: #fff;
+    }
+
+    .vcf-record-navigation-actions,
+    .vcf-calculation-navigation-actions {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 6px;
@@ -1352,10 +1442,16 @@
       line-height: 1.4;
     }
 
-    #vcf-record-navigation-actions button {
+    #vcf-record-navigation-actions button,
+    #vcf-calculation-navigation-actions button {
       min-height: 38px;
       padding: 7px 5px;
       font-size: 13px;
+    }
+
+    #vcf-calculation-navigation.is-active #vcf-calculation-navigation-actions button:not(:disabled) {
+      border-color: #c99028;
+      background: #fffdf6;
     }
 
     #vcf-app-shell #board-svg {
@@ -1517,9 +1613,9 @@
       #vcf-app-shell button { min-height: 40px; padding: 7px 6px; font-size: 13px; }
       #vcf-app-shell #import-canvases { grid-template-columns: 1fr; }
       #vcf-app-shell #status { margin-top: 9px; }
-      .vcf-record-navigation-heading { align-items: flex-start; flex-direction: column; }
-      .vcf-record-navigation-heading span { text-align: left; }
-      .vcf-record-navigation-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .vcf-record-navigation-heading, .vcf-calculation-navigation-heading { align-items: flex-start; flex-direction: column; }
+      .vcf-record-navigation-heading span, .vcf-calculation-navigation-heading > span { text-align: left; }
+      .vcf-record-navigation-actions, .vcf-calculation-navigation-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 380px) {
@@ -1531,8 +1627,10 @@
   `;
   document.head.appendChild(style);
 
+  syncCalculationNavigation();
   document.addEventListener("DOMContentLoaded", () => {
     document.title = "五子棋工作台";
     installRecordImportControls();
+    syncCalculationNavigation();
   }, { once: true });
 })();

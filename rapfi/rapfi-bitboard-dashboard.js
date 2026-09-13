@@ -149,6 +149,14 @@
     return `${timeText}／${nodeText}`;
   };
 
+  const notifyVcfResultChanged = () => {
+    const routeLength = lastVCFMoves && typeof lastVCFMoves.length === "number" ? lastVCFMoves.length : 0;
+    const groupCount = Array.isArray(vcfGroups) ? vcfGroups.length : 0;
+    window.dispatchEvent(new CustomEvent("vcf-result-changed", {
+      detail: { hasResult: routeLength > 0, routeLength, groupCount },
+    }));
+  };
+
   window.vcfRegisterBusyHook?.("workbench-settings", value => {
     const busy = Boolean(value);
     simplifyCheck.disabled = busy;
@@ -199,6 +207,7 @@
       window._clearVCF();
       window._clearAnalysis();
       resetVcfGroups();
+      notifyVcfResultChanged();
       const simplify = Boolean(simplifyCheck.checked);
       setStatus(`正在搜索 ${color===1?"黑子":"白子"} VCF${simplify ? "並精簡手順" : ""}...`);
       try {
@@ -225,6 +234,7 @@
         setStatus("搜索失敗：" + (e && e.message || String(e)));
       }
       setBusy(false);
+      notifyVcfResultChanged();
   }
 
   window.vcfRegisterSearchHandler?.("single", "workbench-single", runSingleSearch, 50);
@@ -253,6 +263,7 @@
   window._clearVCF();
   window._clearAnalysis();
   resetVcfGroups();
+  notifyVcfResultChanged();
 
   const updateProgress = () => {
     const seconds = ((performance.now() - t0) / 1000).toFixed(1);
@@ -320,6 +331,7 @@
   } finally {
     if (progressTimer) window.clearInterval(progressTimer);
     setBusy(false);
+    notifyVcfResultChanged();
   }
   }
 

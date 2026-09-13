@@ -298,6 +298,37 @@ if (!header.includes('normalizeSetupHistory')) throw new Error('YXDB setup path 
 
 // Manual record-tree navigation and visible annotation contract.
 for (const token of [
+  'calculationNavigation.id = "vcf-calculation-navigation"',
+  '<strong>展示計算</strong>',
+  'calcPrevStepButton.id = "btn-vcf-calc-step-prev"',
+  'calcNextStepButton.id = "btn-vcf-calc-step-next"',
+  'calcPreviousBranchButton.id = "btn-vcf-calc-branch-prev"',
+  'calcNextBranchButton.id = "btn-vcf-calc-branch-next"',
+  'window.addEventListener("vcf-result-changed"',
+  'calculationNavigation.classList.toggle("is-active", hasResult)',
+]) if (!layout.includes(token)) throw new Error(`calculation display contract missing: ${token}`);
+if (layout.includes('if (currentReplayRoute().length) {\n      moveVcfReplay(-1)')) {
+  throw new Error("record previous-step button still delegates to VCF calculation replay");
+}
+if (layout.includes('if (currentReplayRoute().length && moveVcfBranch(-1)) return;')) {
+  throw new Error("record branch button still delegates to VCF calculation replay");
+}
+if (layout.includes('if (!importedTree || ["btn-vcf-step-prev"')) {
+  throw new Error("VCF analysis actions still clear imported record state");
+}
+const dashboardResultLifecycle = read("rapfi/rapfi-bitboard-dashboard.js");
+for (const token of [
+  'const notifyVcfResultChanged = () =>',
+  'new CustomEvent("vcf-result-changed"',
+  'notifyVcfResultChanged();',
+]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
+const calculationEntry = read("makevcf.html");
+if (!calculationEntry.includes('makevcf-layout.js?v=20260913-calc-display')
+    || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display')) {
+  throw new Error("calculation display scripts must be cache-busted");
+}
+
+for (const token of [
   'boardCard.appendChild(annotationCard)',
   'recordCommentInput.id = "vcf-record-comment-input"',
   'renderNextMoveMarkers',
@@ -321,7 +352,7 @@ for (const token of [
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260913-cloud-load-board')
+if (!entry.includes('makevcf-layout.js?v=20260913-calc-display')
     || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2')
     || !entry.includes('rapfi/vcf-record-tools.js?v=20260913-direct-board-edit')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
