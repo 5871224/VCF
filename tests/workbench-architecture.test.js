@@ -119,6 +119,18 @@ if (!layout.includes("function renderCalculationDisplay({ updateStatus = true } 
   throw new Error("calculation result sync must preserve completed search statistics");
 }
 const workbenchHtml = read("makevcf.html");
+if (workbenchHtml.includes('pathname.endsWith("/VCF")')
+    || workbenchHtml.includes('pathname.endsWith("/VCF/index.html")')) {
+  throw new Error("Bitboard deployment entry must not be hard-coded to /VCF");
+}
+for (const token of [
+  'if (pathname.endsWith("/index.html"))',
+  'const entryName = trimmedPath.split("/").filter(Boolean).pop() || "";',
+  'if (entryName.includes(".")) return;',
+  'vcf-bitboard-main.js?v=20260914-bd-timing',
+]) if (!workbenchHtml.includes(token)) {
+  throw new Error(`path-independent Bitboard entry contract missing: ${token}`);
+}
 if (!workbenchHtml.includes("includeStats: true")
     || !workbenchHtml.includes("const pureStats = combinePureEngineStats(vcfResult, blockResult, data)")) {
   throw new Error("defense statistics display contract missing");

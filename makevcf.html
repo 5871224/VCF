@@ -290,20 +290,24 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 <script>
 (function installRootBitboardBridge() {
-  let pathname = window.location.pathname.replace(/\/+$/, "");
-  if (pathname.endsWith("/VCF/index.html")) {
+  let pathname = window.location.pathname;
+  if (pathname.endsWith("/index.html")) {
+    const directoryPath = pathname.slice(0, -"index.html".length);
     window.history.replaceState(
       null,
       "",
-      pathname.slice(0, -"index.html".length) + window.location.search + window.location.hash
+      directoryPath + window.location.search + window.location.hash
     );
-    pathname = window.location.pathname.replace(/\/+$/, "");
+    pathname = directoryPath;
   }
-  if (!pathname.endsWith("/VCF")) return;
+
+  const trimmedPath = pathname.replace(/\/+$/, "");
+  const entryName = trimmedPath.split("/").filter(Boolean).pop() || "";
+  if (entryName.includes(".")) return;
 
   window.__vcfRootBitboardWorkbench = true;
   document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\/script>');
-  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20260913-search-stats"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20260914-bd-timing"><\/script>');
 })();
 </script>
 <script>
