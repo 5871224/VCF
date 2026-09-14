@@ -3,8 +3,8 @@
 (function initVCFGooglePopupAuth(global) {
   if (typeof document === "undefined") return;
 
-  const LOGIN_URL = "https://587.renju.org.tw/vcf/google-login.php";
-  const LOGIN_ORIGIN = "https://587.renju.org.tw";
+  const LOGIN_URL = "api/google-login.php";
+  const LOGIN_ORIGIN = global.location.origin;
   const TOKEN_KEY = "vcf_google_auth_token_v1";
   let popup = null;
 

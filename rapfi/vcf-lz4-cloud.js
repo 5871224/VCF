@@ -6,7 +6,7 @@
   const BLACK = 1;
   const WHITE = 2;
   const PASS = -1;
-  const API_URL = "https://587.renju.org.tw/vcf/yxdb.php";
+  const API_URL = "api/yxdb.php";
   const RECORD_STORAGE_KEY = "vcf_board_record_tree_v3";
   const AUTH_TOKEN_KEY = "vcf_google_auth_token_v1";
   const MAX_BLOCK = 64 * 1024;
