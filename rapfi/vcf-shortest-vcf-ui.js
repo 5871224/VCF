@@ -141,10 +141,8 @@
       timer = 0;
 
       const route = info?.winMoves?.[0] || [];
-      const elapsedSeconds = (performance.now() - started) / 1000;
-      const nodeCount = Number(info?.nodeCount || 0);
-      const rate = elapsedSeconds > 0 ? nodeCount / elapsedSeconds : 0;
-      const stats = `${elapsedSeconds.toFixed(4)} 秒，${formatInteger(nodeCount)} 節點，${formatInteger(rate)} 節點/秒`;
+      const stats = global.vcfFormatPureEngineStats?.(info)
+      || `${(Number(info?.elapsedMs || 0) / 1000).toFixed(4)} 秒，${formatInteger(info?.nodeCount || 0)} 節點，${formatInteger(info?.nodesPerSecond || 0)} 節點/秒`;
 
       if (route.length) {
         try { lastVCFMoves = route; } catch (_) {}

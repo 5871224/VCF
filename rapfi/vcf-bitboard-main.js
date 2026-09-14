@@ -348,12 +348,15 @@
       const items = results
         .flatMap(result => result.items || [])
         .map(item => this.classifyAddPointItem(item, arr, attacker, placeColor));
-      return {
-        items,
-        nodeCount: results.reduce((sum, result) => sum + (result.nodeCount || 0), 0),
-        elapsedMs: Math.max(0, ...results.map(result => result.elapsedMs || 0)),
-        aborted: results.some(result => result.aborted),
-      };
+      const nodeCount = results.reduce((sum, result) => sum + (result.nodeCount || 0), 0);
+const elapsedMs = Math.max(0, ...results.map(result => result.elapsedMs || 0));
+return {
+  items,
+  nodeCount,
+  elapsedMs,
+  nodesPerSecond: elapsedMs > 0 ? nodeCount * 1000 / elapsedMs : 0,
+  aborted: results.some(result => result.aborted),
+};
     }
 
     async cancel() {

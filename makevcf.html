@@ -739,6 +739,32 @@ function formatSearchInteger(value) {
 }
 function elapsed(t0) { return `${((performance.now() - t0) / 1000).toFixed(4)} 秒`; }
 function fmtNodes(n) { return `${formatSearchInteger(n)} 節點`; }
+function normalizePureEngineStats(info = {}) {
+  const nodeCount = Math.max(0, Number(info?.nodeCount || 0));
+  const elapsedMs = Math.max(0, Number(info?.elapsedMs || 0));
+  const reportedRate = Number(info?.nodesPerSecond);
+  const nodesPerSecond = Number.isFinite(reportedRate) && reportedRate >= 0
+    ? reportedRate
+    : (elapsedMs > 0 ? nodeCount * 1000 / elapsedMs : 0);
+  return { nodeCount, elapsedMs, nodesPerSecond };
+}
+function combinePureEngineStats(...items) {
+  const stats = items.filter(Boolean).map(normalizePureEngineStats);
+  const nodeCount = stats.reduce((sum, item) => sum + item.nodeCount, 0);
+  const elapsedMs = stats.reduce((sum, item) => sum + item.elapsedMs, 0);
+  return {
+    nodeCount,
+    elapsedMs,
+    nodesPerSecond: elapsedMs > 0 ? nodeCount * 1000 / elapsedMs : 0,
+  };
+}
+function formatPureEngineStats(info = {}) {
+  const stats = normalizePureEngineStats(info);
+  return `${(stats.elapsedMs / 1000).toFixed(4)} 秒，${fmtNodes(stats.nodeCount)}，${formatSearchInteger(stats.nodesPerSecond)} 節點/秒`;
+}
+window.vcfNormalizePureEngineStats = normalizePureEngineStats;
+window.vcfCombinePureEngineStats = combinePureEngineStats;
+window.vcfFormatPureEngineStats = formatPureEngineStats;
 function fmtRate(nodes, t0) {
   const sec = (performance.now() - t0) / 1000;
   const rate = sec > 0 ? Number(nodes || 0) / sec : 0;
@@ -810,9 +836,9 @@ async function doSearch(arr, color) {
     if (info && info.winMoves && info.winMoves[0] && info.winMoves[0].length) {
       lastVCFMoves = info.winMoves[0];
       window._showVCF(info.winMoves[0], color);
-      setStatus(`${color===1?"黑子":"白子"} VCF 找到，共 ${info.winMoves[0].length} 手（${elapsed(t0)}，${fmtNodes(info.nodeCount)}，${fmtRate(info.nodeCount, t0)}）`);
+      setStatus(`${color===1?"黑子":"白子"} VCF 找到，共 ${info.winMoves[0].length} 手（${formatPureEngineStats(info)}）`);
     } else {
-      setStatus(`${color===1?"黑子":"白子"} VCF 未找到（${elapsed(t0)}，${fmtNodes(info.nodeCount)}，${fmtRate(info.nodeCount, t0)}）`);
+      setStatus(`${color===1?"黑子":"白子"} VCF 未找到（${formatPureEngineStats(info)}）`);
     }
   } catch(e) {
     console.error(e);
@@ -846,7 +872,7 @@ document.getElementById("btn-multi-vcf").addEventListener("click", async () => {
     setStatus(`搜索 ${cName} 多組 VCF...`);
     const info = await engine.findVCF({ arr, color, maxVCF: 20, maxDepth: 200, maxNode: 5000000 });
     if (!info || !info.winMoves || !info.winMoves[0] || !info.winMoves[0].length) {
-      setStatus(`${cName} VCF 未找到（${elapsed(t0)}，${fmtNodes(info.nodeCount)}，${fmtRate(info.nodeCount, t0)}）`);
+      setStatus(`${cName} VCF 未找到（${formatPureEngineStats(info)}）`);
       return;
     }
     const rawGroups = info.winMoves.filter(m => m && m.length);
@@ -854,7 +880,7 @@ document.getElementById("btn-multi-vcf").addEventListener("click", async () => {
     const groups = await engine.trimVCFGroups({ arr, groups: rawGroups, color });
     if (!groups) return;
     if (!groups.length) {
-      setStatus(`${cName} VCF 後處理後無結果（${elapsed(t0)}，${fmtNodes(info.nodeCount)}，${fmtRate(info.nodeCount, t0)}）`);
+      setStatus(`${cName} VCF 後處理後無結果（${formatPureEngineStats(info)}）`);
       return;
     }
     vcfGroups = groups;
@@ -867,7 +893,7 @@ document.getElementById("btn-multi-vcf").addEventListener("click", async () => {
     const firstMoveSet = new Set(groups.map(moves => moves[0]));
     const uniqueStarts = firstMoveSet.size;
     const trimNote = rawGroups.length !== groups.length ? `，原 ${rawGroups.length} 組→修剪後 ${groups.length} 組` : `，共 ${groups.length} 組`;
-    setStatus(`${cName} VCF：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${elapsed(t0)}，${fmtNodes(info.nodeCount)}，${fmtRate(info.nodeCount, t0)}）`);
+    setStatus(`${cName} VCF：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${formatPureEngineStats(info)}）`);
   } finally {
     setBusy(false);
   }
@@ -931,8 +957,8 @@ document.getElementById("btn-block-vcf").addEventListener("click", async () => {
     const nodeCount = Array.isArray(result) ? 0 : Number(result.nodeCount || 0);
     if (points.length) {
       window._showAnalysisTriangles(points, "#00cc44");
-      setStatus(`${cName} VCF 防守點：${points.length} 個（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`);
-    } else { window._clearAnalysis(); setStatus(`${cName} 未找到 VCF 防守點（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`); }
+      setStatus(`${cName} VCF 防守點：${points.length} 個（${formatPureEngineStats(result)}）`);
+    } else { window._clearAnalysis(); setStatus(`${cName} 未找到 VCF 防守點（${formatPureEngineStats(result)}）`); }
   } finally {
     setBusy(false);
   }
@@ -952,7 +978,7 @@ document.getElementById("btn-block-vcf-all").addEventListener("click", async () 
     if (!vcfResult) return;
     if (!vcfResult.winMoves || !vcfResult.winMoves[0] || !vcfResult.winMoves[0].length) {
       window._clearAnalysis();
-      setStatus(`${cName} 無 VCF，不需防守（${elapsed(t0)}，${fmtNodes(vcfResult.nodeCount)}，${fmtRate(vcfResult.nodeCount, t0)}）`);
+      setStatus(`${cName} 無 VCF，不需防守（${formatPureEngineStats(vcfResult)}）`);
       return;
     }
     lastVCFMoves = vcfResult.winMoves[0];
@@ -966,8 +992,8 @@ document.getElementById("btn-block-vcf-all").addEventListener("click", async () 
     const blockNodeCount = Array.isArray(blockResult) ? 0 : Number(blockResult.nodeCount || 0);
     if (!candidates.length) {
       window._clearAnalysis();
-      const totalNodes = Number(vcfResult.nodeCount || 0) + blockNodeCount;
-      setStatus(`${cName} 未找到 VCF 防守候選點（${elapsed(t0)}，${fmtNodes(totalNodes)}，${fmtRate(totalNodes, t0)}）`);
+      const pureStats = combinePureEngineStats(vcfResult, blockResult);
+      setStatus(`${cName} 未找到 VCF 防守候選點（${formatPureEngineStats(pureStats)}）`);
       return;
     }
 
@@ -976,14 +1002,14 @@ document.getElementById("btn-block-vcf-all").addEventListener("click", async () 
     if (!data) return;
     const stillVCF = new Set(data.items.map(r => r.idx));
     const confirmed = candidates.filter(idx => !stillVCF.has(idx));
-    const totalNodes = Number(vcfResult.nodeCount || 0) + blockNodeCount + Number(data.nodeCount || 0);
+    const pureStats = combinePureEngineStats(vcfResult, blockResult, data);
 
     window._clearAnalysis();
     if (confirmed.length) {
       window._showAnalysisTriangles(confirmed, "#4488ff");
-      setStatus(`${cName} 全部VCF防守：${confirmed.length} 個有效防守點（${elapsed(t0)}，${fmtNodes(totalNodes)}，${fmtRate(totalNodes, t0)}）`);
+      setStatus(`${cName} 全部VCF防守：${confirmed.length} 個有效防守點（${formatPureEngineStats(pureStats)}）`);
     } else {
-      setStatus(`${cName} 無有效防守點（${elapsed(t0)}，${fmtNodes(totalNodes)}，${fmtRate(totalNodes, t0)}）`);
+      setStatus(`${cName} 無有效防守點（${formatPureEngineStats(pureStats)}）`);
     }
   } finally {
     setBusy(false);
@@ -1005,7 +1031,7 @@ document.getElementById("btn-level3").addEventListener("click", async () => {
       lastVCFMoves = vcfResult.winMoves[0];
       lastVCFColor = color;
       window._showVCF(vcfResult.winMoves[0], color);
-      setStatus(`${cName} 已有 VCF，共 ${vcfResult.winMoves[0].length} 手（${elapsed(t0)}，${fmtNodes(vcfResult.nodeCount)}，${fmtRate(vcfResult.nodeCount, t0)}）`);
+      setStatus(`${cName} 已有 VCF，共 ${vcfResult.winMoves[0].length} 手（${formatPureEngineStats(vcfResult)}）`);
       return;
     }
     setStatus(`${cName} 無 VCF，計算活三級別選點...`);
@@ -1020,8 +1046,8 @@ document.getElementById("btn-level3").addEventListener("click", async () => {
       const n4 = result.filter(r => r.label === "4").length;
       const nV = result.length - n5 - n4;
       const s5 = n5 ? `連五 ${n5} 個，` : "";
-      setStatus(`${cName} 活三級別：${s5}四 ${n4} 個，VCF ${nV} 個（${elapsed(t1)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t1)}）`);
-    } else { window._clearAnalysis(); setStatus(`${cName} 無活三級別選點（${elapsed(t1)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t1)}）`); }
+      setStatus(`${cName} 活三級別：${s5}四 ${n4} 個，VCF ${nV} 個（${formatPureEngineStats(combinePureEngineStats(vcfResult, data))}）`);
+    } else { window._clearAnalysis(); setStatus(`${cName} 無活三級別選點（${formatPureEngineStats(combinePureEngineStats(vcfResult, data))}）`); }
   } finally {
     setBusy(false);
   }
@@ -1067,8 +1093,8 @@ async function doAddVCF(arr, placeColor) {
       const n4 = result.filter(r => r.label === "4").length;
       const nV = result.length - n5 - n4;
       const s5 = n5 ? `連五 ${n5} 個，` : "";
-      setStatus(`補${placeName}找${vcfName} VCF：${s5}四 ${n4} 個，VCF ${nV} 個（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`);
-    } else { window._clearAnalysis(); setStatus(`補${placeName}找${vcfName} VCF：無結果（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}）`); }
+      setStatus(`補${placeName}找${vcfName} VCF：${s5}四 ${n4} 個，VCF ${nV} 個（${formatPureEngineStats(data)}）`);
+    } else { window._clearAnalysis(); setStatus(`補${placeName}找${vcfName} VCF：無結果（${formatPureEngineStats(data)}）`); }
   } finally {
     setBusy(false);
   }
@@ -3146,8 +3172,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-generator-status-detail.js"></script>
 <!-- 卡片化工作台與產生器介面 -->
 <script src="makevcf-layout.js?v=20260913-search-stats"></script>
-<script src="rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2"></script>
-<script src="rapfi/vcf-shortest-vcf-ui.js?v=20260913-defense-preserve"></script>
+<script src="rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats"></script>
+<script src="rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-forbidden-overlay.js"></script>
 <script src="rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2"></script>
 <script src="rapfi/vcf-record-tools.js?v=20260913-direct-board-edit"></script>

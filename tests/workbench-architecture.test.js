@@ -120,7 +120,7 @@ if (!layout.includes("function renderCalculationDisplay({ updateStatus = true } 
 }
 const workbenchHtml = read("makevcf.html");
 if (!workbenchHtml.includes("includeStats: true")
-    || !workbenchHtml.includes("const totalNodes = Number(vcfResult.nodeCount || 0) + blockNodeCount + Number(data.nodeCount || 0)")) {
+    || !workbenchHtml.includes("const pureStats = combinePureEngineStats(vcfResult, blockResult, data)")) {
   throw new Error("defense statistics display contract missing");
 }
 if (!main.includes("normalized.includeStats ? result : result.points")) {
@@ -308,6 +308,31 @@ if (!pagesBuilder.includes('"vcf-record-tools.js"') || !pagesBuilder.includes('"
   throw new Error("Pages allowlist is missing record tools or SVG assets");
 }
 
+const pureStatsHtml = read("makevcf.html");
+const pureStatsDashboard = read("rapfi/rapfi-bitboard-dashboard.js");
+const pureStatsShortest = read("rapfi/vcf-shortest-vcf-ui.js");
+const pureStatsMain = read("rapfi/vcf-bitboard-main.js");
+for (const token of [
+  "function normalizePureEngineStats(info = {})",
+  "function combinePureEngineStats(...items)",
+  "function formatPureEngineStats(info = {})",
+  "window.vcfFormatPureEngineStats = formatPureEngineStats",
+]) if (!pureStatsHtml.includes(token)) throw new Error(`pure engine stats helper missing: ${token}`);
+if (!pureStatsDashboard.includes("window.vcfFormatPureEngineStats(info)")
+    || !pureStatsDashboard.includes("window.vcfFormatPureEngineStats(data)")
+    || !pureStatsDashboard.includes("elapsedMs += Number(info?.elapsedMs || 0)")
+    || !pureStatsDashboard.includes("Math.max(0, ...results.map(result => Number(result.elapsedMs || 0)))")) {
+  throw new Error("dashboard final statistics must use pure engine timing");
+}
+if (!pureStatsShortest.includes("global.vcfFormatPureEngineStats?.(info)")) {
+  throw new Error("shortest VCF final statistics must use pure engine timing");
+}
+if (!pureStatsMain.includes("nodesPerSecond: elapsedMs > 0 ? nodeCount * 1000 / elapsedMs : 0")) {
+  throw new Error("parallel engine result must return pure throughput");
+}
+if (!pureStatsHtml.includes('rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats')) {
+  throw new Error("pure engine stats scripts must be cache-busted");
+}
 console.log("Workbench and repository architecture checks passed");
 
 // Rapfi DB-backed record model contract.
@@ -347,7 +372,7 @@ for (const token of [
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("makevcf.html");
 if (!calculationEntry.includes('makevcf-layout.js?v=20260913-search-stats')
-    || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260913-calc-display-v2')) {
+    || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
 

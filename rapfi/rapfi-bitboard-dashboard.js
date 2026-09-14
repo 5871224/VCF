@@ -225,9 +225,9 @@
           lastVCFMoves = info.winMoves[0];
           window._showVCF(lastVCFMoves, color);
           const note = simplify ? "，已精簡手順" : "";
-          setStatus(`${color===1?"黑子":"白子"} VCF 找到，共 ${lastVCFMoves.length} 手${note}（${elapsed(t0)}，${fmtNodes(info.nodeCount)}，${fmtRate(info.nodeCount, t0)}）`);
+          setStatus(`${color===1?"黑子":"白子"} VCF 找到，共 ${lastVCFMoves.length} 手${note}（${window.vcfFormatPureEngineStats(info)}）`);
         } else {
-          setStatus(`${color===1?"黑子":"白子"} VCF 未找到（${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}）`);
+          setStatus(`${color===1?"黑子":"白子"} VCF 未找到（${window.vcfFormatPureEngineStats(info)}）`);
         }
       } catch (e) {
         console.error(e);
@@ -302,7 +302,7 @@
     if (!rawGroups.length) {
       const limitNotes = buildLimitNotes(info);
       const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
-      setStatus(`${cName} VCF 未找到（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
+      setStatus(`${cName} VCF 未找到（${modeName}，${window.vcfFormatPureEngineStats(info)}${warning}）`);
       return;
     }
 
@@ -310,7 +310,7 @@
     const groups = await engine.trimVCFGroups({ arr, groups: rawGroups, color });
     if (!groups) return;
     if (!groups.length) {
-      setStatus(`${cName} VCF 後處理後無結果（${modeName}，${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}）`);
+      setStatus(`${cName} VCF 後處理後無結果（${modeName}，${window.vcfFormatPureEngineStats(info)}）`);
       return;
     }
 
@@ -324,7 +324,7 @@
       : `，共 ${groups.length} 組`;
     const limitNotes = buildLimitNotes(info);
     const warning = limitNotes.length ? `；${limitNotes.join("；")}` : "";
-    setStatus(`${cName} VCF（${modeName}）：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${elapsed(t0)}，${fmtNodes(info?.nodeCount || 0)}，${fmtRate(info?.nodeCount || 0, t0)}${warning}）`);
+    setStatus(`${cName} VCF（${modeName}）：${uniqueStarts} 個起點，最短 ${groups[0].length} 手${trimNote}（${window.vcfFormatPureEngineStats(info)}${warning}）`);
   } catch (error) {
     console.error(error);
     setStatus(`多組 VCF 搜索失敗：${error?.message || error}`);
@@ -389,10 +389,10 @@
 
   const chunks = Array.from({ length: workers.length }, () => []);
   pending.forEach((item, index) => chunks[index % chunks.length].push(item));
-  const startedAt = performance.now();
   const results = await Promise.all(workers.map(async (worker, workerIndex) => {
     const items = [];
     let nodeCount = 0;
+    let elapsedMs = 0;
     let aborted = false;
     let unprovenCount = 0;
 
@@ -405,6 +405,7 @@
         maxNode,
       });
       nodeCount += Number(info?.nodeCount || 0);
+      elapsedMs += Number(info?.elapsedMs || 0);
       aborted = aborted || Boolean(info?.aborted);
       const route = info?.winMoves?.[0] || [];
       if (!route.length) continue;
@@ -418,7 +419,7 @@
       });
     }
 
-    return { items, nodeCount, aborted, unprovenCount };
+    return { items, nodeCount, elapsedMs, aborted, unprovenCount };
   }));
 
   const items = immediateItems
@@ -427,7 +428,7 @@
   return {
     items,
     nodeCount: results.reduce((sum, result) => sum + result.nodeCount, 0),
-    elapsedMs: performance.now() - startedAt,
+    elapsedMs: Math.max(0, ...results.map(result => Number(result.elapsedMs || 0))),
     aborted: results.some(result => result.aborted),
     unprovenCount: results.reduce((sum, result) => sum + result.unprovenCount, 0),
   };
@@ -505,11 +506,11 @@ async function runAddSearch(arr, placeColor) {
         const stepNote = shortestMode && vcfLabels.length
           ? aborted || hasUnproven ? `，已找到結果中最短 ${minL} 手` : `，最短 ${minL} 手`
           : "";
-        setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${s5}四 ${n4} 個，VCF ${nV} 個${stepNote}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
+        setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${s5}四 ${n4} 個，VCF ${nV} 個${stepNote}（${window.vcfFormatPureEngineStats(data)}${incompleteNote}）`);
       } else {
         window._clearAnalysis();
         const resultText = aborted ? "目前未找到結果" : "無結果";
-        setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${resultText}（${elapsed(t0)}，${fmtNodes(nodeCount)}，${fmtRate(nodeCount, t0)}${incompleteNote}）`);
+        setStatus(`補${placeName}找${vcfName} VCF（${modeName}）：${resultText}（${window.vcfFormatPureEngineStats(data)}${incompleteNote}）`);
       }
     } finally {
       setBusy(false);
