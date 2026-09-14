@@ -1,0 +1,86 @@
+name: Complete pure engine stats migration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/complete-pure-engine-stats.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Apply migration and update stale defense contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          # Reuse the successful structural migration step from the previous workflow.
+          lines = Path('.github/workflows/finalize-pure-engine-stats.yml').read_text(encoding='utf-8').splitlines()
+          start = next(i for i, line in enumerate(lines) if line.strip() == 'from pathlib import Path')
+          end = next(i for i in range(start + 1, len(lines)) if lines[i].strip() == 'PY')
+          code = textwrap.dedent('\n'.join(lines[start:end]))
+          exec(compile(code, 'embedded-finalize-pure-stats.py', 'exec'), {'__name__': '__main__'})
+
+          test = Path('tests/workbench-architecture.test.js')
+          text = test.read_text(encoding='utf-8')
+          old = '''if (!workbenchHtml.includes("includeStats: true")
+              || !workbenchHtml.includes("const totalNodes = Number(vcfResult.nodeCount || 0) + blockNodeCount + Number(data.nodeCount || 0)")) {
+            throw new Error("defense statistics display contract missing");
+          }
+          '''
+          new = '''if (!workbenchHtml.includes("includeStats: true")
+              || !workbenchHtml.includes("const pureStats = combinePureEngineStats(vcfResult, blockResult, data)")) {
+            throw new Error("defense statistics display contract missing");
+          }
+          '''
+          if old not in text:
+              raise SystemExit('stale defense statistics contract missing')
+          test.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Validate
+        run: |
+          node --check rapfi/vcf-bitboard-main.js
+          node --check rapfi/rapfi-bitboard-dashboard.js
+          node --check rapfi/vcf-shortest-vcf-ui.js
+          node tests/workbench-architecture.test.js
+          python - <<'PY'
+          from pathlib import Path
+          html = Path('makevcf.html').read_text(encoding='utf-8')
+          dashboard = Path('rapfi/rapfi-bitboard-dashboard.js').read_text(encoding='utf-8')
+          shortest = Path('rapfi/vcf-shortest-vcf-ui.js').read_text(encoding='utf-8')
+          bad = []
+          for name, text in [('makevcf.html', html), ('dashboard', dashboard)]:
+              for line in text.splitlines():
+                  if 'setStatus(' in line and 'fmtRate(' in line:
+                      bad.append(f'{name}: {line.strip()}')
+          if 'const elapsedSeconds = (performance.now() - started) / 1000;' in shortest:
+              raise SystemExit('shortest final result still uses wall-clock elapsed time')
+          if bad:
+              raise SystemExit('final status still uses wall-clock fmtRate:\n' + '\n'.join(bad))
+          required = [
+              'formatPureEngineStats(result)',
+              'combinePureEngineStats(vcfResult, blockResult, data)',
+              'formatPureEngineStats(combinePureEngineStats(vcfResult, data))',
+          ]
+          for token in required:
+              if token not in html:
+                  raise SystemExit(f'missing pure-stat integration: {token}')
+          PY
+          git diff --check
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add makevcf.html rapfi/vcf-bitboard-main.js rapfi/rapfi-bitboard-dashboard.js rapfi/vcf-shortest-vcf-ui.js tests/workbench-architecture.test.js 規格書.MD
+          git commit -m "Use pure engine timing for calculation speed"
+          git push
