@@ -1,0 +1,105 @@
+name: Fix BD Bitboard entry once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-bd-bitboard-entry-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Make Bitboard deployment path independent
+        shell: python
+        run: |
+          from pathlib import Path
+
+          html = Path('makevcf.html')
+          text = html.read_text(encoding='utf-8')
+          old = '''(function installRootBitboardBridge() {
+            let pathname = window.location.pathname.replace(/\\/+$/, "");
+            if (pathname.endsWith("/VCF/index.html")) {
+              window.history.replaceState(
+                null,
+                "",
+                pathname.slice(0, -"index.html".length) + window.location.search + window.location.hash
+              );
+              pathname = window.location.pathname.replace(/\\/+$/, "");
+            }
+            if (!pathname.endsWith("/VCF")) return;
+
+            window.__vcfRootBitboardWorkbench = true;
+            document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\\/script>');
+            document.write('<script src="rapfi/vcf-bitboard-main.js?v=20260913-search-stats"><\\/script>');
+          })();'''
+          new = '''(function installRootBitboardBridge() {
+            let pathname = window.location.pathname;
+            if (pathname.endsWith("/index.html")) {
+              const directoryPath = pathname.slice(0, -"index.html".length);
+              window.history.replaceState(
+                null,
+                "",
+                directoryPath + window.location.search + window.location.hash
+              );
+              pathname = directoryPath;
+            }
+
+            const trimmedPath = pathname.replace(/\\/+$/, "");
+            const entryName = trimmedPath.split("/").filter(Boolean).pop() || "";
+            if (entryName.includes(".")) return;
+
+            window.__vcfRootBitboardWorkbench = true;
+            document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\\/script>');
+            document.write('<script src="rapfi/vcf-bitboard-main.js?v=20260914-bd-timing"><\\/script>');
+          })();'''
+          if old not in text:
+              raise SystemExit('Bitboard root bridge anchor not found')
+          html.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          test = Path('tests/workbench-architecture.test.js')
+          source = test.read_text(encoding='utf-8')
+          anchor = '''const workbenchHtml = read("makevcf.html");
+          if (!workbenchHtml.includes("includeStats: true")'''
+          replacement = '''const workbenchHtml = read("makevcf.html");
+          if (workbenchHtml.includes('pathname.endsWith("/VCF")')
+              || workbenchHtml.includes('pathname.endsWith("/VCF/index.html")')) {
+            throw new Error("Bitboard deployment entry must not be hard-coded to /VCF");
+          }
+          for (const token of [
+            'if (pathname.endsWith("/index.html"))',
+            'const entryName = trimmedPath.split("/").filter(Boolean).pop() || "";',
+            'if (entryName.includes(".")) return;',
+            'vcf-bitboard-main.js?v=20260914-bd-timing',
+          ]) if (!workbenchHtml.includes(token)) {
+            throw new Error(`path-independent Bitboard entry contract missing: ${token}`);
+          }
+          if (!workbenchHtml.includes("includeStats: true")'''
+          if anchor not in source:
+              raise SystemExit('workbench architecture anchor not found')
+          test.write_text(source.replace(anchor, replacement, 1), encoding='utf-8')
+
+      - name: Validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node tests/workbench-architecture.test.js
+          git diff --check
+          ! grep -n 'pathname.endsWith("/VCF")' makevcf.html
+          ! grep -n 'pathname.endsWith("/VCF/index.html")' makevcf.html
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add makevcf.html tests/workbench-architecture.test.js
+          git commit -m 'Fix Bitboard timing on BD deployment'
+          git push
