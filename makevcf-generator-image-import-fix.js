@@ -679,3 +679,451 @@
     ), 50);
   }
 })();
+
+(function installImageMoveOrderEditor(global) {
+  const BOARD_SIZE = 15;
+  const BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
+  const BLACK = 1;
+  const WHITE = 2;
+  const OUTER_MARGIN_CELLS = 0.68;
+
+  const importPanel = document.getElementById("import-panel");
+  const importToolbar = document.getElementById("import-toolbar");
+  const importCanvases = document.getElementById("import-canvases");
+  const sourceCanvas = document.getElementById("source-canvas");
+  const applyButton = document.getElementById("btn-import-apply");
+  const resetButton = document.getElementById("btn-import-reset");
+  const redetectButton = document.getElementById("btn-import-redetect");
+  const imageInput = document.getElementById("image-file-input");
+  const cameraInput = document.getElementById("camera-file-input");
+  if (!importPanel || !importToolbar || !importCanvases || !sourceCanvas || !applyButton) return;
+
+  const state = {
+    active: false,
+    currentNumber: 1,
+    selectedNumber: 0,
+    orderByIndex: new Array(BOARD_CELLS).fill(0),
+    board: new Uint8Array(BOARD_CELLS),
+  };
+
+  const style = document.createElement("style");
+  style.id = "vcf-image-move-order-style";
+  style.textContent = `
+    .vcf-image-order-canvas-wrap{position:relative;width:100%}
+    .vcf-image-order-canvas-wrap>.import-canvas{position:relative;z-index:1}
+    #vcf-image-order-overlay{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+    #vcf-image-order-panel{margin:0 auto 8px;width:min(100%,780px);padding:9px;border:1px solid #d8c48a;border-radius:6px;background:#fffdf5}
+    #vcf-image-order-panel[hidden]{display:none}
+    .vcf-image-order-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center}
+    .vcf-image-order-controls label{display:inline-flex;gap:5px;align-items:center;font-size:13px}
+    #vcf-image-order-current{width:72px;padding:7px 6px;border:1px solid #aaa;border-radius:4px;text-align:center}
+    #vcf-image-order-status{margin:7px 0;font-size:12px;line-height:1.5;text-align:center;color:#65552f}
+    #vcf-image-order-status.is-error{color:#a0462a;font-weight:600}
+    .vcf-image-order-table-wrap{max-height:230px;overflow:auto;border:1px solid #ddd3b8;border-radius:5px;background:#fff}
+    #vcf-image-order-table{width:100%;border-collapse:collapse;font-size:12px}
+    #vcf-image-order-table th,#vcf-image-order-table td{padding:5px 7px;border-bottom:1px solid #eee6d2;text-align:center}
+    #vcf-image-order-table thead th{position:sticky;top:0;background:#f7efd8;z-index:1}
+    #vcf-image-order-table tbody tr{cursor:pointer}
+    #vcf-image-order-table tbody tr:hover{background:#eef5ff}
+    #vcf-image-order-table tbody tr.is-selected{background:#dcecff;outline:1px solid #6b9bd2}
+    #vcf-image-order-table tbody tr.is-missing td:first-child{font-weight:700;color:#b25d00}
+    #vcf-image-order-table tbody tr.is-invalid{background:#fff0ef;color:#a3342b}
+    @media(max-width:600px){
+      #vcf-image-order-panel{padding:7px}
+      .vcf-image-order-controls button{padding:7px 9px}
+      #vcf-image-order-table th,#vcf-image-order-table td{padding:6px 4px}
+    }
+  `;
+  document.head.appendChild(style);
+
+  const toggleButton = document.createElement("button");
+  toggleButton.id = "btn-import-move-order";
+  toggleButton.type = "button";
+  toggleButton.textContent = "加上手順";
+  toggleButton.disabled = true;
+  toggleButton.title = "先完成黑白子辨識後，才能加入手順";
+  importToolbar.insertBefore(toggleButton, applyButton);
+
+  const panel = document.createElement("div");
+  panel.id = "vcf-image-order-panel";
+  panel.hidden = true;
+  panel.innerHTML = `
+    <div class="vcf-image-order-controls">
+      <label>目前手順 <input id="vcf-image-order-current" type="number" min="1" max="999" step="1" value="1"></label>
+      <button id="vcf-image-order-insert-1" type="button" disabled>插入 1</button>
+      <button id="vcf-image-order-insert-2" type="button" disabled>插入 2</button>
+      <button id="vcf-image-order-compact" type="button">整理缺號</button>
+      <button id="vcf-image-order-clear-selected" type="button" disabled>清除所選</button>
+    </div>
+    <div id="vcf-image-order-status">先從下表點選要開始的手順，再點預覽中的棋子。</div>
+    <div class="vcf-image-order-table-wrap">
+      <table id="vcf-image-order-table">
+        <thead><tr><th>手順</th><th>狀態</th><th>位置</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  `;
+  importPanel.insertBefore(panel, importCanvases);
+
+  const currentInput = panel.querySelector("#vcf-image-order-current");
+  const insert1Button = panel.querySelector("#vcf-image-order-insert-1");
+  const insert2Button = panel.querySelector("#vcf-image-order-insert-2");
+  const compactButton = panel.querySelector("#vcf-image-order-compact");
+  const clearSelectedButton = panel.querySelector("#vcf-image-order-clear-selected");
+  const orderStatus = panel.querySelector("#vcf-image-order-status");
+  const tableBody = panel.querySelector("tbody");
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "vcf-image-order-canvas-wrap";
+  sourceCanvas.parentNode.insertBefore(wrapper, sourceCanvas);
+  wrapper.appendChild(sourceCanvas);
+  const overlay = document.createElement("canvas");
+  overlay.id = "vcf-image-order-overlay";
+  wrapper.appendChild(overlay);
+  const overlayContext = overlay.getContext("2d");
+
+  function readBoard() {
+    const raw = global._getArr?.() || [];
+    const board = new Uint8Array(BOARD_CELLS);
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      const stone = Number(raw[index]);
+      board[index] = stone === BLACK || stone === WHITE ? stone : 0;
+    }
+    return board;
+  }
+
+  function stoneCount(board = state.board) {
+    let count = 0;
+    for (const stone of board) if (stone === BLACK || stone === WHITE) count++;
+    return count;
+  }
+
+  function coordinateName(index) {
+    const x = index % BOARD_SIZE;
+    const y = Math.floor(index / BOARD_SIZE);
+    return `${String.fromCharCode(65 + x)}${y + 1}`;
+  }
+
+  function findIndexForNumber(number) {
+    return state.orderByIndex.findIndex(value => value === number);
+  }
+
+  function assignedNumbers() {
+    const numbers = new Set();
+    for (const value of state.orderByIndex) if (value > 0) numbers.add(value);
+    return numbers;
+  }
+
+  function firstUnassigned(start = 1) {
+    const used = assignedNumbers();
+    let number = Math.max(1, Math.floor(Number(start) || 1));
+    while (used.has(number) && number < 999) number++;
+    return number;
+  }
+
+  function pruneAssignments(board = state.board) {
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      if (!board[index]) state.orderByIndex[index] = 0;
+    }
+  }
+
+  function validate(board = state.board) {
+    const total = stoneCount(board);
+    const byNumber = new Map();
+    let assigned = 0;
+    const parityErrors = [];
+    const extras = [];
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      const number = Number(state.orderByIndex[index]) || 0;
+      if (!number) continue;
+      if (!board[index]) continue;
+      assigned++;
+      byNumber.set(number, index);
+      if (number > total) extras.push(number);
+      const expected = number % 2 ? BLACK : WHITE;
+      if (board[index] !== expected) parityErrors.push(number);
+    }
+    const missing = [];
+    for (let number = 1; number <= total; number++) {
+      if (!byNumber.has(number)) missing.push(number);
+    }
+    const complete = total > 0 && assigned === total && missing.length === 0 && extras.length === 0;
+    return {
+      total,
+      assigned,
+      missing,
+      extras: Array.from(new Set(extras)).sort((a, b) => a - b),
+      parityErrors: Array.from(new Set(parityErrors)).sort((a, b) => a - b),
+      valid: complete && parityErrors.length === 0,
+    };
+  }
+
+  function buildExactHistory(board = readBoard()) {
+    pruneAssignments(board);
+    const result = validate(board);
+    if (!result.valid) return null;
+    const history = [];
+    for (let number = 1; number <= result.total; number++) {
+      const index = findIndexForNumber(number);
+      if (index < 0) return null;
+      history.push({ index, stone: board[index] });
+    }
+    return history;
+  }
+
+  function renderOverlay() {
+    if (overlay.width !== sourceCanvas.width) overlay.width = sourceCanvas.width;
+    if (overlay.height !== sourceCanvas.height) overlay.height = sourceCanvas.height;
+    overlayContext.clearRect(0, 0, overlay.width, overlay.height);
+    if (!state.active) return;
+    const denominator = (BOARD_SIZE - 1) + OUTER_MARGIN_CELLS * 2;
+    const stepX = overlay.width / denominator;
+    const stepY = overlay.height / denominator;
+    const marginX = stepX * OUTER_MARGIN_CELLS;
+    const marginY = stepY * OUTER_MARGIN_CELLS;
+    const radius = Math.max(9, Math.min(stepX, stepY) * 0.22);
+    const fontSize = Math.max(11, Math.min(stepX, stepY) * 0.30);
+    overlayContext.textAlign = "center";
+    overlayContext.textBaseline = "middle";
+    overlayContext.font = `700 ${fontSize}px system-ui, sans-serif`;
+
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      const number = state.orderByIndex[index];
+      if (!number) continue;
+      const x = marginX + (index % BOARD_SIZE) * stepX;
+      const y = marginY + Math.floor(index / BOARD_SIZE) * stepY;
+      const expected = number % 2 ? BLACK : WHITE;
+      const invalid = state.board[index] && state.board[index] !== expected;
+      overlayContext.beginPath();
+      overlayContext.arc(x, y, radius, 0, Math.PI * 2);
+      overlayContext.fillStyle = invalid ? "rgba(205,45,45,.94)" : "rgba(25,115,210,.94)";
+      overlayContext.fill();
+      overlayContext.lineWidth = Math.max(1.5, radius * 0.14);
+      overlayContext.strokeStyle = number === state.selectedNumber ? "rgba(40,190,80,.98)" : "rgba(255,255,255,.94)";
+      overlayContext.stroke();
+      overlayContext.fillStyle = "#fff";
+      overlayContext.fillText(String(number), x, y + 0.5);
+    }
+  }
+
+  function statusText() {
+    const result = validate();
+    const parts = [`已標 ${result.assigned}/${result.total}`];
+    if (result.missing.length) parts.push(`缺號：${result.missing.slice(0, 12).join("、")}${result.missing.length > 12 ? "…" : ""}`);
+    if (result.extras.length) parts.push(`超出棋子數：${result.extras.slice(0, 8).join("、")}`);
+    if (result.parityErrors.length) parts.push(`黑白奇偶不符：${result.parityErrors.slice(0, 12).join("、")}${result.parityErrors.length > 12 ? "…" : ""}`);
+    if (result.valid) return { text: `手順完整，共 ${result.total} 手；可按「套用到棋盤」建立正式棋譜手順。`, error: false };
+    return { text: parts.join("；"), error: result.parityErrors.length > 0 || result.extras.length > 0 };
+  }
+
+  function renderTable() {
+    const maxAssigned = Math.max(0, ...state.orderByIndex);
+    const maxNumber = Math.max(1, stoneCount(), maxAssigned, Number(state.currentNumber) || 1);
+    const fragment = document.createDocumentFragment();
+    tableBody.replaceChildren();
+    for (let number = 1; number <= Math.min(999, maxNumber); number++) {
+      const index = findIndexForNumber(number);
+      const row = document.createElement("tr");
+      row.dataset.number = String(number);
+      if (number === state.selectedNumber) row.classList.add("is-selected");
+      if (index < 0) row.classList.add("is-missing");
+      let status = "未標記";
+      let position = "—";
+      if (index >= 0) {
+        position = coordinateName(index);
+        const expected = number % 2 ? BLACK : WHITE;
+        if (state.board[index] !== expected) {
+          row.classList.add("is-invalid");
+          status = `已標記（應為${expected === BLACK ? "黑" : "白"}）`;
+        } else {
+          status = `已標記（${state.board[index] === BLACK ? "黑" : "白"}）`;
+        }
+      }
+      row.innerHTML = `<td>${number}</td><td>${status}</td><td>${position}</td>`;
+      row.addEventListener("click", () => {
+        state.selectedNumber = number;
+        state.currentNumber = number;
+        currentInput.value = String(number);
+        renderAll();
+      });
+      fragment.appendChild(row);
+    }
+    tableBody.appendChild(fragment);
+  }
+
+  function renderAll() {
+    currentInput.value = String(state.currentNumber);
+    const hasSelection = state.selectedNumber > 0;
+    insert1Button.disabled = !hasSelection;
+    insert2Button.disabled = !hasSelection;
+    clearSelectedButton.disabled = !hasSelection || findIndexForNumber(state.selectedNumber) < 0;
+    const status = statusText();
+    orderStatus.textContent = status.text;
+    orderStatus.classList.toggle("is-error", status.error);
+    renderTable();
+    renderOverlay();
+  }
+
+  function clearOrders() {
+    state.orderByIndex.fill(0);
+    state.currentNumber = 1;
+    state.selectedNumber = 0;
+    state.board = new Uint8Array(BOARD_CELLS);
+    state.active = false;
+    panel.hidden = true;
+    toggleButton.textContent = "加上手順";
+    renderOverlay();
+  }
+
+  function stopOrderMode() {
+    state.active = false;
+    panel.hidden = true;
+    toggleButton.textContent = "加上手順";
+    renderOverlay();
+  }
+
+  function startOrderMode() {
+    if (applyButton.hidden) return;
+    applyButton.click();
+    state.board = readBoard();
+    pruneAssignments(state.board);
+    if (!stoneCount(state.board)) return;
+    state.active = true;
+    panel.hidden = false;
+    toggleButton.textContent = "結束手順";
+    state.currentNumber = firstUnassigned(1);
+    state.selectedNumber = 0;
+    renderAll();
+  }
+
+  function syncAvailability() {
+    const ready = !applyButton.hidden;
+    toggleButton.disabled = !ready;
+    if (!ready && state.active) stopOrderMode();
+  }
+
+  function eventToBoardIndex(event) {
+    const rect = sourceCanvas.getBoundingClientRect();
+    if (!rect.width || !rect.height) return -1;
+    const x = (event.clientX - rect.left) * sourceCanvas.width / rect.width;
+    const y = (event.clientY - rect.top) * sourceCanvas.height / rect.height;
+    const denominator = (BOARD_SIZE - 1) + OUTER_MARGIN_CELLS * 2;
+    const stepX = sourceCanvas.width / denominator;
+    const stepY = sourceCanvas.height / denominator;
+    const marginX = stepX * OUTER_MARGIN_CELLS;
+    const marginY = stepY * OUTER_MARGIN_CELLS;
+    const column = Math.round((x - marginX) / stepX);
+    const row = Math.round((y - marginY) / stepY);
+    if (column < 0 || column >= BOARD_SIZE || row < 0 || row >= BOARD_SIZE) return -1;
+    const centerX = marginX + column * stepX;
+    const centerY = marginY + row * stepY;
+    if (Math.abs(x - centerX) > stepX * 0.48 || Math.abs(y - centerY) > stepY * 0.48) return -1;
+    return row * BOARD_SIZE + column;
+  }
+
+  function assignCurrentNumber(index) {
+    if (!state.board[index]) {
+      orderStatus.textContent = "此交點不是已辨識的黑／白棋子，不能加入手順。";
+      orderStatus.classList.add("is-error");
+      return;
+    }
+    const number = Math.max(1, Math.min(999, Math.floor(Number(state.currentNumber) || 1)));
+    for (let other = 0; other < BOARD_CELLS; other++) {
+      if (other !== index && state.orderByIndex[other] === number) state.orderByIndex[other] = 0;
+    }
+    state.orderByIndex[index] = number;
+    state.selectedNumber = number;
+    state.currentNumber = firstUnassigned(number + 1);
+    renderAll();
+  }
+
+  function insertAtSelection(amount) {
+    const target = state.selectedNumber;
+    if (!target) return;
+    const entries = [];
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      const number = state.orderByIndex[index];
+      if (number >= target) entries.push({ index, number });
+    }
+    entries.sort((a, b) => b.number - a.number);
+    for (const entry of entries) state.orderByIndex[entry.index] = entry.number + amount;
+    state.currentNumber = target;
+    currentInput.value = String(target);
+    renderAll();
+    if (amount === 1) {
+      orderStatus.textContent += "；已插入 1 手，後續黑白奇偶會交換，需繼續校正。";
+      orderStatus.classList.add("is-error");
+    }
+  }
+
+  function compactMissingNumbers() {
+    const entries = [];
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      const number = state.orderByIndex[index];
+      if (number > 0) entries.push({ index, number });
+    }
+    entries.sort((a, b) => a.number - b.number || a.index - b.index);
+    state.orderByIndex.fill(0);
+    entries.forEach((entry, offset) => { state.orderByIndex[entry.index] = offset + 1; });
+    state.selectedNumber = 0;
+    state.currentNumber = firstUnassigned(1);
+    renderAll();
+  }
+
+  toggleButton.addEventListener("click", () => {
+    if (state.active) stopOrderMode();
+    else startOrderMode();
+  });
+
+  currentInput.addEventListener("change", () => {
+    state.currentNumber = Math.max(1, Math.min(999, Math.floor(Number(currentInput.value) || 1)));
+    currentInput.value = String(state.currentNumber);
+    renderAll();
+  });
+
+  insert1Button.addEventListener("click", () => insertAtSelection(1));
+  insert2Button.addEventListener("click", () => insertAtSelection(2));
+  compactButton.addEventListener("click", compactMissingNumbers);
+  clearSelectedButton.addEventListener("click", () => {
+    const index = findIndexForNumber(state.selectedNumber);
+    if (index >= 0) state.orderByIndex[index] = 0;
+    state.currentNumber = state.selectedNumber || state.currentNumber;
+    renderAll();
+  });
+
+  sourceCanvas.addEventListener("pointerup", event => {
+    if (!state.active) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const index = eventToBoardIndex(event);
+    if (index >= 0) assignCurrentNumber(index);
+  }, true);
+
+  applyButton.addEventListener("click", () => {
+    queueMicrotask(() => {
+      const board = readBoard();
+      state.board = board;
+      pruneAssignments(board);
+      const history = buildExactHistory(board);
+      if (history && global.VCFWorkbenchRecord?.setHistory) {
+        global.VCFWorkbenchRecord.setHistory(history, true);
+      }
+      if (state.active) renderAll();
+    });
+  });
+
+  resetButton?.addEventListener("click", clearOrders);
+  redetectButton?.addEventListener("click", clearOrders);
+  imageInput?.addEventListener("change", clearOrders);
+  cameraInput?.addEventListener("change", clearOrders);
+  document.addEventListener("paste", event => {
+    const hasImage = Array.from(event.clipboardData?.items || []).some(item => item.type.startsWith("image/"));
+    if (hasImage) clearOrders();
+  });
+  global.addEventListener("resize", () => renderOverlay());
+
+  const availabilityObserver = new MutationObserver(syncAvailability);
+  availabilityObserver.observe(applyButton, { attributes: true, attributeFilter: ["hidden"] });
+  syncAvailability();
+  renderOverlay();
+})(typeof window !== "undefined" ? window : globalThis);
