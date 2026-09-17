@@ -45,9 +45,9 @@
 })();
 
 // Image move-order mode is created by makevcf-generator-image-import-fix.js later in
-// the fixed script order. This module owns its responsive/pointer presentation and the
-// transient confirmation transaction around "整理缺號". It never creates a second
-// orderByIndex; restore is performed through the move-order editor's existing insert API/UI.
+// the fixed script order. This module owns responsive/pointer presentation and a
+// presentation-only preview for "整理缺號". The real orderByIndex remains owned by
+// the move-order editor and is changed only after the user confirms the preview.
 (function installImageMoveOrderPresentation() {
   const BOARD_SIZE = 15;
   const OUTER_MARGIN_CELLS = 0.68;
@@ -136,6 +136,14 @@
         background:#ffaaa3;
         box-shadow:inset 2px 0 #c4372c;
       }
+      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-valid{
+        background:#ffe36b;
+        box-shadow:inset 2px 0 #e29b00;
+      }
+      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-invalid{
+        background:#ffaaa3;
+        box-shadow:inset 2px 0 #c4372c;
+      }
       #vcf-image-order-table tbody td:first-child{
         display:flex;
         align-items:center;
@@ -150,19 +158,21 @@
         font-weight:800;
         line-height:1;
       }
-      #vcf-image-order-table tbody tr:nth-child(odd) td:first-child{
+      #vcf-image-order-table tbody tr:nth-child(odd) td:first-child,
+      #vcf-image-order-table tbody tr.is-preview-odd td:first-child{
         background:#111;
         color:#fff;
         border:1px solid #000;
       }
-      #vcf-image-order-table tbody tr:nth-child(even) td:first-child{
+      #vcf-image-order-table tbody tr:nth-child(even) td:first-child,
+      #vcf-image-order-table tbody tr.is-preview-even td:first-child{
         background:#fff;
         color:#111;
         border:1px solid #555;
       }
-      #vcf-image-order-table tbody tr.is-missing td:first-child{
-        opacity:.52;
-      }
+      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-odd td:first-child{background:#111;color:#fff;border-color:#000}
+      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-even td:first-child{background:#fff;color:#111;border-color:#555}
+      #vcf-image-order-table tbody tr.is-missing td:first-child{opacity:.52}
       #vcf-image-order-overlay{display:none !important}
       #vcf-image-order-dom-overlay{
         position:absolute;
@@ -245,6 +255,7 @@
 
     let compactSnapshot = null;
     let compactPending = false;
+    let allowCompactOnce = false;
     let disabledSnapshot = null;
 
     function normalizeNumber(value) {
@@ -274,13 +285,24 @@
       };
     }
 
+    function actualBlackForRow(rowElement) {
+      const originalNumber = normalizeNumber(rowElement.dataset.number || rowElement.cells[0]?.textContent);
+      const originalExpectedBlack = originalNumber % 2 === 1;
+      return rowElement.classList.contains("is-invalid") ? !originalExpectedBlack : originalExpectedBlack;
+    }
+
+    function displayNumberForRow(rowElement) {
+      if (compactPending && rowElement.dataset.previewNumber) return normalizeNumber(rowElement.dataset.previewNumber);
+      return normalizeNumber(rowElement.dataset.number || rowElement.cells[0]?.textContent);
+    }
+
     function renderBoardNumbers() {
       markerLayer.replaceChildren();
       if (panel.hidden) return;
       const rows = Array.from(table.tBodies[0]?.rows || []);
       for (const rowElement of rows) {
-        if (rowElement.classList.contains("is-missing")) continue;
-        const number = normalizeNumber(rowElement.dataset.number || rowElement.cells[0]?.textContent);
+        if (rowElement.hidden || rowElement.classList.contains("is-missing")) continue;
+        const number = displayNumberForRow(rowElement);
         const point = coordinateToPercent(rowElement.cells[2]?.textContent);
         if (!point) continue;
         const marker = document.createElement("span");
@@ -288,10 +310,9 @@
         marker.textContent = String(number);
         marker.style.left = `${point.x}%`;
         marker.style.top = `${point.y}%`;
-        const expectedBlack = number % 2 === 1;
-        const actualBlack = rowElement.classList.contains("is-invalid") ? !expectedBlack : expectedBlack;
+        const actualBlack = actualBlackForRow(rowElement);
         marker.classList.add(actualBlack ? "is-black" : "is-white");
-        if (rowElement.classList.contains("is-invalid")) marker.classList.add("is-invalid");
+        if (actualBlack !== (number % 2 === 1)) marker.classList.add("is-invalid");
         markerLayer.appendChild(marker);
       }
     }
@@ -305,25 +326,15 @@
       renderBoardNumbers();
     }
 
-    function assignedNumbersFromTable() {
-      return Array.from(table.tBodies[0]?.rows || [])
-        .filter(row => !row.classList.contains("is-missing"))
-        .map(row => Number(row.dataset.number))
-        .filter(number => Number.isInteger(number) && number > 0)
-        .sort((a, b) => a - b);
-    }
-
     function captureCompactSnapshot() {
-      const assignedNumbers = assignedNumbersFromTable();
-      if (!assignedNumbers.length) return null;
-      const changesNumbers = assignedNumbers.some((number, index) => number !== index + 1);
-      if (!changesNumbers) return null;
-      const selectedRow = Array.from(table.tBodies[0]?.rows || []).find(row => row.classList.contains("is-selected"));
-      return {
-        assignedNumbers,
-        currentNumber: normalizeNumber(currentInput.value),
-        selectedNumber: Number(selectedRow?.dataset.number) || 0,
-      };
+      const rows = Array.from(table.tBodies[0]?.rows || []);
+      const assignedRows = rows
+        .filter(row => !row.classList.contains("is-missing"))
+        .sort((a, b) => Number(a.dataset.number) - Number(b.dataset.number));
+      if (!assignedRows.length) return null;
+      const assignedNumbers = assignedRows.map(row => Number(row.dataset.number));
+      if (!assignedNumbers.some((number, index) => number !== index + 1)) return null;
+      return { rows, assignedRows };
     }
 
     function setCompactInteractionLock(locked) {
@@ -342,67 +353,55 @@
       panel.classList.remove("is-compact-confirming");
     }
 
-    function beginCompactConfirmation(snapshot) {
-      if (!snapshot) return;
+    function clearCompactPreview() {
+      const rows = Array.from(table.tBodies[0]?.rows || []);
+      for (const row of rows) {
+        row.hidden = false;
+        row.classList.remove("is-compact-preview", "is-preview-odd", "is-preview-even", "is-preview-valid", "is-preview-invalid");
+        delete row.dataset.previewNumber;
+        if (row.cells[0]) row.cells[0].textContent = row.dataset.number || row.cells[0].textContent;
+      }
+    }
+
+    function beginCompactPreview(snapshot) {
       compactSnapshot = snapshot;
       compactPending = true;
+      let previewNumber = 0;
+      for (const row of snapshot.rows) {
+        if (row.classList.contains("is-missing")) {
+          row.hidden = true;
+          continue;
+        }
+        previewNumber++;
+        row.dataset.previewNumber = String(previewNumber);
+        row.classList.add("is-compact-preview", previewNumber % 2 ? "is-preview-odd" : "is-preview-even");
+        const actualBlack = actualBlackForRow(row);
+        row.classList.add(actualBlack === (previewNumber % 2 === 1) ? "is-preview-valid" : "is-preview-invalid");
+        if (row.cells[0]) row.cells[0].textContent = String(previewNumber);
+      }
       compactConfirm.hidden = false;
       setCompactInteractionLock(true);
       syncPresentation();
     }
 
-    function finishCompactConfirmation() {
+    function finishCompactPreview(apply) {
+      if (!compactPending) return;
+      clearCompactPreview();
       compactPending = false;
       compactSnapshot = null;
       compactConfirm.hidden = true;
       setCompactInteractionLock(false);
-      syncPresentation();
-    }
-
-    function selectOrderNumber(number) {
-      const row = table.querySelector(`tbody tr[data-number="${number}"]`);
-      if (!row) return false;
-      row.click();
-      return true;
-    }
-
-    function restoreCompactSnapshot() {
-      const snapshot = compactSnapshot;
-      if (!snapshot) return;
-      setCompactInteractionLock(false);
-
-      let previousOriginal = 0;
-      for (const originalNumber of snapshot.assignedNumbers) {
-        let gap = originalNumber - previousOriginal - 1;
-        if (gap > 0) {
-          const target = previousOriginal + 1;
-          if (!selectOrderNumber(target)) break;
-          while (gap >= 2) {
-            insert2Button.click();
-            gap -= 2;
-          }
-          if (gap === 1) insert1Button.click();
-        }
-        previousOriginal = originalNumber;
+      if (apply) {
+        allowCompactOnce = true;
+        compactButton.click();
+        allowCompactOnce = false;
       }
-
-      if (snapshot.selectedNumber > 0) selectOrderNumber(snapshot.selectedNumber);
-      currentInput.value = String(snapshot.currentNumber);
-      currentInput.dispatchEvent(new Event("change", { bubbles: true }));
-
-      compactPending = false;
-      compactSnapshot = null;
-      compactConfirm.hidden = true;
-      syncPresentation();
+      queueMicrotask(syncPresentation);
     }
 
-    function discardCompactConfirmation() {
-      if (!compactPending && !compactSnapshot) return;
-      compactPending = false;
-      compactSnapshot = null;
-      compactConfirm.hidden = true;
-      setCompactInteractionLock(false);
-      syncPresentation();
+    function discardCompactPreview() {
+      if (!compactPending) return;
+      finishCompactPreview(false);
     }
 
     function eventToCoordinate(event) {
@@ -435,20 +434,24 @@
     }
 
     compactButton.addEventListener("click", event => {
+      if (allowCompactOnce) return;
       if (compactPending) {
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
       }
       const snapshot = captureCompactSnapshot();
-      if (snapshot) queueMicrotask(() => beginCompactConfirmation(snapshot));
+      if (!snapshot) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      beginCompactPreview(snapshot);
     }, true);
 
-    compactApplyButton.addEventListener("click", finishCompactConfirmation);
-    compactRestoreButton.addEventListener("click", restoreCompactSnapshot);
+    compactApplyButton.addEventListener("click", () => finishCompactPreview(true));
+    compactRestoreButton.addEventListener("click", () => finishCompactPreview(false));
 
     // Intercept source-canvas pointer events before the existing move-order editor when
-    // a compact confirmation is pending. Right click remains reserved for clearing.
+    // a compact preview is pending. Right click remains reserved for clearing otherwise.
     document.addEventListener("pointerup", event => {
       if (panel.hidden || event.target !== sourceCanvas) return;
       if (compactPending && event.isTrusted) {
@@ -483,10 +486,10 @@
       queueMicrotask(syncPresentation);
     });
 
-    resetButton?.addEventListener("click", discardCompactConfirmation, true);
-    redetectButton?.addEventListener("click", discardCompactConfirmation, true);
-    imageInput?.addEventListener("change", discardCompactConfirmation, true);
-    cameraInput?.addEventListener("change", discardCompactConfirmation, true);
+    resetButton?.addEventListener("click", discardCompactPreview, true);
+    redetectButton?.addEventListener("click", discardCompactPreview, true);
+    imageInput?.addEventListener("change", discardCompactPreview, true);
+    cameraInput?.addEventListener("change", discardCompactPreview, true);
 
     currentInput.addEventListener("input", syncPresentation);
     currentInput.addEventListener("change", () => queueMicrotask(syncPresentation));
@@ -500,12 +503,12 @@
     window.addEventListener("resize", syncPresentation);
 
     const panelObserver = new MutationObserver(() => {
-      if (panel.hidden && compactPending) discardCompactConfirmation();
+      if (panel.hidden && compactPending) discardCompactPreview();
       syncPresentation();
     });
     panelObserver.observe(panel, { attributes:true, attributeFilter:["hidden"] });
     const tableObserver = new MutationObserver(() => queueMicrotask(syncPresentation));
-    tableObserver.observe(table, { childList:true, subtree:true, attributes:true, attributeFilter:["class"] });
+    tableObserver.observe(table, { childList:true, subtree:true, attributes:true, attributeFilter:["class", "hidden"] });
     syncPresentation();
   }
 
