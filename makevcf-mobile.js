@@ -179,6 +179,8 @@
     function syncPresentation() {
       const active = !panel.hidden;
       tableWrap.hidden = !active;
+      const canvasHeight = Math.round(canvasWrap.getBoundingClientRect().height);
+      tableWrap.style.height = active && canvasHeight > 0 ? `${canvasHeight}px` : "";
       sourceCanvas.style.cursor = active ? cursorFor(normalizeNumber(currentInput.value)) : "";
     }
 
@@ -244,6 +246,7 @@
     table.addEventListener("click", () => queueMicrotask(syncPresentation));
     toggleButton?.addEventListener("click", () => queueMicrotask(syncPresentation));
     sourceCanvas.addEventListener("mouseenter", syncPresentation);
+    window.addEventListener("resize", syncPresentation);
 
     const panelObserver = new MutationObserver(syncPresentation);
     panelObserver.observe(panel, { attributes:true, attributeFilter:["hidden"] });
