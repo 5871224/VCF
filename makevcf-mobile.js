@@ -243,8 +243,12 @@
 
     currentInput.addEventListener("input", syncPresentation);
     currentInput.addEventListener("change", () => queueMicrotask(syncPresentation));
+    panel.addEventListener("click", () => queueMicrotask(syncPresentation));
     table.addEventListener("click", () => queueMicrotask(syncPresentation));
     toggleButton?.addEventListener("click", () => queueMicrotask(syncPresentation));
+    sourceCanvas.addEventListener("pointerup", event => {
+      if (event.button === 0) queueMicrotask(syncPresentation);
+    });
     sourceCanvas.addEventListener("mouseenter", syncPresentation);
     window.addEventListener("resize", syncPresentation);
 
