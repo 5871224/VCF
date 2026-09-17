@@ -45,8 +45,9 @@
 })();
 
 // Image move-order mode is created by makevcf-generator-image-import-fix.js later in
-// the fixed script order. This module owns only its responsive/pointer presentation:
-// it does not modify orderByIndex or create a second move-order state.
+// the fixed script order. This module owns its responsive/pointer presentation and the
+// transient confirmation transaction around "整理缺號". It never creates a second
+// orderByIndex; restore is performed through the move-order editor's existing insert API/UI.
 (function installImageMoveOrderPresentation() {
   const BOARD_SIZE = 15;
   const OUTER_MARGIN_CELLS = 0.68;
@@ -58,10 +59,22 @@
     const tableWrap = panel?.querySelector(".vcf-image-order-table-wrap");
     const table = document.getElementById("vcf-image-order-table");
     const currentInput = document.getElementById("vcf-image-order-current");
+    const insert1Button = document.getElementById("vcf-image-order-insert-1");
+    const insert2Button = document.getElementById("vcf-image-order-insert-2");
+    const compactButton = document.getElementById("vcf-image-order-compact");
     const clearButton = document.getElementById("vcf-image-order-clear-selected");
+    const orderStatus = document.getElementById("vcf-image-order-status");
     const toggleButton = document.getElementById("btn-import-move-order");
+    const applyBoardButton = document.getElementById("btn-import-apply");
+    const resetButton = document.getElementById("btn-import-reset");
+    const redetectButton = document.getElementById("btn-import-redetect");
+    const imageInput = document.getElementById("image-file-input");
+    const cameraInput = document.getElementById("camera-file-input");
     const legacyOverlay = document.getElementById("vcf-image-order-overlay");
-    if (!panel || !sourceCanvas || !canvasWrap || !tableWrap || !table || !currentInput || !clearButton) return;
+    if (
+      !panel || !sourceCanvas || !canvasWrap || !tableWrap || !table || !currentInput ||
+      !insert1Button || !insert2Button || !compactButton || !clearButton || !orderStatus
+    ) return;
     if (document.getElementById("vcf-image-order-stage")) return;
 
     const style = document.createElement("style");
@@ -173,6 +186,23 @@
       .vcf-image-order-board-number.is-black{color:#fff}
       .vcf-image-order-board-number.is-white{color:#111;text-shadow:0 0 2px #fff,0 0 2px #fff}
       .vcf-image-order-board-number.is-invalid{color:#e02b22;text-shadow:0 0 2px #fff,0 0 3px #fff}
+      #vcf-image-order-compact-confirm{
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        gap:6px;
+        margin:6px auto 8px;
+        padding:6px 8px;
+        width:min(100%,520px);
+        border:1px solid #d6a53c;
+        border-radius:5px;
+        background:#fff4c7;
+        font-size:12px;
+        font-weight:600;
+      }
+      #vcf-image-order-compact-confirm[hidden]{display:none !important}
+      #vcf-image-order-compact-confirm button{padding:5px 10px;font-size:12px}
+      #vcf-image-order-panel.is-compact-confirming #vcf-image-order-table tbody tr{cursor:default}
       @media(max-width:600px){
         #vcf-image-order-stage{gap:3px}
         #vcf-image-order-stage>.vcf-image-order-table-wrap{
@@ -185,6 +215,8 @@
           margin:1px auto;
           font-size:7px;
         }
+        #vcf-image-order-compact-confirm{gap:4px;padding:5px 6px;font-size:11px}
+        #vcf-image-order-compact-confirm button{padding:5px 8px;font-size:11px}
       }
     `;
     document.head.appendChild(style);
@@ -198,6 +230,22 @@
     markerLayer.id = "vcf-image-order-dom-overlay";
     canvasWrap.appendChild(markerLayer);
     if (legacyOverlay) legacyOverlay.hidden = true;
+
+    const compactConfirm = document.createElement("div");
+    compactConfirm.id = "vcf-image-order-compact-confirm";
+    compactConfirm.hidden = true;
+    compactConfirm.innerHTML = `
+      <span>確認整理缺號：</span>
+      <button id="vcf-image-order-compact-apply" type="button">套用</button>
+      <button id="vcf-image-order-compact-restore" type="button">復原</button>
+    `;
+    orderStatus.insertAdjacentElement("afterend", compactConfirm);
+    const compactApplyButton = compactConfirm.querySelector("#vcf-image-order-compact-apply");
+    const compactRestoreButton = compactConfirm.querySelector("#vcf-image-order-compact-restore");
+
+    let compactSnapshot = null;
+    let compactPending = false;
+    let disabledSnapshot = null;
 
     function normalizeNumber(value) {
       return Math.max(1, Math.min(999, Math.floor(Number(value) || 1)));
@@ -253,8 +301,108 @@
       tableWrap.hidden = !active;
       const canvasHeight = Math.round(sourceCanvas.getBoundingClientRect().height);
       tableWrap.style.height = active && canvasHeight > 0 ? `${canvasHeight}px` : "";
-      sourceCanvas.style.cursor = active ? cursorFor(normalizeNumber(currentInput.value)) : "";
+      sourceCanvas.style.cursor = active && !compactPending ? cursorFor(normalizeNumber(currentInput.value)) : "";
       renderBoardNumbers();
+    }
+
+    function assignedNumbersFromTable() {
+      return Array.from(table.tBodies[0]?.rows || [])
+        .filter(row => !row.classList.contains("is-missing"))
+        .map(row => Number(row.dataset.number))
+        .filter(number => Number.isInteger(number) && number > 0)
+        .sort((a, b) => a - b);
+    }
+
+    function captureCompactSnapshot() {
+      const assignedNumbers = assignedNumbersFromTable();
+      if (!assignedNumbers.length) return null;
+      const changesNumbers = assignedNumbers.some((number, index) => number !== index + 1);
+      if (!changesNumbers) return null;
+      const selectedRow = Array.from(table.tBodies[0]?.rows || []).find(row => row.classList.contains("is-selected"));
+      return {
+        assignedNumbers,
+        currentNumber: normalizeNumber(currentInput.value),
+        selectedNumber: Number(selectedRow?.dataset.number) || 0,
+      };
+    }
+
+    function setCompactInteractionLock(locked) {
+      const targets = [currentInput, insert1Button, insert2Button, compactButton, clearButton, toggleButton, applyBoardButton].filter(Boolean);
+      if (locked) {
+        if (!disabledSnapshot) disabledSnapshot = new Map(targets.map(element => [element, element.disabled]));
+        for (const element of targets) element.disabled = true;
+        document.activeElement?.blur?.();
+        panel.classList.add("is-compact-confirming");
+        return;
+      }
+      if (disabledSnapshot) {
+        for (const [element, disabled] of disabledSnapshot) element.disabled = disabled;
+      }
+      disabledSnapshot = null;
+      panel.classList.remove("is-compact-confirming");
+    }
+
+    function beginCompactConfirmation(snapshot) {
+      if (!snapshot) return;
+      compactSnapshot = snapshot;
+      compactPending = true;
+      compactConfirm.hidden = false;
+      setCompactInteractionLock(true);
+      syncPresentation();
+    }
+
+    function finishCompactConfirmation() {
+      compactPending = false;
+      compactSnapshot = null;
+      compactConfirm.hidden = true;
+      setCompactInteractionLock(false);
+      syncPresentation();
+    }
+
+    function selectOrderNumber(number) {
+      const row = table.querySelector(`tbody tr[data-number="${number}"]`);
+      if (!row) return false;
+      row.click();
+      return true;
+    }
+
+    function restoreCompactSnapshot() {
+      const snapshot = compactSnapshot;
+      if (!snapshot) return;
+      setCompactInteractionLock(false);
+
+      let previousOriginal = 0;
+      for (const originalNumber of snapshot.assignedNumbers) {
+        let gap = originalNumber - previousOriginal - 1;
+        if (gap > 0) {
+          const target = previousOriginal + 1;
+          if (!selectOrderNumber(target)) break;
+          while (gap >= 2) {
+            insert2Button.click();
+            gap -= 2;
+          }
+          if (gap === 1) insert1Button.click();
+        }
+        previousOriginal = originalNumber;
+      }
+
+      if (snapshot.selectedNumber > 0) selectOrderNumber(snapshot.selectedNumber);
+      currentInput.value = String(snapshot.currentNumber);
+      currentInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+      compactPending = false;
+      compactSnapshot = null;
+      compactConfirm.hidden = true;
+      syncPresentation();
+    }
+
+    function discardCompactConfirmation() {
+      if (!compactPending && !compactSnapshot) return;
+      compactPending = false;
+      compactSnapshot = null;
+      compactConfirm.hidden = true;
+      setCompactInteractionLock(false);
+      syncPresentation();
     }
 
     function eventToCoordinate(event) {
@@ -286,22 +434,47 @@
       return true;
     }
 
-    // Intercept right-button pointerup at document capture phase before the existing
-    // source-canvas pointerup handler can treat it as a new move-order assignment.
+    compactButton.addEventListener("click", event => {
+      if (compactPending) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      const snapshot = captureCompactSnapshot();
+      if (snapshot) queueMicrotask(() => beginCompactConfirmation(snapshot));
+    }, true);
+
+    compactApplyButton.addEventListener("click", finishCompactConfirmation);
+    compactRestoreButton.addEventListener("click", restoreCompactSnapshot);
+
+    // Intercept source-canvas pointer events before the existing move-order editor when
+    // a compact confirmation is pending. Right click remains reserved for clearing.
     document.addEventListener("pointerup", event => {
-      if (panel.hidden || event.target !== sourceCanvas || event.button !== 2) return;
+      if (panel.hidden || event.target !== sourceCanvas) return;
+      if (compactPending && event.isTrusted) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (event.button !== 2) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }, true);
+
+    table.addEventListener("click", event => {
+      if (!compactPending || !event.isTrusted) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     }, true);
 
     sourceCanvas.addEventListener("contextmenu", event => {
-      if (panel.hidden) return;
+      if (panel.hidden || compactPending) return;
       event.preventDefault();
       clearOrderAtCanvasEvent(event);
     });
 
     table.addEventListener("contextmenu", event => {
-      if (panel.hidden) return;
+      if (panel.hidden || compactPending) return;
       const row = event.target.closest("tr[data-number]");
       if (!row || row.classList.contains("is-missing")) return;
       event.preventDefault();
@@ -309,6 +482,11 @@
       clearButton.click();
       queueMicrotask(syncPresentation);
     });
+
+    resetButton?.addEventListener("click", discardCompactConfirmation, true);
+    redetectButton?.addEventListener("click", discardCompactConfirmation, true);
+    imageInput?.addEventListener("change", discardCompactConfirmation, true);
+    cameraInput?.addEventListener("change", discardCompactConfirmation, true);
 
     currentInput.addEventListener("input", syncPresentation);
     currentInput.addEventListener("change", () => queueMicrotask(syncPresentation));
@@ -321,7 +499,10 @@
     sourceCanvas.addEventListener("mouseenter", syncPresentation);
     window.addEventListener("resize", syncPresentation);
 
-    const panelObserver = new MutationObserver(syncPresentation);
+    const panelObserver = new MutationObserver(() => {
+      if (panel.hidden && compactPending) discardCompactConfirmation();
+      syncPresentation();
+    });
     panelObserver.observe(panel, { attributes:true, attributeFilter:["hidden"] });
     const tableObserver = new MutationObserver(() => queueMicrotask(syncPresentation));
     tableObserver.observe(table, { childList:true, subtree:true, attributes:true, attributeFilter:["class"] });
