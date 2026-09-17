@@ -60,6 +60,7 @@
     const currentInput = document.getElementById("vcf-image-order-current");
     const clearButton = document.getElementById("vcf-image-order-clear-selected");
     const toggleButton = document.getElementById("btn-import-move-order");
+    const legacyOverlay = document.getElementById("vcf-image-order-overlay");
     if (!panel || !sourceCanvas || !canvasWrap || !tableWrap || !table || !currentInput || !clearButton) return;
     if (document.getElementById("vcf-image-order-stage")) return;
 
@@ -70,8 +71,8 @@
         display:flex;
         align-items:stretch;
         justify-content:center;
-        gap:8px;
-        width:min(100%,860px);
+        gap:4px;
+        width:min(100%,820px);
         margin:0 auto;
       }
       #vcf-image-order-stage>.vcf-image-order-canvas-wrap{
@@ -79,54 +80,60 @@
         width:auto;
         min-width:0;
       }
+      #vcf-image-order-stage>.vcf-image-order-canvas-wrap>.import-canvas{
+        width:100%;
+        height:auto;
+      }
       #vcf-image-order-stage>.vcf-image-order-table-wrap{
-        flex:0 0 62px;
-        width:62px;
+        flex:0 0 40px;
+        width:40px;
         max-height:none;
         overflow-y:auto;
         overflow-x:hidden;
         border:1px solid #cfc4a3;
-        border-radius:6px;
+        border-radius:5px;
         background:#fffdf5;
       }
       #vcf-image-order-stage>.vcf-image-order-table-wrap[hidden]{display:none}
-      #vcf-image-order-table{width:100%;font-size:12px;border-collapse:collapse}
+      #vcf-image-order-table{width:100%;font-size:9px;border-collapse:collapse}
       #vcf-image-order-table th:nth-child(2),
       #vcf-image-order-table th:nth-child(3),
       #vcf-image-order-table td:nth-child(2),
       #vcf-image-order-table td:nth-child(3){display:none}
       #vcf-image-order-table thead th{
-        padding:5px 2px;
+        padding:3px 1px;
         background:#f7efd8;
-        font-size:11px;
+        font-size:9px;
+        line-height:1.1;
       }
       #vcf-image-order-table tbody tr{
         cursor:pointer;
         background:transparent;
       }
       #vcf-image-order-table tbody tr:not(.is-missing){
-        background:#ffe78a;
-        box-shadow:inset 3px 0 #e8a600;
+        background:#ffe36b;
+        box-shadow:inset 2px 0 #e29b00;
       }
       #vcf-image-order-table tbody tr.is-selected{
-        background:#8fd0ff;
-        outline:2px solid #1976c9;
-        outline-offset:-2px;
+        background:#79c7ff;
+        outline:1px solid #1976c9;
+        outline-offset:-1px;
       }
       #vcf-image-order-table tbody tr.is-invalid{
-        background:#ffb3ad;
-        box-shadow:inset 3px 0 #c4372c;
+        background:#ffaaa3;
+        box-shadow:inset 2px 0 #c4372c;
       }
       #vcf-image-order-table tbody td:first-child{
         display:flex;
         align-items:center;
         justify-content:center;
-        width:32px;
-        height:32px;
-        margin:3px auto;
+        width:16px;
+        height:16px;
+        margin:2px auto;
         padding:0;
         border-radius:50%;
         box-sizing:border-box;
+        font-size:8px;
         font-weight:800;
         line-height:1;
       }
@@ -141,19 +148,42 @@
         border:1px solid #555;
       }
       #vcf-image-order-table tbody tr.is-missing td:first-child{
-        opacity:.56;
+        opacity:.52;
       }
+      #vcf-image-order-overlay{display:none !important}
+      #vcf-image-order-dom-overlay{
+        position:absolute;
+        inset:0;
+        z-index:3;
+        pointer-events:none;
+        overflow:hidden;
+      }
+      .vcf-image-order-board-number{
+        position:absolute;
+        transform:translate(-50%,-50%);
+        min-width:1em;
+        padding:0;
+        font-family:Arial,system-ui,sans-serif;
+        font-size:clamp(9px,1.55vw,14px);
+        font-weight:800;
+        line-height:1;
+        text-align:center;
+        text-shadow:0 1px 2px rgba(0,0,0,.35);
+      }
+      .vcf-image-order-board-number.is-black{color:#fff}
+      .vcf-image-order-board-number.is-white{color:#111;text-shadow:0 0 2px #fff,0 0 2px #fff}
+      .vcf-image-order-board-number.is-invalid{color:#e02b22;text-shadow:0 0 2px #fff,0 0 3px #fff}
       @media(max-width:600px){
-        #vcf-image-order-stage{gap:5px}
+        #vcf-image-order-stage{gap:3px}
         #vcf-image-order-stage>.vcf-image-order-table-wrap{
-          flex-basis:52px;
-          width:52px;
+          flex-basis:36px;
+          width:36px;
         }
         #vcf-image-order-table tbody td:first-child{
-          width:28px;
-          height:28px;
-          margin:2px auto;
-          font-size:11px;
+          width:15px;
+          height:15px;
+          margin:1px auto;
+          font-size:7px;
         }
       }
     `;
@@ -164,6 +194,11 @@
     canvasWrap.parentNode.insertBefore(stage, canvasWrap);
     stage.append(canvasWrap, tableWrap);
 
+    const markerLayer = document.createElement("div");
+    markerLayer.id = "vcf-image-order-dom-overlay";
+    canvasWrap.appendChild(markerLayer);
+    if (legacyOverlay) legacyOverlay.hidden = true;
+
     function normalizeNumber(value) {
       return Math.max(1, Math.min(999, Math.floor(Number(value) || 1)));
     }
@@ -171,35 +206,69 @@
     function cursorFor(number) {
       const black = number % 2 === 1;
       const text = String(number);
-      const fontSize = text.length >= 3 ? 10 : text.length === 2 ? 12 : 14;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="38" height="38" viewBox="0 0 38 38"><circle cx="19" cy="19" r="16" fill="${black ? "#111" : "#fff"}" stroke="${black ? "#fff" : "#333"}" stroke-width="2"/><text x="19" y="20" text-anchor="middle" dominant-baseline="middle" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700" fill="${black ? "#fff" : "#111"}">${text}</text></svg>`;
-      return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 19 19, crosshair`;
+      const fontSize = text.length >= 3 ? 9 : text.length === 2 ? 11 : 13;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="${black ? "#111" : "#fff"}" stroke="${black ? "#fff" : "#333"}" stroke-width="2"/><text x="16" y="17" text-anchor="middle" dominant-baseline="middle" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700" fill="${black ? "#fff" : "#111"}">${text}</text></svg>`;
+      return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 16 16, crosshair`;
+    }
+
+    function coordinateToPercent(coordinate) {
+      const match = /^([A-O])(\d{1,2})$/.exec(String(coordinate || "").trim());
+      if (!match) return null;
+      const column = match[1].charCodeAt(0) - 65;
+      const row = Number(match[2]) - 1;
+      if (column < 0 || column >= BOARD_SIZE || row < 0 || row >= BOARD_SIZE) return null;
+      const denominator = (BOARD_SIZE - 1) + OUTER_MARGIN_CELLS * 2;
+      return {
+        x: (OUTER_MARGIN_CELLS + column) / denominator * 100,
+        y: (OUTER_MARGIN_CELLS + row) / denominator * 100,
+        column,
+        row,
+      };
+    }
+
+    function renderBoardNumbers() {
+      markerLayer.replaceChildren();
+      if (panel.hidden) return;
+      const rows = Array.from(table.tBodies[0]?.rows || []);
+      for (const rowElement of rows) {
+        if (rowElement.classList.contains("is-missing")) continue;
+        const number = normalizeNumber(rowElement.dataset.number || rowElement.cells[0]?.textContent);
+        const point = coordinateToPercent(rowElement.cells[2]?.textContent);
+        if (!point) continue;
+        const marker = document.createElement("span");
+        marker.className = "vcf-image-order-board-number";
+        marker.textContent = String(number);
+        marker.style.left = `${point.x}%`;
+        marker.style.top = `${point.y}%`;
+        const expectedBlack = number % 2 === 1;
+        const actualBlack = rowElement.classList.contains("is-invalid") ? !expectedBlack : expectedBlack;
+        marker.classList.add(actualBlack ? "is-black" : "is-white");
+        if (rowElement.classList.contains("is-invalid")) marker.classList.add("is-invalid");
+        markerLayer.appendChild(marker);
+      }
     }
 
     function syncPresentation() {
       const active = !panel.hidden;
       tableWrap.hidden = !active;
-      const canvasHeight = Math.round(canvasWrap.getBoundingClientRect().height);
+      const canvasHeight = Math.round(sourceCanvas.getBoundingClientRect().height);
       tableWrap.style.height = active && canvasHeight > 0 ? `${canvasHeight}px` : "";
       sourceCanvas.style.cursor = active ? cursorFor(normalizeNumber(currentInput.value)) : "";
+      renderBoardNumbers();
     }
 
     function eventToCoordinate(event) {
       const rect = sourceCanvas.getBoundingClientRect();
       if (!rect.width || !rect.height) return "";
-      const x = (event.clientX - rect.left) * sourceCanvas.width / rect.width;
-      const y = (event.clientY - rect.top) * sourceCanvas.height / rect.height;
+      const x = (event.clientX - rect.left) / rect.width;
+      const y = (event.clientY - rect.top) / rect.height;
       const denominator = (BOARD_SIZE - 1) + OUTER_MARGIN_CELLS * 2;
-      const stepX = sourceCanvas.width / denominator;
-      const stepY = sourceCanvas.height / denominator;
-      const marginX = stepX * OUTER_MARGIN_CELLS;
-      const marginY = stepY * OUTER_MARGIN_CELLS;
-      const column = Math.round((x - marginX) / stepX);
-      const row = Math.round((y - marginY) / stepY);
+      const column = Math.round(x * denominator - OUTER_MARGIN_CELLS);
+      const row = Math.round(y * denominator - OUTER_MARGIN_CELLS);
       if (column < 0 || column >= BOARD_SIZE || row < 0 || row >= BOARD_SIZE) return "";
-      const centerX = marginX + column * stepX;
-      const centerY = marginY + row * stepY;
-      if (Math.abs(x - centerX) > stepX * .48 || Math.abs(y - centerY) > stepY * .48) return "";
+      const centerX = (OUTER_MARGIN_CELLS + column) / denominator;
+      const centerY = (OUTER_MARGIN_CELLS + row) / denominator;
+      if (Math.abs(x - centerX) > .48 / denominator || Math.abs(y - centerY) > .48 / denominator) return "";
       return `${String.fromCharCode(65 + column)}${row + 1}`;
     }
 
@@ -254,6 +323,8 @@
 
     const panelObserver = new MutationObserver(syncPresentation);
     panelObserver.observe(panel, { attributes:true, attributeFilter:["hidden"] });
+    const tableObserver = new MutationObserver(() => queueMicrotask(syncPresentation));
+    tableObserver.observe(table, { childList:true, subtree:true, attributes:true, attributeFilter:["class"] });
     syncPresentation();
   }
 
