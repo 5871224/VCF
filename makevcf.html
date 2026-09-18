@@ -3017,10 +3017,10 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       const y = point.y * scaleY;
       srcCtx.beginPath();
       srcCtx.arc(x, y, pointRadius, 0, Math.PI * 2);
-      srcCtx.fillStyle = "rgba(24, 102, 205, 0.20)";
+      srcCtx.fillStyle = "rgba(24, 102, 205, 0.38)";
       srcCtx.fill();
       srcCtx.lineWidth = Math.max(1.2, lineWidth * 0.75);
-      srcCtx.strokeStyle = "rgba(24, 102, 205, 0.72)";
+      srcCtx.strokeStyle = "rgba(24, 102, 205, 0.38)";
       srcCtx.stroke();
     }
     srcCtx.restore();
