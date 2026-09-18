@@ -705,7 +705,11 @@
     selectedNumber: 0,
     orderByIndex: new Array(BOARD_CELLS).fill(0),
     board: new Uint8Array(BOARD_CELLS),
+    undoStack: [],
+    redoStack: [],
   };
+  const HISTORY_LIMIT = 200;
+  let lastFreshAssignment = { index: -1, time: 0 };
 
   const style = document.createElement("style");
   style.id = "vcf-image-move-order-style";
@@ -717,6 +721,8 @@
     #vcf-image-order-panel[hidden]{display:none}
     .vcf-image-order-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center}
     .vcf-image-order-controls label{display:inline-flex;gap:5px;align-items:center;font-size:13px}
+    .vcf-image-order-history{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:5px}
+    .vcf-image-order-history svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
     #vcf-image-order-current{width:72px;padding:7px 6px;border:1px solid #aaa;border-radius:4px;text-align:center}
     #vcf-image-order-status{margin:7px 0;font-size:12px;line-height:1.5;text-align:center;color:#65552f}
     #vcf-image-order-status.is-error{color:#a0462a;font-weight:600}
@@ -751,6 +757,12 @@
   panel.innerHTML = `
     <div class="vcf-image-order-controls">
       <label>目前手順 <input id="vcf-image-order-current" type="number" min="1" max="999" step="1" value="1"></label>
+      <button id="vcf-image-order-undo" class="vcf-image-order-history" type="button" aria-label="回上一步" title="回上一步" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5"/><path d="M5 12h8a7 7 0 0 1 7 7"/></svg>
+      </button>
+      <button id="vcf-image-order-redo" class="vcf-image-order-history" type="button" aria-label="回下一步" title="回下一步" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5"/><path d="M19 12h-8a7 7 0 0 0-7 7"/></svg>
+      </button>
       <button id="vcf-image-order-insert-1" type="button" disabled>插入 1</button>
       <button id="vcf-image-order-insert-2" type="button" disabled>插入 2</button>
       <button id="vcf-image-order-compact" type="button">整理缺號</button>
@@ -767,6 +779,8 @@
   importPanel.insertBefore(panel, importCanvases);
 
   const currentInput = panel.querySelector("#vcf-image-order-current");
+  const undoButton = panel.querySelector("#vcf-image-order-undo");
+  const redoButton = panel.querySelector("#vcf-image-order-redo");
   const insert1Button = panel.querySelector("#vcf-image-order-insert-1");
   const insert2Button = panel.querySelector("#vcf-image-order-insert-2");
   const compactButton = panel.querySelector("#vcf-image-order-compact");
@@ -820,6 +834,72 @@
     let number = Math.max(1, Math.floor(Number(start) || 1));
     while (used.has(number) && number < 999) number++;
     return number;
+  }
+
+  function captureEditorSnapshot() {
+    return {
+      orderByIndex: state.orderByIndex.slice(),
+      currentNumber: state.currentNumber,
+      selectedNumber: state.selectedNumber,
+    };
+  }
+
+  function ordersEqual(left, right) {
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      if (left[index] !== right[index]) return false;
+    }
+    return true;
+  }
+
+  function resetEditorHistory() {
+    state.undoStack.length = 0;
+    state.redoStack.length = 0;
+    lastFreshAssignment = { index: -1, time: 0 };
+  }
+
+  function pushHistory(stack, snapshot) {
+    stack.push(snapshot);
+    if (stack.length > HISTORY_LIMIT) stack.shift();
+  }
+
+  function restoreEditorSnapshot(snapshot) {
+    if (!snapshot) return false;
+    state.orderByIndex.splice(0, BOARD_CELLS, ...snapshot.orderByIndex);
+    state.currentNumber = snapshot.currentNumber;
+    state.selectedNumber = snapshot.selectedNumber;
+    refreshNotationBoard();
+    lastFreshAssignment = { index: -1, time: 0 };
+    renderAll();
+    return true;
+  }
+
+  function mutateWithHistory(mutator) {
+    const before = captureEditorSnapshot();
+    mutator();
+    if (ordersEqual(before.orderByIndex, state.orderByIndex)) {
+      renderAll();
+      return false;
+    }
+    pushHistory(state.undoStack, before);
+    state.redoStack.length = 0;
+    renderAll();
+    return true;
+  }
+
+  function undoOrderAction() {
+    if (!state.undoStack.length) return;
+    const current = captureEditorSnapshot();
+    const previous = state.undoStack.pop();
+    pushHistory(state.redoStack, current);
+    restoreEditorSnapshot(previous);
+  }
+
+  function redoOrderAction() {
+    if (!state.redoStack.length) return;
+    const current = captureEditorSnapshot();
+    const next = state.redoStack.pop();
+    pushHistory(state.undoStack, current);
+    restoreEditorSnapshot(next);
   }
 
   function isNotationMode() {
@@ -979,6 +1059,8 @@
     panel.dataset.sourceMode = state.sourceMode;
     currentInput.value = String(state.currentNumber);
     const hasSelection = state.selectedNumber > 0;
+    undoButton.disabled = state.undoStack.length === 0;
+    redoButton.disabled = state.redoStack.length === 0;
     insert1Button.disabled = !hasSelection;
     insert2Button.disabled = !hasSelection;
     clearSelectedButton.disabled = !hasSelection || findIndexForNumber(state.selectedNumber) < 0;
@@ -997,6 +1079,7 @@
     state.currentNumber = 1;
     state.selectedNumber = 0;
     state.board = new Uint8Array(BOARD_CELLS);
+    resetEditorHistory();
     state.active = false;
     panel.dataset.sourceMode = state.sourceMode;
     panel.hidden = true;
@@ -1033,7 +1116,10 @@
     if (applyButton.hidden) return false;
     state.sourceMode = "notation";
     panel.dataset.sourceMode = state.sourceMode;
-    if (reset) state.orderByIndex.fill(0);
+    if (reset) {
+      state.orderByIndex.fill(0);
+      resetEditorHistory();
+    }
     state.board = buildNotationBoard();
     state.active = true;
     panel.hidden = false;
@@ -1076,59 +1162,71 @@
     return row * BOARD_SIZE + column;
   }
 
-  function assignCurrentNumber(index) {
+  function assignCurrentNumber(index, { allowOverwrite = false } = {}) {
     if (!isNotationMode() && !state.board[index]) {
       orderStatus.textContent = "此交點不是已辨識的黑／白棋子，不能加入手順。";
       orderStatus.classList.add("is-error");
-      return;
+      return false;
     }
+
+    const existingNumber = Number(state.orderByIndex[index]) || 0;
+    if (existingNumber > 0 && !allowOverwrite) {
+      orderStatus.textContent = `此點已有第 ${existingNumber} 手；單擊不會覆蓋，請連點兩下才可覆蓋。`;
+      orderStatus.classList.remove("is-error");
+      return false;
+    }
+
     const number = Math.max(1, Math.min(999, Math.floor(Number(state.currentNumber) || 1)));
-    for (let other = 0; other < BOARD_CELLS; other++) {
-      if (other !== index && state.orderByIndex[other] === number) {
-        state.orderByIndex[other] = 0;
-        if (isNotationMode()) state.board[other] = 0;
+    const changed = mutateWithHistory(() => {
+      for (let other = 0; other < BOARD_CELLS; other++) {
+        if (other !== index && state.orderByIndex[other] === number) {
+          state.orderByIndex[other] = 0;
+          if (isNotationMode()) state.board[other] = 0;
+        }
       }
-    }
-    state.orderByIndex[index] = number;
-    if (isNotationMode()) state.board[index] = number % 2 ? BLACK : WHITE;
-    state.selectedNumber = number;
-    state.currentNumber = firstUnassigned(number + 1);
-    renderAll();
+      state.orderByIndex[index] = number;
+      if (isNotationMode()) state.board[index] = number % 2 ? BLACK : WHITE;
+      state.selectedNumber = number;
+      state.currentNumber = firstUnassigned(number + 1);
+    });
+    return changed;
   }
 
   function insertAtSelection(amount) {
     const target = state.selectedNumber;
     if (!target) return;
-    const entries = [];
-    for (let index = 0; index < BOARD_CELLS; index++) {
-      const number = state.orderByIndex[index];
-      if (number >= target) entries.push({ index, number });
-    }
-    entries.sort((a, b) => b.number - a.number);
-    for (const entry of entries) state.orderByIndex[entry.index] = entry.number + amount;
-    refreshNotationBoard();
-    state.currentNumber = target;
-    currentInput.value = String(target);
-    renderAll();
-    if (amount === 1 && !isNotationMode()) {
+    const changed = mutateWithHistory(() => {
+      const entries = [];
+      for (let index = 0; index < BOARD_CELLS; index++) {
+        const number = state.orderByIndex[index];
+        if (number >= target) entries.push({ index, number });
+      }
+      entries.sort((a, b) => b.number - a.number);
+      for (const entry of entries) state.orderByIndex[entry.index] = entry.number + amount;
+      refreshNotationBoard();
+      state.currentNumber = target;
+      currentInput.value = String(target);
+    });
+    if (changed && amount === 1 && !isNotationMode()) {
       orderStatus.textContent += "；已插入 1 手，後續黑白奇偶會交換，需繼續校正。";
       orderStatus.classList.add("is-error");
     }
   }
 
   function compactMissingNumbers() {
-    const entries = [];
-    for (let index = 0; index < BOARD_CELLS; index++) {
-      const number = state.orderByIndex[index];
-      if (number > 0) entries.push({ index, number });
-    }
-    entries.sort((a, b) => a.number - b.number || a.index - b.index);
-    state.orderByIndex.fill(0);
-    entries.forEach((entry, offset) => { state.orderByIndex[entry.index] = offset + 1; });
-    refreshNotationBoard();
-    state.selectedNumber = 0;
-    state.currentNumber = firstUnassigned(1);
-    renderAll();
+    mutateWithHistory(() => {
+      const entries = [];
+      for (let index = 0; index < BOARD_CELLS; index++) {
+        const number = state.orderByIndex[index];
+        if (number > 0) entries.push({ index, number });
+      }
+      entries.sort((a, b) => a.number - b.number || a.index - b.index);
+      state.orderByIndex.fill(0);
+      entries.forEach((entry, offset) => { state.orderByIndex[entry.index] = offset + 1; });
+      refreshNotationBoard();
+      state.selectedNumber = 0;
+      state.currentNumber = firstUnassigned(1);
+    });
   }
 
   toggleButton.addEventListener("click", () => {
@@ -1142,25 +1240,40 @@
     renderAll();
   });
 
+  undoButton.addEventListener("click", undoOrderAction);
+  redoButton.addEventListener("click", redoOrderAction);
   insert1Button.addEventListener("click", () => insertAtSelection(1));
   insert2Button.addEventListener("click", () => insertAtSelection(2));
   compactButton.addEventListener("click", compactMissingNumbers);
   clearSelectedButton.addEventListener("click", () => {
     const index = findIndexForNumber(state.selectedNumber);
-    if (index >= 0) {
+    if (index < 0) return;
+    mutateWithHistory(() => {
       state.orderByIndex[index] = 0;
       if (isNotationMode()) state.board[index] = 0;
-    }
-    state.currentNumber = state.selectedNumber || state.currentNumber;
-    renderAll();
+      state.currentNumber = state.selectedNumber || state.currentNumber;
+    });
   });
 
   sourceCanvas.addEventListener("pointerup", event => {
-    if (!state.active) return;
+    if (!state.active || event.button !== 0) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     const index = eventToBoardIndex(event);
-    if (index >= 0) assignCurrentNumber(index);
+    if (index < 0) return;
+    const wasEmpty = !state.orderByIndex[index];
+    const changed = assignCurrentNumber(index);
+    if (wasEmpty && changed) lastFreshAssignment = { index, time: performance.now() };
+  }, true);
+
+  sourceCanvas.addEventListener("dblclick", event => {
+    if (!state.active || event.button !== 0) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const index = eventToBoardIndex(event);
+    if (index < 0 || !state.orderByIndex[index]) return;
+    if (lastFreshAssignment.index === index && performance.now() - lastFreshAssignment.time < 700) return;
+    assignCurrentNumber(index, { allowOverwrite: true });
   }, true);
 
   function applyNotationToWorkbench() {
@@ -1217,6 +1330,8 @@
     startNotationPaperMode: () => startNotationPaperMode({ reset: true }),
     reset: clearOrders,
     isNotationMode,
+    undo: undoOrderAction,
+    redo: redoOrderAction,
   };
 
   const availabilityObserver = new MutationObserver(syncAvailability);
