@@ -310,9 +310,10 @@
         marker.textContent = String(number);
         marker.style.left = `${point.x}%`;
         marker.style.top = `${point.y}%`;
-        const actualBlack = actualBlackForRow(rowElement);
+        const notationMode = panel.dataset.sourceMode === "notation";
+        const actualBlack = notationMode ? number % 2 === 1 : actualBlackForRow(rowElement);
         marker.classList.add(actualBlack ? "is-black" : "is-white");
-        if (actualBlack !== (number % 2 === 1)) marker.classList.add("is-invalid");
+        if (!notationMode && actualBlack !== (number % 2 === 1)) marker.classList.add("is-invalid");
         markerLayer.appendChild(marker);
       }
     }
@@ -375,7 +376,8 @@
         previewNumber++;
         row.dataset.previewNumber = String(previewNumber);
         row.classList.add("is-compact-preview", previewNumber % 2 ? "is-preview-odd" : "is-preview-even");
-        const actualBlack = actualBlackForRow(row);
+        const notationMode = panel.dataset.sourceMode === "notation";
+        const actualBlack = notationMode ? previewNumber % 2 === 1 : actualBlackForRow(row);
         row.classList.add(actualBlack === (previewNumber % 2 === 1) ? "is-preview-valid" : "is-preview-invalid");
         if (row.cells[0]) row.cells[0].textContent = String(previewNumber);
       }
