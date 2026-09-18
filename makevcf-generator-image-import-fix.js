@@ -700,6 +700,7 @@
 
   const state = {
     active: false,
+    sourceMode: "recognized",
     currentNumber: 1,
     selectedNumber: 0,
     orderByIndex: new Array(BOARD_CELLS).fill(0),
@@ -821,14 +822,35 @@
     return number;
   }
 
+  function isNotationMode() {
+    return state.sourceMode === "notation";
+  }
+
+  function buildNotationBoard() {
+    const board = new Uint8Array(BOARD_CELLS);
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      const number = Number(state.orderByIndex[index]) || 0;
+      if (number > 0) board[index] = number % 2 ? BLACK : WHITE;
+    }
+    return board;
+  }
+
+  function refreshNotationBoard() {
+    if (isNotationMode()) state.board = buildNotationBoard();
+  }
+
   function pruneAssignments(board = state.board) {
+    if (isNotationMode()) return;
     for (let index = 0; index < BOARD_CELLS; index++) {
       if (!board[index]) state.orderByIndex[index] = 0;
     }
   }
 
   function validate(board = state.board) {
-    const total = stoneCount(board);
+    const workingBoard = isNotationMode() ? buildNotationBoard() : board;
+    const total = isNotationMode()
+      ? state.orderByIndex.reduce((count, number) => count + (Number(number) > 0 ? 1 : 0), 0)
+      : stoneCount(workingBoard);
     const byNumber = new Map();
     let assigned = 0;
     const parityErrors = [];
@@ -836,12 +858,12 @@
     for (let index = 0; index < BOARD_CELLS; index++) {
       const number = Number(state.orderByIndex[index]) || 0;
       if (!number) continue;
-      if (!board[index]) continue;
+      if (!workingBoard[index]) continue;
       assigned++;
       byNumber.set(number, index);
       if (number > total) extras.push(number);
       const expected = number % 2 ? BLACK : WHITE;
-      if (board[index] !== expected) parityErrors.push(number);
+      if (!isNotationMode() && workingBoard[index] !== expected) parityErrors.push(number);
     }
     const missing = [];
     for (let number = 1; number <= total; number++) {
@@ -859,14 +881,15 @@
   }
 
   function buildExactHistory(board = readBoard()) {
-    pruneAssignments(board);
-    const result = validate(board);
+    const workingBoard = isNotationMode() ? buildNotationBoard() : board;
+    pruneAssignments(workingBoard);
+    const result = validate(workingBoard);
     if (!result.valid) return null;
     const history = [];
     for (let number = 1; number <= result.total; number++) {
       const index = findIndexForNumber(number);
       if (index < 0) return null;
-      history.push({ index, stone: board[index] });
+      history.push({ index, stone: workingBoard[index] });
     }
     return history;
   }
@@ -893,7 +916,7 @@
       const x = marginX + (index % BOARD_SIZE) * stepX;
       const y = marginY + Math.floor(index / BOARD_SIZE) * stepY;
       const expected = number % 2 ? BLACK : WHITE;
-      const invalid = state.board[index] && state.board[index] !== expected;
+      const invalid = !isNotationMode() && state.board[index] && state.board[index] !== expected;
       overlayContext.beginPath();
       overlayContext.arc(x, y, radius, 0, Math.PI * 2);
       overlayContext.fillStyle = invalid ? "rgba(205,45,45,.94)" : "rgba(25,115,210,.94)";
@@ -908,7 +931,7 @@
 
   function statusText() {
     const result = validate();
-    const parts = [`已標 ${result.assigned}/${result.total}`];
+    const parts = [isNotationMode() ? `已標 ${result.assigned} 手` : `已標 ${result.assigned}/${result.total}`];
     if (result.missing.length) parts.push(`缺號：${result.missing.slice(0, 12).join("、")}${result.missing.length > 12 ? "…" : ""}`);
     if (result.extras.length) parts.push(`超出棋子數：${result.extras.slice(0, 8).join("、")}`);
     if (result.parityErrors.length) parts.push(`黑白奇偶不符：${result.parityErrors.slice(0, 12).join("、")}${result.parityErrors.length > 12 ? "…" : ""}`);
@@ -952,11 +975,15 @@
   }
 
   function renderAll() {
+    refreshNotationBoard();
+    panel.dataset.sourceMode = state.sourceMode;
     currentInput.value = String(state.currentNumber);
     const hasSelection = state.selectedNumber > 0;
     insert1Button.disabled = !hasSelection;
     insert2Button.disabled = !hasSelection;
     clearSelectedButton.disabled = !hasSelection || findIndexForNumber(state.selectedNumber) < 0;
+    const validation = validate();
+    if (isNotationMode()) applyButton.disabled = !validation.valid;
     const status = statusText();
     orderStatus.textContent = status.text;
     orderStatus.classList.toggle("is-error", status.error);
@@ -966,10 +993,12 @@
 
   function clearOrders() {
     state.orderByIndex.fill(0);
+    state.sourceMode = "recognized";
     state.currentNumber = 1;
     state.selectedNumber = 0;
     state.board = new Uint8Array(BOARD_CELLS);
     state.active = false;
+    panel.dataset.sourceMode = state.sourceMode;
     panel.hidden = true;
     toggleButton.textContent = "加上手順";
     renderOverlay();
@@ -982,8 +1011,10 @@
     renderOverlay();
   }
 
-  function startOrderMode() {
+  function startRecognizedOrderMode() {
     if (applyButton.hidden) return;
+    state.sourceMode = "recognized";
+    panel.dataset.sourceMode = state.sourceMode;
     applyButton.click();
     state.board = readBoard();
     pruneAssignments(state.board);
@@ -994,6 +1025,28 @@
     state.currentNumber = firstUnassigned(1);
     state.selectedNumber = 0;
     renderAll();
+  }
+
+  function startNotationPaperMode({ reset = true } = {}) {
+    if (applyButton.hidden) return false;
+    state.sourceMode = "notation";
+    panel.dataset.sourceMode = state.sourceMode;
+    if (reset) state.orderByIndex.fill(0);
+    state.board = buildNotationBoard();
+    state.active = true;
+    panel.hidden = false;
+    toggleButton.textContent = "結束手順";
+    toggleButton.disabled = false;
+    toggleButton.title = "記譜紙模式：可在任意交點標記手順";
+    state.currentNumber = firstUnassigned(1);
+    state.selectedNumber = 0;
+    renderAll();
+    return true;
+  }
+
+  function startOrderMode() {
+    if (isNotationMode()) startNotationPaperMode({ reset: false });
+    else startRecognizedOrderMode();
   }
 
   function syncAvailability() {
@@ -1022,16 +1075,20 @@
   }
 
   function assignCurrentNumber(index) {
-    if (!state.board[index]) {
+    if (!isNotationMode() && !state.board[index]) {
       orderStatus.textContent = "此交點不是已辨識的黑／白棋子，不能加入手順。";
       orderStatus.classList.add("is-error");
       return;
     }
     const number = Math.max(1, Math.min(999, Math.floor(Number(state.currentNumber) || 1)));
     for (let other = 0; other < BOARD_CELLS; other++) {
-      if (other !== index && state.orderByIndex[other] === number) state.orderByIndex[other] = 0;
+      if (other !== index && state.orderByIndex[other] === number) {
+        state.orderByIndex[other] = 0;
+        if (isNotationMode()) state.board[other] = 0;
+      }
     }
     state.orderByIndex[index] = number;
+    if (isNotationMode()) state.board[index] = number % 2 ? BLACK : WHITE;
     state.selectedNumber = number;
     state.currentNumber = firstUnassigned(number + 1);
     renderAll();
@@ -1047,6 +1104,7 @@
     }
     entries.sort((a, b) => b.number - a.number);
     for (const entry of entries) state.orderByIndex[entry.index] = entry.number + amount;
+    refreshNotationBoard();
     state.currentNumber = target;
     currentInput.value = String(target);
     renderAll();
@@ -1065,6 +1123,7 @@
     entries.sort((a, b) => a.number - b.number || a.index - b.index);
     state.orderByIndex.fill(0);
     entries.forEach((entry, offset) => { state.orderByIndex[entry.index] = offset + 1; });
+    refreshNotationBoard();
     state.selectedNumber = 0;
     state.currentNumber = firstUnassigned(1);
     renderAll();
@@ -1086,7 +1145,10 @@
   compactButton.addEventListener("click", compactMissingNumbers);
   clearSelectedButton.addEventListener("click", () => {
     const index = findIndexForNumber(state.selectedNumber);
-    if (index >= 0) state.orderByIndex[index] = 0;
+    if (index >= 0) {
+      state.orderByIndex[index] = 0;
+      if (isNotationMode()) state.board[index] = 0;
+    }
     state.currentNumber = state.selectedNumber || state.currentNumber;
     renderAll();
   });
@@ -1099,7 +1161,34 @@
     if (index >= 0) assignCurrentNumber(index);
   }, true);
 
+  function applyNotationToWorkbench() {
+    refreshNotationBoard();
+    const history = buildExactHistory(state.board);
+    if (!history) {
+      orderStatus.textContent = "手順尚未連續完整，請先補齊缺號後再套用到棋盤。";
+      orderStatus.classList.add("is-error");
+      return false;
+    }
+    const nextColor = history.length % 2 === 0 ? BLACK : WHITE;
+    global._setBoardArr?.(Array.from(state.board), nextColor);
+    if (global.VCFWorkbenchRecord?.setHistory) {
+      global.VCFWorkbenchRecord.setHistory(history, true);
+    }
+    orderStatus.textContent = `已將記譜紙手順套用到棋盤，共 ${history.length} 手。`;
+    orderStatus.classList.remove("is-error");
+    return true;
+  }
+
+  applyButton.addEventListener("click", event => {
+    if (!isNotationMode()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    applyNotationToWorkbench();
+    if (state.active) renderAll();
+  }, true);
+
   applyButton.addEventListener("click", () => {
+    if (isNotationMode()) return;
     queueMicrotask(() => {
       const board = readBoard();
       state.board = board;
@@ -1121,6 +1210,12 @@
     if (hasImage) clearOrders();
   });
   global.addEventListener("resize", () => renderOverlay());
+
+  global.VCFImageMoveOrder = {
+    startNotationPaperMode: () => startNotationPaperMode({ reset: true }),
+    reset: clearOrders,
+    isNotationMode,
+  };
 
   const availabilityObserver = new MutationObserver(syncAvailability);
   availabilityObserver.observe(applyButton, { attributes: true, attributeFilter: ["hidden"] });
