@@ -941,7 +941,7 @@
 
   function renderTable() {
     const maxAssigned = Math.max(0, ...state.orderByIndex);
-    const maxNumber = Math.max(1, stoneCount(), maxAssigned, Number(state.currentNumber) || 1);
+    const maxNumber = Math.max(100, stoneCount(), maxAssigned, Number(state.currentNumber) || 1);
     const fragment = document.createDocumentFragment();
     tableBody.replaceChildren();
     for (let number = 1; number <= Math.min(999, maxNumber); number++) {
