@@ -1156,6 +1156,45 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   const btnImportApply = document.getElementById("btn-import-apply");
   const btnImportReset = document.getElementById("btn-import-reset");
 
+  const importModeStyle = document.createElement("style");
+  importModeStyle.textContent = `
+    #vcf-import-mode-dialog[hidden]{display:none!important}
+    #vcf-import-mode-dialog{
+      position:fixed;inset:0;z-index:10020;display:flex;align-items:center;justify-content:center;
+      padding:18px;background:rgba(0,0,0,.42)
+    }
+    .vcf-import-mode-card{
+      width:min(92vw,420px);padding:18px;border:1px solid #cdbb85;border-radius:10px;
+      background:#fffdf5;box-shadow:0 16px 44px rgba(0,0,0,.30);text-align:center
+    }
+    .vcf-import-mode-card h3{margin:0 0 8px;font-size:18px;color:#3f331d}
+    .vcf-import-mode-card p{margin:0 0 14px;font-size:13px;line-height:1.55;color:#6d5b35}
+    .vcf-import-mode-actions{display:flex;gap:10px;justify-content:center}
+    .vcf-import-mode-actions button{min-width:128px;font-weight:700}
+    @media(max-width:520px){
+      .vcf-import-mode-actions{flex-direction:column}
+      .vcf-import-mode-actions button{width:100%}
+    }
+  `;
+  document.head.appendChild(importModeStyle);
+
+  const importModeDialog = document.createElement("div");
+  importModeDialog.id = "vcf-import-mode-dialog";
+  importModeDialog.hidden = true;
+  importModeDialog.innerHTML = `
+    <div class="vcf-import-mode-card" role="dialog" aria-modal="true" aria-labelledby="vcf-import-mode-title">
+      <h3 id="vcf-import-mode-title">選擇圖片處理方式</h3>
+      <p>一般棋盤請辨識黑白子；若圖片是記譜紙，可直接依交點標記手順。</p>
+      <div class="vcf-import-mode-actions">
+        <button id="vcf-import-mode-recognize" type="button">辨識棋子</button>
+        <button id="vcf-import-mode-order" type="button">加上手順</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(importModeDialog);
+  const btnImportModeRecognize = importModeDialog.querySelector("#vcf-import-mode-recognize");
+  const btnImportModeOrder = importModeDialog.querySelector("#vcf-import-mode-order");
+
   let cameraStream = null;
 
   const importState = {
@@ -1181,16 +1220,25 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   }
 
   function isPreviewMode() {
-    return importState.mode === "boardConfirmed" || importState.mode === "recognized";
+    return importState.mode === "boardConfirmed" ||
+      importState.mode === "recognized" ||
+      importState.mode === "notationOrder";
   }
 
   function updateImportView() {
     const preview = isPreviewMode();
-    importViewTitleEl.textContent = preview ? "辨識預覽（可手動修正）" : "原圖與棋盤框";
-    sourceHintEl.textContent = preview
-      ? "半透明標記疊在校正後原圖上；點擊任一交點可手動切換空、黑、白。"
-      : "支援上傳、貼上截圖、手機拍照；桌機拖角點，手機可從對應象限任意位置拖曳該角。";
-    previewEditHintEl.hidden = !preview;
+    const notation = importState.mode === "notationOrder";
+    importViewTitleEl.textContent = notation
+      ? "記譜紙手順"
+      : preview
+        ? "辨識預覽（可手動修正）"
+        : "原圖與棋盤框";
+    sourceHintEl.textContent = notation
+      ? "直接在任意棋盤交點標記手順；奇數手視為黑棋、偶數手視為白棋，不需要先辨識棋子。"
+      : preview
+        ? "半透明標記疊在校正後原圖上；點擊任一交點可手動切換空、黑、白。"
+        : "支援上傳、貼上截圖、手機拍照；桌機拖角點，手機可從對應象限任意位置拖曳該角。";
+    previewEditHintEl.hidden = !preview || notation;
     importCanvasCardEl.classList.toggle("preview-mode", preview);
   }
 
@@ -2912,7 +2960,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   }
 
   function editPreviewPoint(evt) {
-    if (!isPreviewMode()) return;
+    if (importState.mode !== "recognized") return;
     const canvasPoint = getCanvasPoint(evt, sourceCanvas);
     const imagePoint = {
       x: canvasPoint.x * (WARP_SIZE / sourceCanvas.width),
@@ -2930,6 +2978,37 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const white = importState.recognizedBoard.filter(value => value === 2).length;
     setImportStatus("目前棋子數：黑子 " + black + " 顆、白子 " + white + " 顆。");
     evt.preventDefault();
+  }
+
+  function renderNotationPaperPreview() {
+    srcCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+    srcCtx.drawImage(warpedCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height);
+  }
+
+  function openImportModeChoice() {
+    importModeDialog.hidden = false;
+  }
+
+  function closeImportModeChoice() {
+    importModeDialog.hidden = true;
+  }
+
+  function startNotationOrderMode() {
+    closeImportModeChoice();
+    refineWarpedIntersections();
+    importState.mode = "notationOrder";
+    importState.recognizedBoard.fill(0);
+    importState.confidenceMap.fill(1);
+    renderNotationPaperPreview();
+    setImportStatus("記譜紙模式：可直接在任意交點加入手順，不需要先辨識黑白子。");
+    setImportButtons();
+    queueMicrotask(() => {
+      if (window.VCFImageMoveOrder?.startNotationPaperMode) {
+        window.VCFImageMoveOrder.startNotationPaperMode();
+      } else {
+        setImportStatus("手順模組尚未就緒，請重新整理頁面後再試。", true);
+      }
+    });
   }
 
   async function confirmBoardArea() {
@@ -2961,7 +3040,10 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       cv.imshow(warpedCanvas, dst);
       importState.mode = "boardConfirmed";
       computeWarpedIntersections();
-      recognizeBoard();
+      renderNotationPaperPreview();
+      setImportStatus("棋盤區域已確認，請選擇「辨識棋子」或「加上手順」。");
+      setImportButtons();
+      openImportModeChoice();
     } catch (e) {
       console.error(e);
       importState.mode = "cornersEditing";
@@ -2979,6 +3061,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 
   function backToBoardArea() {
     if (!isPreviewMode()) return;
+    closeImportModeChoice();
+    window.VCFImageMoveOrder?.reset?.();
     importState.mode = "cornersEditing";
     importState.dragCorner = -1;
     importState.dragOffset = null;
@@ -2997,6 +3081,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   }
 
   function applyRecognizedBoard() {
+    if (importState.mode === "notationOrder") return;
     window._setBoardArr(importState.recognizedBoard, detectNextColor(importState.recognizedBoard));
     setStatus("已將圖片辨識結果套用到主棋盤，可直接繼續 VCF 分析。");
     setImportStatus("辨識結果已套用到主棋盤。若有少數誤差，可直接在棋盤上手動修正。");
@@ -3126,9 +3211,20 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       setImportStatus("已取消拍照。");
     }
   });
-  btnImportReset.addEventListener("click", () => resetImportState(true));
-  btnImportRedetect.addEventListener("click", () => autoDetectBoard());
+  btnImportReset.addEventListener("click", () => {
+    closeImportModeChoice();
+    resetImportState(true);
+  });
+  btnImportRedetect.addEventListener("click", () => {
+    closeImportModeChoice();
+    autoDetectBoard();
+  });
   btnImportConfirm.addEventListener("click", () => confirmBoardArea());
+  btnImportModeRecognize.addEventListener("click", () => {
+    closeImportModeChoice();
+    recognizeBoard();
+  });
+  btnImportModeOrder.addEventListener("click", () => startNotationOrderMode());
   btnImportBack.addEventListener("click", () => backToBoardArea());
   btnImportApply.addEventListener("click", () => applyRecognizedBoard());
   imageFileInput.addEventListener("change", async evt => {
