@@ -284,13 +284,16 @@
       return `${String.fromCharCode(65 + column)}${row + 1}`;
     }
 
-    function clearOrderAtCanvasEvent(event) {
+    function findOrderRowAtCanvasEvent(event) {
       const coordinate = eventToCoordinate(event);
-      if (!coordinate) return false;
-      const row = Array.from(table.tBodies[0]?.rows || []).find(candidate => (
+      if (!coordinate) return null;
+      return Array.from(table.tBodies[0]?.rows || []).find(candidate => (
         !candidate.classList.contains("is-missing") &&
         candidate.cells[2]?.textContent?.trim() === coordinate
-      ));
+      )) || null;
+    }
+
+    function clearOrderRow(row) {
       if (!row) return false;
       row.click();
       clearButton.click();
@@ -298,8 +301,66 @@
       return true;
     }
 
-    // Right click is reserved for clearing an existing move-order mark.
+    function clearOrderAtCanvasEvent(event) {
+      return clearOrderRow(findOrderRowAtCanvasEvent(event));
+    }
+
+    const TOUCH_CLEAR_HOLD_MS = 550;
+    const TOUCH_CLEAR_MOVE_PX = 12;
+    let touchHold = null;
+
+    function cancelTouchHold() {
+      if (touchHold?.timer) window.clearTimeout(touchHold.timer);
+      touchHold = null;
+    }
+
+    sourceCanvas.addEventListener("pointerdown", event => {
+      if (panel.hidden || event.pointerType !== "touch" || !event.isPrimary) return;
+      const row = findOrderRowAtCanvasEvent(event);
+      if (!row) {
+        cancelTouchHold();
+        return;
+      }
+      cancelTouchHold();
+      const pointerId = event.pointerId;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      touchHold = {
+        pointerId,
+        startX,
+        startY,
+        triggered: false,
+        timer: window.setTimeout(() => {
+          if (!touchHold || touchHold.pointerId !== pointerId) return;
+          touchHold.triggered = clearOrderRow(row);
+          if (touchHold.triggered && navigator.vibrate) navigator.vibrate(20);
+        }, TOUCH_CLEAR_HOLD_MS),
+      };
+    }, true);
+
+    document.addEventListener("pointermove", event => {
+      if (!touchHold || event.pointerId !== touchHold.pointerId || touchHold.triggered) return;
+      const dx = event.clientX - touchHold.startX;
+      const dy = event.clientY - touchHold.startY;
+      if (Math.hypot(dx, dy) > TOUCH_CLEAR_MOVE_PX) cancelTouchHold();
+    }, true);
+
+    document.addEventListener("pointercancel", event => {
+      if (touchHold && event.pointerId === touchHold.pointerId) cancelTouchHold();
+    }, true);
+
+    // Desktop right click clears. A completed touch long-press consumes pointerup so
+    // the move-order editor cannot immediately place a new number on the cleared point.
     document.addEventListener("pointerup", event => {
+      if (touchHold && event.pointerId === touchHold.pointerId) {
+        const triggered = touchHold.triggered;
+        cancelTouchHold();
+        if (triggered) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          return;
+        }
+      }
       if (panel.hidden || event.target !== sourceCanvas || event.button !== 2) return;
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -308,6 +369,7 @@
     sourceCanvas.addEventListener("contextmenu", event => {
       if (panel.hidden) return;
       event.preventDefault();
+      if (event.pointerType === "touch") return;
       clearOrderAtCanvasEvent(event);
     });
 
