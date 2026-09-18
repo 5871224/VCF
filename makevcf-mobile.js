@@ -45,9 +45,8 @@
 })();
 
 // Image move-order mode is created by makevcf-generator-image-import-fix.js later in
-// the fixed script order. This module owns responsive/pointer presentation and a
-// presentation-only preview for "整理缺號". The real orderByIndex remains owned by
-// the move-order editor and is changed only after the user confirms the preview.
+// the fixed script order. This module owns only responsive/pointer presentation.
+// The real orderByIndex and all edit history stay in the move-order editor.
 (function installImageMoveOrderPresentation() {
   const BOARD_SIZE = 15;
   const OUTER_MARGIN_CELLS = 0.68;
@@ -59,21 +58,11 @@
     const tableWrap = panel?.querySelector(".vcf-image-order-table-wrap");
     const table = document.getElementById("vcf-image-order-table");
     const currentInput = document.getElementById("vcf-image-order-current");
-    const insert1Button = document.getElementById("vcf-image-order-insert-1");
-    const insert2Button = document.getElementById("vcf-image-order-insert-2");
-    const compactButton = document.getElementById("vcf-image-order-compact");
     const clearButton = document.getElementById("vcf-image-order-clear-selected");
-    const orderStatus = document.getElementById("vcf-image-order-status");
     const toggleButton = document.getElementById("btn-import-move-order");
-    const applyBoardButton = document.getElementById("btn-import-apply");
-    const resetButton = document.getElementById("btn-import-reset");
-    const redetectButton = document.getElementById("btn-import-redetect");
-    const imageInput = document.getElementById("image-file-input");
-    const cameraInput = document.getElementById("camera-file-input");
     const legacyOverlay = document.getElementById("vcf-image-order-overlay");
     if (
-      !panel || !sourceCanvas || !canvasWrap || !tableWrap || !table || !currentInput ||
-      !insert1Button || !insert2Button || !compactButton || !clearButton || !orderStatus
+      !panel || !sourceCanvas || !canvasWrap || !tableWrap || !table || !currentInput || !clearButton
     ) return;
     if (document.getElementById("vcf-image-order-stage")) return;
 
@@ -136,14 +125,6 @@
         background:#ffaaa3;
         box-shadow:inset 2px 0 #c4372c;
       }
-      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-valid{
-        background:#ffe36b;
-        box-shadow:inset 2px 0 #e29b00;
-      }
-      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-invalid{
-        background:#ffaaa3;
-        box-shadow:inset 2px 0 #c4372c;
-      }
       #vcf-image-order-table tbody td:first-child{
         display:flex;
         align-items:center;
@@ -158,14 +139,12 @@
         font-weight:800;
         line-height:1;
       }
-      #vcf-image-order-table tbody tr:nth-child(odd) td:first-child,
-      #vcf-image-order-table tbody tr.is-preview-odd td:first-child{
+      #vcf-image-order-table tbody tr:nth-child(odd) td:first-child{
         background:#111;
         color:#fff;
         border:1px solid #000;
       }
-      #vcf-image-order-table tbody tr:nth-child(even) td:first-child,
-      #vcf-image-order-table tbody tr.is-preview-even td:first-child{
+      #vcf-image-order-table tbody tr:nth-child(even) td:first-child{
         background:#fff;
         color:#111;
         border:1px solid #555;
@@ -225,8 +204,6 @@
           margin:1px auto;
           font-size:7px;
         }
-        #vcf-image-order-compact-confirm{gap:4px;padding:5px 6px;font-size:11px}
-        #vcf-image-order-compact-confirm button{padding:5px 8px;font-size:11px}
       }
     `;
     document.head.appendChild(style);
@@ -240,23 +217,6 @@
     markerLayer.id = "vcf-image-order-dom-overlay";
     canvasWrap.appendChild(markerLayer);
     if (legacyOverlay) legacyOverlay.hidden = true;
-
-    const compactConfirm = document.createElement("div");
-    compactConfirm.id = "vcf-image-order-compact-confirm";
-    compactConfirm.hidden = true;
-    compactConfirm.innerHTML = `
-      <span>確認整理缺號：</span>
-      <button id="vcf-image-order-compact-apply" type="button">套用</button>
-      <button id="vcf-image-order-compact-restore" type="button">復原</button>
-    `;
-    orderStatus.insertAdjacentElement("afterend", compactConfirm);
-    const compactApplyButton = compactConfirm.querySelector("#vcf-image-order-compact-apply");
-    const compactRestoreButton = compactConfirm.querySelector("#vcf-image-order-compact-restore");
-
-    let compactSnapshot = null;
-    let compactPending = false;
-    let allowCompactOnce = false;
-    let disabledSnapshot = null;
 
     function normalizeNumber(value) {
       return Math.max(1, Math.min(999, Math.floor(Number(value) || 1)));
@@ -292,7 +252,6 @@
     }
 
     function displayNumberForRow(rowElement) {
-      if (compactPending && rowElement.dataset.previewNumber) return normalizeNumber(rowElement.dataset.previewNumber);
       return normalizeNumber(rowElement.dataset.number || rowElement.cells[0]?.textContent);
     }
 
@@ -323,87 +282,8 @@
       tableWrap.hidden = !active;
       const canvasHeight = Math.round(sourceCanvas.getBoundingClientRect().height);
       tableWrap.style.height = active && canvasHeight > 0 ? `${canvasHeight}px` : "";
-      sourceCanvas.style.cursor = active && !compactPending ? cursorFor(normalizeNumber(currentInput.value)) : "";
+      sourceCanvas.style.cursor = active ? cursorFor(normalizeNumber(currentInput.value)) : "";
       renderBoardNumbers();
-    }
-
-    function captureCompactSnapshot() {
-      const rows = Array.from(table.tBodies[0]?.rows || []);
-      const assignedRows = rows
-        .filter(row => !row.classList.contains("is-missing"))
-        .sort((a, b) => Number(a.dataset.number) - Number(b.dataset.number));
-      if (!assignedRows.length) return null;
-      const assignedNumbers = assignedRows.map(row => Number(row.dataset.number));
-      if (!assignedNumbers.some((number, index) => number !== index + 1)) return null;
-      return { rows, assignedRows };
-    }
-
-    function setCompactInteractionLock(locked) {
-      const targets = [currentInput, insert1Button, insert2Button, compactButton, clearButton, toggleButton, applyBoardButton].filter(Boolean);
-      if (locked) {
-        if (!disabledSnapshot) disabledSnapshot = new Map(targets.map(element => [element, element.disabled]));
-        for (const element of targets) element.disabled = true;
-        document.activeElement?.blur?.();
-        panel.classList.add("is-compact-confirming");
-        return;
-      }
-      if (disabledSnapshot) {
-        for (const [element, disabled] of disabledSnapshot) element.disabled = disabled;
-      }
-      disabledSnapshot = null;
-      panel.classList.remove("is-compact-confirming");
-    }
-
-    function clearCompactPreview() {
-      const rows = Array.from(table.tBodies[0]?.rows || []);
-      for (const row of rows) {
-        row.hidden = false;
-        row.classList.remove("is-compact-preview", "is-preview-odd", "is-preview-even", "is-preview-valid", "is-preview-invalid");
-        delete row.dataset.previewNumber;
-        if (row.cells[0]) row.cells[0].textContent = row.dataset.number || row.cells[0].textContent;
-      }
-    }
-
-    function beginCompactPreview(snapshot) {
-      compactSnapshot = snapshot;
-      compactPending = true;
-      let previewNumber = 0;
-      for (const row of snapshot.rows) {
-        if (row.classList.contains("is-missing")) {
-          row.hidden = true;
-          continue;
-        }
-        previewNumber++;
-        row.dataset.previewNumber = String(previewNumber);
-        row.classList.add("is-compact-preview", previewNumber % 2 ? "is-preview-odd" : "is-preview-even");
-        const notationMode = panel.dataset.sourceMode === "notation";
-        const actualBlack = notationMode ? previewNumber % 2 === 1 : actualBlackForRow(row);
-        row.classList.add(actualBlack === (previewNumber % 2 === 1) ? "is-preview-valid" : "is-preview-invalid");
-        if (row.cells[0]) row.cells[0].textContent = String(previewNumber);
-      }
-      compactConfirm.hidden = false;
-      setCompactInteractionLock(true);
-      syncPresentation();
-    }
-
-    function finishCompactPreview(apply) {
-      if (!compactPending) return;
-      clearCompactPreview();
-      compactPending = false;
-      compactSnapshot = null;
-      compactConfirm.hidden = true;
-      setCompactInteractionLock(false);
-      if (apply) {
-        allowCompactOnce = true;
-        compactButton.click();
-        allowCompactOnce = false;
-      }
-      queueMicrotask(syncPresentation);
-    }
-
-    function discardCompactPreview() {
-      if (!compactPending) return;
-      finishCompactPreview(false);
     }
 
     function eventToCoordinate(event) {
@@ -435,51 +315,21 @@
       return true;
     }
 
-    compactButton.addEventListener("click", event => {
-      if (allowCompactOnce) return;
-      if (compactPending) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-      const snapshot = captureCompactSnapshot();
-      if (!snapshot) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      beginCompactPreview(snapshot);
-    }, true);
-
-    compactApplyButton.addEventListener("click", () => finishCompactPreview(true));
-    compactRestoreButton.addEventListener("click", () => finishCompactPreview(false));
-
-    // Intercept source-canvas pointer events before the existing move-order editor when
-    // a compact preview is pending. Right click remains reserved for clearing otherwise.
+    // Right click is reserved for clearing an existing move-order mark.
     document.addEventListener("pointerup", event => {
-      if (panel.hidden || event.target !== sourceCanvas) return;
-      if (compactPending && event.isTrusted) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        return;
-      }
-      if (event.button !== 2) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }, true);
-
-    table.addEventListener("click", event => {
-      if (!compactPending || !event.isTrusted) return;
+      if (panel.hidden || event.target !== sourceCanvas || event.button !== 2) return;
       event.preventDefault();
       event.stopImmediatePropagation();
     }, true);
 
     sourceCanvas.addEventListener("contextmenu", event => {
-      if (panel.hidden || compactPending) return;
+      if (panel.hidden) return;
       event.preventDefault();
       clearOrderAtCanvasEvent(event);
     });
 
     table.addEventListener("contextmenu", event => {
-      if (panel.hidden || compactPending) return;
+      if (panel.hidden) return;
       const row = event.target.closest("tr[data-number]");
       if (!row || row.classList.contains("is-missing")) return;
       event.preventDefault();
@@ -487,11 +337,6 @@
       clearButton.click();
       queueMicrotask(syncPresentation);
     });
-
-    resetButton?.addEventListener("click", discardCompactPreview, true);
-    redetectButton?.addEventListener("click", discardCompactPreview, true);
-    imageInput?.addEventListener("change", discardCompactPreview, true);
-    cameraInput?.addEventListener("change", discardCompactPreview, true);
 
     currentInput.addEventListener("input", syncPresentation);
     currentInput.addEventListener("change", () => queueMicrotask(syncPresentation));
@@ -504,10 +349,7 @@
     sourceCanvas.addEventListener("mouseenter", syncPresentation);
     window.addEventListener("resize", syncPresentation);
 
-    const panelObserver = new MutationObserver(() => {
-      if (panel.hidden && compactPending) discardCompactPreview();
-      syncPresentation();
-    });
+    const panelObserver = new MutationObserver(syncPresentation);
     panelObserver.observe(panel, { attributes:true, attributeFilter:["hidden"] });
     const tableObserver = new MutationObserver(() => queueMicrotask(syncPresentation));
     tableObserver.observe(table, { childList:true, subtree:true, attributes:true, attributeFilter:["class", "hidden"] });
