@@ -1001,6 +1001,7 @@
     panel.dataset.sourceMode = state.sourceMode;
     panel.hidden = true;
     toggleButton.textContent = "加上手順";
+    toggleButton.title = "先完成黑白子辨識後，才能加入手順";
     renderOverlay();
   }
 
@@ -1015,6 +1016,7 @@
     if (applyButton.hidden) return;
     state.sourceMode = "recognized";
     panel.dataset.sourceMode = state.sourceMode;
+    toggleButton.title = "在已辨識的黑白棋子上加入手順";
     applyButton.click();
     state.board = readBoard();
     pruneAssignments(state.board);
@@ -1108,7 +1110,7 @@
     state.currentNumber = target;
     currentInput.value = String(target);
     renderAll();
-    if (amount === 1) {
+    if (amount === 1 && !isNotationMode()) {
       orderStatus.textContent += "；已插入 1 手，後續黑白奇偶會交換，需繼續校正。";
       orderStatus.classList.add("is-error");
     }
