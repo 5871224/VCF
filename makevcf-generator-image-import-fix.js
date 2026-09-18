@@ -1102,7 +1102,9 @@
     toggleButton.title = "在已辨識的黑白棋子上加入手順";
     applyButton.click();
     state.board = readBoard();
+    const beforePrune = state.orderByIndex.slice();
     pruneAssignments(state.board);
+    if (!ordersEqual(beforePrune, state.orderByIndex)) resetEditorHistory();
     if (!stoneCount(state.board)) return;
     state.active = true;
     panel.hidden = false;
