@@ -175,23 +175,6 @@
       .vcf-image-order-board-number.is-black{color:#fff}
       .vcf-image-order-board-number.is-white{color:#111;text-shadow:0 0 2px #fff,0 0 2px #fff}
       .vcf-image-order-board-number.is-invalid{color:#e02b22;text-shadow:0 0 2px #fff,0 0 3px #fff}
-      #vcf-image-order-compact-confirm{
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        gap:6px;
-        margin:6px auto 8px;
-        padding:6px 8px;
-        width:min(100%,520px);
-        border:1px solid #d6a53c;
-        border-radius:5px;
-        background:#fff4c7;
-        font-size:12px;
-        font-weight:600;
-      }
-      #vcf-image-order-compact-confirm[hidden]{display:none !important}
-      #vcf-image-order-compact-confirm button{padding:5px 10px;font-size:12px}
-      #vcf-image-order-panel.is-compact-confirming #vcf-image-order-table tbody tr{cursor:default}
       @media(max-width:600px){
         #vcf-image-order-stage{gap:3px}
         #vcf-image-order-stage>.vcf-image-order-table-wrap{
