@@ -2983,6 +2983,47 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   function renderNotationPaperPreview() {
     srcCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
     srcCtx.drawImage(warpedCanvas, 0, 0, sourceCanvas.width, sourceCanvas.height);
+
+    if (importState.mode !== "notationOrder" || importState.gridXs.length !== SIZE || importState.gridYs.length !== SIZE) return;
+
+    const scaleX = sourceCanvas.width / WARP_SIZE;
+    const scaleY = sourceCanvas.height / WARP_SIZE;
+    const step = getRefinedGridStep() * (scaleX + scaleY) * 0.5;
+    const lineWidth = Math.max(1.5, step * 0.035);
+    const pointRadius = Math.max(2.8, step * 0.085);
+
+    srcCtx.save();
+    srcCtx.lineCap = "round";
+    srcCtx.lineWidth = lineWidth;
+    srcCtx.strokeStyle = "rgba(24, 102, 205, 0.72)";
+
+    for (const gridX of importState.gridXs) {
+      const x = gridX * scaleX;
+      srcCtx.beginPath();
+      srcCtx.moveTo(x, importState.gridYs[0] * scaleY);
+      srcCtx.lineTo(x, importState.gridYs[SIZE - 1] * scaleY);
+      srcCtx.stroke();
+    }
+    for (const gridY of importState.gridYs) {
+      const y = gridY * scaleY;
+      srcCtx.beginPath();
+      srcCtx.moveTo(importState.gridXs[0] * scaleX, y);
+      srcCtx.lineTo(importState.gridXs[SIZE - 1] * scaleX, y);
+      srcCtx.stroke();
+    }
+
+    for (const point of importState.warpedIntersections) {
+      const x = point.x * scaleX;
+      const y = point.y * scaleY;
+      srcCtx.beginPath();
+      srcCtx.arc(x, y, pointRadius, 0, Math.PI * 2);
+      srcCtx.fillStyle = "rgba(255, 235, 92, 0.96)";
+      srcCtx.fill();
+      srcCtx.lineWidth = Math.max(1.2, lineWidth * 0.75);
+      srcCtx.strokeStyle = "rgba(18, 74, 164, 0.98)";
+      srcCtx.stroke();
+    }
+    srcCtx.restore();
   }
 
   function openImportModeChoice() {
