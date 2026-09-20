@@ -59,7 +59,7 @@ def inject_pages_scripts() -> None:
     """Inject deployment-only fixed scripts without runtime dynamic loading."""
     index = SITE / "index.html"
     html = index.read_text(encoding="utf-8")
-    rapfi_db_header = '<script src="rapfi/rapfi-workbench-header.js?v=20260920-rapfi-db"></script>'
+    rapfi_db_header = '<script src="rapfi/rapfi-workbench-header.js?v=20260920-rollback1"></script>'
     rapfi_db_tags = "\n".join([
         '<script src="rapfi/engine/vcf-rapfi-db.js"></script>',
         '<script src="rapfi/vcf-rapfi-db.js?v=20260920-rapfi-db"></script>',
