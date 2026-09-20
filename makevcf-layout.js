@@ -199,7 +199,6 @@
     color: BLACK,
     ply: 0,
   };
-  let importedTree = null;
 
   function renderMarkerLayer(layerId, moves, { stroke, dash = "" } = {}) {
     let layer = board.querySelector(`#${layerId}`);
@@ -639,21 +638,13 @@
 
   function saveCommentEditorValue() {
     const comment = recordCommentInput.value;
-    if (importedTree?.current) {
-      const node = importedTree.current;
-      node.comment = comment;
-      node.recordText = replaceRapfiComment(node.recordText, comment);
-      window.VCFWorkbenchRecord?.setCurrentRecordText?.(node.recordText);
-    } else {
-      const currentText = window.VCFWorkbenchRecord?.currentRecordText?.() || "";
-      window.VCFWorkbenchRecord?.setCurrentRecordText?.(replaceRapfiComment(currentText, comment));
-    }
+    const currentText = window.VCFWorkbenchRecord?.currentRecordText?.() || "";
+    window.VCFWorkbenchRecord?.setCurrentRecordText?.(replaceRapfiComment(currentText, comment));
     recordCommentMeta.textContent = "已保存於目前盤面；匯出 DB 時會寫入 DBRecord.text。";
   }
 
   recordCommentInput.addEventListener("input", saveCommentEditorValue);
   window.addEventListener("vcf-record-state-changed", event => {
-    if (importedTree) return;
     if (document.activeElement !== recordCommentInput) {
       syncCommentEditorFromRecordText(event.detail?.recordText || "");
     }
@@ -830,237 +821,44 @@
     };
   }
 
-  function coordLabel(move) {
-    if (move === PASS_MOVE) return "PASS";
-    if (!Number.isInteger(move) || move < 0 || move >= BOARD_CELLS) return "";
-    const x = move % BOARD_SIZE;
-    const y = Math.floor(move / BOARD_SIZE);
-    return `${String.fromCharCode(65 + x)}${y + 1}`;
-  }
-
-  function importedSiblingInfo(node) {
-    const siblings = node?.parent?.children || [];
-    const index = siblings.indexOf(node);
-    return { siblings, index };
-  }
-
-  function updateImportedBranchButtons() {
-    // 四顆棋譜導覽鍵固定可按；到起點／末端時由導覽函式停在邊界並回報狀態。
-  }
-
-  function importedStatus() {
-    if (!importedTree) return;
-    const node = importedTree.current;
-    const { siblings, index } = importedSiblingInfo(node);
-    const siblingText = siblings.length > 1 ? `，同層分支 ${index + 1}/${siblings.length}` : "";
-    const moveText = node.synthetic ? "起始盤面" : node.move == null ? `局面 ${node.ply}` : `第 ${node.ply} 手 ${coordLabel(node.move)}`;
-    const nextText = node.children.length ? `，後續 ${node.children.length} 分支` : "，末端";
-    const canonicalText = importedTree.format === "YXDB" ? "（canonical 方向）" : "";
-    const compressionText = importedTree.compressed ? "、LZ4" : "";
-    const text = `${importedTree.format}${compressionText} ${importedTree.fileName || "棋譜"}${canonicalText}：${moveText}${siblingText}${nextText}`;
-    if (typeof setStatus === "function") setStatus(text);
-    const quickStatus = document.getElementById("bb-export-status");
-    if (quickStatus) quickStatus.textContent = text;
-  }
-
-  function renderRecordAnnotations(node) {
-    setCommentEditorValue(node?.comment || "");
-    recordCommentMeta.textContent = "目前盤面注釋；修改後會自動保存，匯出 DB 時一併寫入。";
-    const children = node?.children || [];
-    renderRecordNextMoveMarkers(children.map(child => child.move));
-    let layer = board.querySelector("#vcf-record-text-layer");
-    if (!layer) {
-      layer = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      layer.id = "vcf-record-text-layer";
-      layer.setAttribute("pointer-events", "none");
-      board.appendChild(layer);
+  function setupHistoryForParsedBoard(nodeBoard, sideToMove) {
+    const black = [];
+    const white = [];
+    for (let index = 0; index < BOARD_CELLS; index++) {
+      if (nodeBoard[index] === BLACK) black.push(index);
+      else if (nodeBoard[index] === WHITE) white.push(index);
     }
-    while (layer.firstChild) layer.firstChild.remove();
-    for (const item of node?.boardTexts || []) {
-      const x = Number(item.x);
-      const y = Number(item.y);
-      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) continue;
-      const cx = 22 + x * 34;
-      const cy = 22 + y * 34;
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", cx);
-      circle.setAttribute("cy", cy);
-      circle.setAttribute("r", 10.5);
-      circle.setAttribute("fill", "#fff7c2");
-      circle.setAttribute("stroke", "#b56b00");
-      circle.setAttribute("stroke-width", "1.6");
-      layer.appendChild(circle);
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      text.setAttribute("x", cx);
-      text.setAttribute("y", cy);
-      text.setAttribute("text-anchor", "middle");
-      text.setAttribute("dominant-baseline", "central");
-      text.setAttribute("font-size", "10");
-      text.setAttribute("font-weight", "700");
-      text.setAttribute("fill", "#6b3b00");
-      text.textContent = String(item.text || "");
-      layer.appendChild(text);
+    if (!(black.length === white.length || black.length === white.length + 1)) {
+      throw new Error("YXDB 起始局面的黑白子數無法建立 Rapfi Board history");
     }
+    const history = [];
+    const rounds = Math.max(black.length, white.length);
+    for (let i = 0; i < rounds; i++) {
+      if (i < black.length) history.push(black[i]);
+      if (i < white.length) history.push(white[i]);
+    }
+    const naturalSide = history.length % 2 === 0 ? BLACK : WHITE;
+    if (naturalSide !== sideToMove) history.push(PASS_MOVE);
+    return history;
   }
 
-  function historyForImportedNode(node) {
-    const reversed = [];
-    let rootRecordText = "";
-    let cursor = node;
-    while (cursor?.parent) {
-      if (!cursor.synthetic && cursor.ply === 0) rootRecordText = cursor.recordText || "";
-      if (Number.isInteger(cursor.move)) {
-        reversed.push({
-          index: cursor.move,
-          stone: opposite(cursor.sideToMove),
-          recordText: cursor.recordText || "",
-        });
-      }
-      cursor = cursor.parent;
+  function parsedImportState(node) {
+    if (!node || node.synthetic) return { history: [], basePly: 0 };
+    const trailing = [];
+    let root = node;
+    while (root.parent && !root.parent.synthetic) {
+      trailing.push(root.move);
+      root = root.parent;
     }
-    return { history: reversed.reverse(), rootRecordText };
-  }
-
-  function renderImportedNode(node) {
-    if (!importedTree || !node) return;
-    importedTree.current = node;
-    window.vcfInvalidateAnalysis?.("分支棋譜回放");
-    const applyBoard = () => {
-      window._setBoardArr?.(Array.from(node.board), node.sideToMove);
-      const recordState = historyForImportedNode(node);
-      window.VCFWorkbenchRecord?.setHistory?.(recordState.history, true, recordState.rootRecordText);
+    const setup = setupHistoryForParsedBoard(root.board, root.sideToMove);
+    trailing.reverse();
+    return {
+      history: setup.concat(trailing),
+      basePly: setup.length,
     };
-    if (typeof window.vcfWithBoardChangeSource === "function") {
-      window.vcfWithBoardChangeSource("record-playback", applyBoard);
-    } else {
-      applyBoard();
-    }
-    renderRecordAnnotations(node);
-    updateImportedBranchButtons();
-    importedStatus();
   }
 
-
-  window.VCFImportedRecordAPI = {
-    isActive() {
-      return Boolean(importedTree?.current);
-    },
-    setCurrentRecordText(text) {
-      if (!importedTree?.current) return false;
-      const node = importedTree.current;
-      node.recordText = String(text || "");
-      const meta = parseRapfiRecordText(node.recordText);
-      node.comment = meta.comment;
-      node.boardTexts = meta.boardTexts;
-      renderRecordAnnotations(node);
-      return true;
-    },
-    appendPass() {
-      if (!importedTree?.current) return false;
-      const current = importedTree.current;
-      let child = current.children.find(item => item.move === PASS_MOVE);
-      if (!child) {
-        child = makeRecordNode({
-          move: PASS_MOVE,
-          board: current.board,
-          sideToMove: opposite(current.sideToMove),
-          ply: current.ply + 1,
-          rule: current.rule,
-        });
-        child.parent = current;
-        current.children.push(child);
-      }
-      current.selectedChild = current.children.indexOf(child);
-      renderImportedNode(child);
-      return true;
-    },
-    deleteCurrentAndFollowing() {
-      if (!importedTree?.current) return false;
-      const current = importedTree.current;
-      const parent = current.parent;
-      if (!parent || parent.navigable === false || current.synthetic || current.move == null) return false;
-      const index = parent.children.indexOf(current);
-      if (index < 0) return false;
-      parent.children.splice(index, 1);
-      parent.selectedChild = parent.children.length
-        ? Math.max(0, Math.min(parent.children.length - 1, Number(parent.selectedChild || 0)))
-        : 0;
-      renderImportedNode(parent);
-      return true;
-    },
-    transform(transform) {
-      if (!importedTree?.root || !Number.isInteger(Number(transform)) || Number(transform) < 0 || Number(transform) > 7) return false;
-      const t = Number(transform);
-      const transformNode = node => {
-        if (Number.isInteger(node.move) && node.move >= 0) {
-          const x = node.move % BOARD_SIZE;
-          const y = Math.floor(node.move / BOARD_SIZE);
-          const [tx, ty] = transformXY(x, y, t);
-          node.move = ty * BOARD_SIZE + tx;
-        }
-        node.board = transformBoard(node.board, t);
-        node.recordText = transformRapfiRecordText(node.recordText, t);
-        const meta = parseRapfiRecordText(node.recordText);
-        node.comment = meta.comment;
-        node.boardTexts = meta.boardTexts;
-        for (const child of node.children) transformNode(child);
-      };
-      transformNode(importedTree.root);
-      renderImportedNode(importedTree.current);
-      return true;
-    },
-  };
-
-  function moveImportedStep(direction) {
-    if (!importedTree) return false;
-    const current = importedTree.current;
-    if (direction < 0) {
-      const parent = current.parent;
-      if (!parent || parent.navigable === false) {
-        importedStatus();
-        return true;
-      }
-      renderImportedNode(parent);
-      return true;
-    }
-    if (!current.children.length) {
-      importedStatus();
-      return true;
-    }
-    current.selectedChild = Math.max(0, Math.min(current.children.length - 1, current.selectedChild || 0));
-    renderImportedNode(current.children[current.selectedChild]);
-    return true;
-  }
-
-  function moveImportedBranch(direction) {
-    if (!importedTree) return false;
-    const current = importedTree.current;
-    if (direction < 0) {
-      let target = current.parent;
-      if (!target || target.navigable === false) {
-        importedStatus();
-        return true;
-      }
-      while (target.parent && target.parent.navigable !== false && target.children.length <= 1) {
-        target = target.parent;
-      }
-      renderImportedNode(target);
-      return true;
-    }
-    if (!current.children.length) {
-      importedStatus();
-      return true;
-    }
-    let target = current;
-    do {
-      target.selectedChild = Math.max(0, Math.min(target.children.length - 1, Number(target.selectedChild || 0)));
-      target = target.children[target.selectedChild];
-    } while (target.children.length === 1);
-    renderImportedNode(target);
-    return true;
-  }
-
-  function deepestImportedNode(tree) {
+  function deepestParsedNode(tree) {
     let best = tree?.current || null;
     const visit = node => {
       if (!node) return;
@@ -1071,23 +869,65 @@
     return best || tree?.current || null;
   }
 
+  function collectRenLibRoutes(tree) {
+    const routes = [];
+    const visit = (node, path) => {
+      const next = node?.synthetic ? path : path.concat(Number(node.move));
+      const children = node?.children || [];
+      if (!children.length) {
+        if (next.length) routes.push(next);
+        return;
+      }
+      for (const child of children) visit(child, next);
+    };
+    visit(tree?.root, []);
+    return routes;
+  }
+
+  function reportRecordImport(format, fileName, nodeCount, currentPly) {
+    const text = `${format} ${fileName || "棋譜"}：已載入 Rapfi position DB，目前第 ${currentPly} 手，共 ${nodeCount} 個節點`;
+    if (typeof setStatus === "function") setStatus(text);
+    const quickStatus = document.getElementById("bb-export-status");
+    if (quickStatus) quickStatus.textContent = text;
+  }
+
   async function loadRecordBytes(rawBytes, fileName = "棋譜.db", options = {}) {
     const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes || 0);
     const lowerName = String(fileName || "").toLowerCase();
     const looksRenLib = lowerName.endsWith(".lib")
       || (bytes.length >= 8 && bytes[0] === 0xff && bytes[1] === 0x52 && bytes[2] === 0x65 && bytes[3] === 0x6e);
-    const tree = looksRenLib ? parseRenLib(bytes) : parseYXDB(bytes);
     document.getElementById("btn-clear-vcf")?.click();
-    importedTree = tree;
-    importedTree.fileName = fileName || (looksRenLib ? "棋譜.lib" : "棋譜.db");
-    if (tree.rule != null && typeof window.vcfSetRules === "function") await window.vcfSetRules(tree.rule);
-    const target = options?.openAtEnd ? deepestImportedNode(tree) : tree.current;
-    renderImportedNode(target || tree.current);
+
+    if (looksRenLib) {
+      const parsed = parseRenLib(bytes);
+      const routes = collectRenLibRoutes(parsed);
+      const openHistory = options?.openAtEnd
+        ? routes.reduce((best, route) => route.length > best.length ? route : best, [])
+        : [];
+      const rule = Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
+      const loaded = await window.VCFWorkbenchRecord?.importRoutes?.(routes, rule, openHistory);
+      if (!loaded) throw new Error("RenLib 無法載入 Rapfi position DB");
+      reportRecordImport("RenLib", fileName || "棋譜.lib", parsed.nodeCount, openHistory.length);
+      return {
+        format: "RenLib",
+        nodeCount: parsed.nodeCount,
+        rootCount: parsed.rootCount,
+        currentPly: openHistory.length,
+      };
+    }
+
+    const parsed = parseYXDB(bytes);
+    const target = options?.openAtEnd ? deepestParsedNode(parsed) : parsed.current;
+    const state = parsedImportState(target);
+    const loaded = await window.VCFWorkbenchRecord?.importYXDB?.(bytes, parsed.rule, state.history, state.basePly);
+    if (!loaded) throw new Error("YXDB 無法載入 Rapfi YXDBStorage");
+    const currentPly = Math.max(0, state.history.length - state.basePly);
+    reportRecordImport("YXDB", fileName || "棋譜.db", parsed.nodeCount, currentPly);
     return {
-      format: tree.format,
-      nodeCount: tree.nodeCount,
-      rootCount: tree.rootCount,
-      currentPly: Number(importedTree.current?.ply || 0),
+      format: "YXDB",
+      nodeCount: parsed.nodeCount,
+      rootCount: parsed.rootCount,
+      currentPly,
     };
   }
 
@@ -1140,23 +980,19 @@
   }
 
   prevStepButton.addEventListener("click", () => {
-    if (moveImportedStep(-1)) return;
     if (window.VCFWorkbenchRecord?.navigateStep?.(-1)) return;
     if (typeof setStatus === "function") setStatus("目前已是棋譜起點");
   });
   nextStepButton.addEventListener("click", () => {
-    if (moveImportedStep(1)) return;
     if (window.VCFWorkbenchRecord?.navigateStep?.(1)) return;
     if (typeof setStatus === "function") setStatus("目前沒有下一手");
   });
 
   previousBranchButton.addEventListener("click", () => {
-    if (moveImportedBranch(-1)) return;
     if (window.VCFWorkbenchRecord?.navigateBranch?.(-1)) return;
     if (typeof setStatus === "function") setStatus("已停在棋譜起點");
   });
   nextBranchButton.addEventListener("click", () => {
-    if (moveImportedBranch(1)) return;
     if (window.VCFWorkbenchRecord?.navigateBranch?.(1)) return;
     if (typeof setStatus === "function") setStatus("已停在棋譜末端");
   });
@@ -1178,50 +1014,7 @@
 
   // 原始盤面被手動或其他功能改動時，退出已載入棋譜的瀏覽狀態；本模組自己的
   // record-playback _setBoardArr 事件則保留 importedTree。
-  window.addEventListener("vcf-board-changed", event => {
-    if (event.detail?.source === "record-playback") return;
-    if (importedTree?.current && typeof window._getArr === "function") {
-      const current = importedTree.current;
-      const live = Uint8Array.from(window._getArr().slice(0, BOARD_CELLS));
-      let added = -1;
-      let additions = 0;
-      let valid = true;
-      for (let idx = 0; idx < BOARD_CELLS; idx++) {
-        const before = current.board[idx];
-        const after = live[idx];
-        if (before === after) continue;
-        if (before === EMPTY && after === current.sideToMove && ++additions === 1) {
-          added = idx;
-        } else {
-          valid = false;
-          break;
-        }
-      }
-      if (valid && additions === 1) {
-        let child = current.children.find(item => item.move === added);
-        if (!child) {
-          child = makeRecordNode({
-            move: added,
-            board: live,
-            sideToMove: opposite(current.sideToMove),
-            ply: current.ply + 1,
-            rule: current.rule,
-          });
-          child.parent = current;
-          current.children.push(child);
-        } else {
-          child.board = new Uint8Array(live);
-        }
-        current.selectedChild = current.children.indexOf(child);
-        importedTree.current = child;
-        queueMicrotask(() => {
-          renderRecordAnnotations(child);
-          importedStatus();
-        });
-      } else {
-        importedTree = null;
-      }
-    }
+  window.addEventListener("vcf-board-changed", () => {
     queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
 
@@ -1230,7 +1023,6 @@
   });
   document.getElementById("btn-clear")?.addEventListener("click", () => {
     resetCalculationDisplay({ clearOverlay: false });
-    importedTree = null;
   });
 
   const labels = {
