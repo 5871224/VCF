@@ -56,18 +56,9 @@ def copy_file(source: Path, destination: Path) -> None:
 
 
 def inject_pages_scripts() -> None:
-    """Inject deployment-only fixed scripts without runtime dynamic loading."""
+    """Inject only deployment extras that do not change the root engine startup path."""
     index = SITE / "index.html"
     html = index.read_text(encoding="utf-8")
-    rapfi_db_header = '<script src="rapfi/rapfi-workbench-header.js?v=20260920-rollback1"></script>'
-    rapfi_db_tags = "\n".join([
-        '<script src="rapfi/engine/vcf-rapfi-db.js"></script>',
-        '<script src="rapfi/vcf-rapfi-db.js?v=20260920-rapfi-db"></script>',
-        rapfi_db_header,
-    ])
-    if rapfi_db_header not in html:
-        raise RuntimeError("root entry is missing Rapfi workbench header script")
-    html = html.replace(rapfi_db_header, rapfi_db_tags, 1)
 
     tags = "\n".join([
         '<script src="rapfi/engine/vcf-yxdb-index.js"></script>',
@@ -144,7 +135,6 @@ def main() -> None:
         "vcf-shortest-vcf-ui.js",
         "vcf-forbidden-overlay.js",
         "vcf-yxdb-index.js",
-        "vcf-rapfi-db.js",
         "vcf-lz4-cloud.js",
         "vcf-google-popup-auth.js",
     ]
