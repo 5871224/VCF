@@ -111,13 +111,14 @@ for (const token of [
   "parseYXDB",
   "parseRenLib",
   'button.id = "bb-import-record"',
-  'window.vcfWithBoardChangeSource("record-playback"',
+  'window.VCFWorkbenchRecord?.importYXDB?.(bytes, parsed.rule, state.history, state.basePly)',
+  'window.VCFWorkbenchRecord?.importRoutes?.(routes, rule, openHistory)',
   'recordNavigation.id = "vcf-record-navigation"',
   'recordCommentInput.id = "vcf-record-comment-input"',
   'replaceRapfiComment',
-  'window.VCFImportedRecordAPI = {',
-  'appendPass()',
-  'deleteCurrentAndFollowing()',
+  'parsedImportState',
+  'collectRenLibRoutes',
+  'setupHistoryForParsedBoard',
 ]) if (!layout.includes(token)) throw new Error(`branch replay contract missing: ${token}`);
 if (layout.includes("MutationObserver") || layout.includes("setInterval(")) {
   throw new Error("branch replay must not poll or observe the whole page");
@@ -156,6 +157,12 @@ if (!main.includes("normalized.includeStats ? result : result.points")) {
 
 const recordTools = read("rapfi/vcf-record-tools.js");
 new Function(recordTools);
+if (recordTools.includes("VCFImportedRecordAPI")) {
+  throw new Error("record tools must route only through VCFWorkbenchRecord");
+}
+if (!recordTools.includes("const basePly = Math.max(0, Math.min(history.length, Number(snapshot?.basePly || 0)))")) {
+  throw new Error("record hand numbers must ignore imported setup plies");
+}
 for (const token of [
   'double_arrow_left.svg',
   'photo.svg',
@@ -428,8 +435,16 @@ if (layout.includes('if (currentReplayRoute().length) {\n      moveVcfReplay(-1)
 if (layout.includes('if (currentReplayRoute().length && moveVcfBranch(-1)) return;')) {
   throw new Error("record branch button still delegates to VCF calculation replay");
 }
-if (layout.includes('if (!importedTree || ["btn-vcf-step-prev"')) {
-  throw new Error("VCF analysis actions still clear imported record state");
+for (const forbiddenToken of [
+  "importedTree",
+  "VCFImportedRecordAPI",
+  "moveImportedStep",
+  "moveImportedBranch",
+  "renderImportedNode",
+]) {
+  if (layout.includes(forbiddenToken)) {
+    throw new Error(`obsolete imported-record tree remains: ${forbiddenToken}`);
+  }
 }
 const dashboardResultLifecycle = read("rapfi/rapfi-bitboard-dashboard.js");
 for (const token of [
@@ -452,7 +467,7 @@ for (const token of [
   'VCFWorkbenchRecord?.navigateStep?.(1)',
   'VCFWorkbenchRecord?.navigateBranch?.(-1)',
   'VCFWorkbenchRecord?.navigateBranch?.(1)',
-  'renderRecordNextMoveMarkers(children.map(child => child.move))',
+  'renderRecordNextMoveMarkers(event.detail?.nextMoves || [])',
 ]) if (!layout.includes(token)) throw new Error(`manual record navigation contract missing: ${token}`);
 for (const token of [
   'vcf_rapfi_workbench_v1',
@@ -464,6 +479,9 @@ for (const token of [
   'service.undo()',
   'service.play(move, false)',
   'service.snapshotYXDB()',
+  'async importYXDB(bytes, rule, history = [], importedBasePly = 0)',
+  'async importRoutes(routes, rule, openHistory = [])',
+  'basePly',
 ]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
 for (const forbiddenToken of [
   'vcf_board_record_tree_v3',
@@ -490,7 +508,9 @@ const cloudYXDB = read("rapfi/vcf-lz4-cloud.js");
 for (const token of [
   'window.VCFRecordImportAPI = {',
   'loadRecordBytes(rawBytes',
-  'options?.openAtEnd ? deepestImportedNode(tree) : tree.current',
+  'options?.openAtEnd ? deepestParsedNode(parsed) : parsed.current',
+  'VCFWorkbenchRecord?.importYXDB?.(bytes, parsed.rule, state.history, state.basePly)',
+  'VCFWorkbenchRecord?.importRoutes?.(routes, rule, openHistory)',
 ]) if (!layout.includes(token)) throw new Error(`record byte importer contract missing: ${token}`);
 for (const token of [
   'const importer = global.VCFRecordImportAPI;',
