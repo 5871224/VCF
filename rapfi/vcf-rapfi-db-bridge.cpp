@@ -178,6 +178,93 @@ bool queryCurrentRecord(DBRecord &record)
     return ready() && g_client->query(*g_board, g_rule, record);
 }
 
+// Rapfi keeps the parent-symmetry helper private in dbclient.cpp. Keep this bridge copy
+// byte-for-byte equivalent to the pinned Rapfi 3aedf3a implementation so occupied-point
+// @BTXT@ markers can use the same canonical slot mapping as DBClient::setBoardText().
+bool isDBKeySymmetryForBoardText(const DBKey &key, TransformType transform)
+{
+    if (key.boardWidth != key.boardHeight && !isRectangleTransform(transform))
+        return false;
+
+    std::map<StonePos, Color> stones;
+    for (auto s = key.blackStonesBegin(); s < key.blackStonesEnd(); s++)
+        stones[*s] = BLACK;
+    for (auto s = key.whiteStonesBegin(); s < key.whiteStonesEnd(); s++)
+        stones[*s] = WHITE;
+
+    for (const auto &[stone, color] : stones) {
+        Pos pos {stone.x, stone.y};
+        Pos transformed = applyTransform(pos, key.boardWidth, key.boardHeight, transform);
+        StonePos transformedStone {transformed.x(), transformed.y()};
+        auto it = stones.find(transformedStone);
+        if (it == stones.end() || it->second != color)
+            return false;
+    }
+    return true;
+}
+
+Pos canonicalBoardTextPos(const Board &board, Rule rule, Pos pos)
+{
+    TransformType parentTransform;
+    DBKey parentKey = Database::constructDBKey(board, rule, &parentTransform);
+    Pos canonicalPos = applyTransform(pos, board.size(), parentTransform);
+    for (int t = IDENTITY + 1; t < TRANS_NB; t++) {
+        TransformType transform = static_cast<TransformType>(t);
+        if (!isDBKeySymmetryForBoardText(parentKey, transform))
+            continue;
+        Pos transformed = applyTransform(canonicalPos, board.size(), transform);
+        canonicalPos = std::min(canonicalPos, transformed);
+    }
+    return canonicalPos;
+}
+
+void setCurrentDisplayText(std::string raw)
+{
+    DBRecord display {Database::LABEL_NONE};
+    display.text = std::move(raw);
+
+    DBRecord stored;
+    if (!queryCurrentRecord(stored))
+        stored = DBRecord {Database::LABEL_NONE};
+
+    stored.clearAllBoardText();
+    stored.setComment(display.comment());
+    for (const auto &[displayPos, text] : display.getAllBoardTexts()) {
+        Pos canonicalPos = canonicalBoardTextPos(*g_board, g_rule, displayPos);
+        stored.setBoardText(canonicalPos, std::string(text));
+    }
+
+    g_client->save(*g_board, g_rule, stored, OverwriteRule::Always);
+    flushWrites();
+}
+
+std::string currentDisplayText()
+{
+    DBRecord stored;
+    if (!queryCurrentRecord(stored))
+        return {};
+
+    DBRecord display {Database::LABEL_NONE};
+    display.setComment(stored.comment());
+
+    std::map<int, std::string> boardTexts;
+    for (const auto &[pos, text] : stored.getAllBoardTexts())
+        boardTexts.emplace(int(pos), std::string(text));
+
+    // Enumerating all 225 points intentionally preserves the existing workbench feature that
+    // allows @BTXT@ on stones, while still using Rapfi's canonical parent-symmetry slots.
+    for (int y = 0; y < BOARD_SIZE; y++) {
+        for (int x = 0; x < BOARD_SIZE; x++) {
+            Pos displayPos {x, y};
+            Pos canonicalPos = canonicalBoardTextPos(*g_board, g_rule, displayPos);
+            auto it = boardTexts.find(int(canonicalPos));
+            if (it != boardTexts.end())
+                display.setBoardText(displayPos, it->second);
+        }
+    }
+    return display.text;
+}
+
 void ensureCurrentRecord()
 {
     DBRecord record;
@@ -315,6 +402,22 @@ int vcfRapfiDbIsForbidden(int move)
     if (!g_board->isEmpty(pos))
         return 0;
     return g_board->checkForbiddenPoint(pos) ? 1 : 0;
+}
+
+int vcfRapfiDbSetDisplayText(const char *text, int length)
+{
+    if (!ready())
+        return 0;
+    setCurrentDisplayText(inputString(text, length));
+    return 1;
+}
+
+int vcfRapfiDbGetDisplayText()
+{
+    if (!ready())
+        return 0;
+    g_textResult = currentDisplayText();
+    return static_cast<int>(g_textResult.size());
 }
 
 int vcfRapfiDbSetRawText(const char *text, int length)
@@ -455,6 +558,19 @@ int main()
     replayPath({112, 97, 111, 96}, false);
     vcfRapfiDbGetComment();
     assert(g_textResult == comment);
+
+    // Display recordText uses Rapfi canonical mapping, including markers placed on stones.
+    replayPath({112, 97, 113, 98}, false);
+    const std::string occupiedMarker = "@BTXT@87A\bsame canonical position";
+    assert(vcfRapfiDbSetDisplayText(occupiedMarker.data(), static_cast<int>(occupiedMarker.size())) == 1);
+    assert(vcfRapfiDbGetDisplayText() > 0);
+    assert(g_textResult.find("87A") != std::string::npos);
+
+    // The horizontal mirror must expose the same marker at mirrored occupied point 111=(6,7).
+    replayPath({112, 97, 111, 96}, false);
+    assert(vcfRapfiDbGetDisplayText() > 0);
+    assert(g_textResult.find("67A") != std::string::npos);
+    assert(g_textResult.find("same canonical position") != std::string::npos);
 
     // Board text is owned by the parent position and mapped through Rapfi symmetry.
     replayPath({112}, true);
