@@ -151,8 +151,12 @@ bool ready()
 
 void flushWrites()
 {
-    if (g_client)
-        g_client->sync(false);
+    if (g_client) {
+        // A single canonical DBKey can be reached through many histories/orientations with
+        // different Zobrist hashes. After mutating a position record, clear Rapfi's hash-keyed
+        // caches so every transposed/mirrored/rotated alias observes the same fresh DBRecord.
+        g_client->sync(true);
+    }
 }
 
 void resetBoard(Rule rule)
