@@ -700,27 +700,43 @@
         apply();
       }
     };
-    const setupHistoryForBoard = board => {
-      const black = [];
-      const white = [];
+    const setupHistoryForBoard = (board, desiredSide = BLACK) => {
+      const remaining = {
+        [BLACK]: [],
+        [WHITE]: [],
+      };
       for (let index = 0; index < BOARD_CELLS; index++) {
-        if (board[index] === BLACK) black.push(index);
-        else if (board[index] === WHITE) white.push(index);
+        if (board[index] === BLACK) remaining[BLACK].push(index);
+        else if (board[index] === WHITE) remaining[WHITE].push(index);
       }
-      if (!(black.length === white.length || black.length === white.length + 1)) return null;
       const history = [];
-      const rounds = Math.max(black.length, white.length);
-      for (let i = 0; i < rounds; i++) {
-        if (i < black.length) history.push(black[i]);
-        if (i < white.length) history.push(white[i]);
+      let side = BLACK;
+      let blackIndex = 0;
+      let whiteIndex = 0;
+      while (blackIndex < remaining[BLACK].length || whiteIndex < remaining[WHITE].length) {
+        if (side === BLACK) {
+          if (blackIndex < remaining[BLACK].length) history.push(remaining[BLACK][blackIndex++]);
+          else history.push(PASS);
+        } else {
+          if (whiteIndex < remaining[WHITE].length) history.push(remaining[WHITE][whiteIndex++]);
+          else history.push(PASS);
+        }
+        side = side === BLACK ? WHITE : BLACK;
       }
+      const targetSide = desiredSide === WHITE ? WHITE : BLACK;
+      if (side !== targetSide) history.push(PASS);
       return history;
     };
     const adoptCurrentBoardAsSetup = () => {
       const service = db();
       if (!rapfiDbActive || !service?.isReady) return false;
       const board = readBoard();
-      const setup = setupHistoryForBoard(board);
+      const desiredSide = Number(global._getNextColor?.()) === WHITE
+        ? WHITE
+        : Number(global._getNextColor?.()) === BLACK
+          ? BLACK
+          : (normalSideToMove(board) || BLACK);
+      const setup = setupHistoryForBoard(board, desiredSide);
       if (!setup) return false;
       service.clear(currentRule);
       service.ensureCurrent();
@@ -1099,6 +1115,9 @@
         service.ensureCurrent();
         return applyCurrentBoard(true);
       },
+      isActive() {
+        return Boolean(rapfiDbActive && db()?.isReady);
+      },
       playAt(move) {
         const service = db();
         const index = Number(move);
@@ -1110,6 +1129,24 @@
         const parentKey = routeKey();
         if (!service.play(index, true)) return false;
         selectedNextByRoute.set(parentKey, index);
+        persistedDbBase64 = "";
+        return applyCurrentBoard(true);
+      },
+      editAt(move) {
+        const service = db();
+        const index = Number(move);
+        if (!rapfiDbActive || !service?.isReady || !Number.isInteger(index)
+            || index < 0 || index >= BOARD_CELLS) return false;
+        if (!ensureExactCurrentBoard()) return false;
+        const board = new Uint8Array(service.board());
+        if (!Number(board[index])) return this.playAt(index);
+
+        const removedStone = Number(board[index]);
+        board[index] = EMPTY;
+        setMainBoard(board, removedStone);
+        lastBoard = board;
+        exact = false;
+        if (!adoptCurrentBoardAsSetup()) return false;
         persistedDbBase64 = "";
         return applyCurrentBoard(true);
       },
