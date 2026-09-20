@@ -198,6 +198,10 @@ for (const token of [
   'setRecordTextForPosition(current, text)',
   'canonicalPositionInfo(board)',
   'transformRapfiRecordText(canonicalText, state.inverseTransform)',
+  'sharedNextMovesForNode',
+  'materializeSharedChild',
+  'nextMoves: exact ? sharedNextMovesForNode(current) : []',
+  'const nextMove = selectedNextMove(current);',
   'YXDB 無法表示 PASS',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
 
