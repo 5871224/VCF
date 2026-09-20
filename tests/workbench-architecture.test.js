@@ -40,8 +40,8 @@ for (const [file, source] of [
   }
 }
 
-const rapfiDbAdapter = read("rapfi/vcf-rapfi-db.js");
-if (rapfiDbAdapter.includes("findVCF") || rapfiDbAdapter.includes("vcfRegisterEngineRequestProvider")) {
+const rapfiDbSearchIsolation = read("rapfi/vcf-rapfi-db.js");
+if (rapfiDbSearchIsolation.includes("findVCF") || rapfiDbSearchIsolation.includes("vcfRegisterEngineRequestProvider")) {
   throw new Error("Rapfi record DB adapter must not participate in VCF search requests");
 }
 
