@@ -655,6 +655,7 @@
     let currentRule = normalizeRule(activeRule());
     let persistedDbBase64 = "";
     let restoringRule = false;
+    let basePly = 0;
     const selectedNextByRoute = new Map();
 
     const bytesToBase64 = bytes => {
@@ -713,6 +714,7 @@
           rule: currentRule,
           db: persistedDbBase64,
           history: service.history(),
+          basePly,
           exact,
           board: Array.from(lastBoard),
         }));
@@ -751,13 +753,14 @@
       const service = db();
       const nextMoves = queryChildren();
       const nextMove = selectedNextMove(nextMoves);
-      const ply = rapfiDbActive && service?.isReady ? service.ply() : 0;
+      const absolutePly = rapfiDbActive && service?.isReady ? service.ply() : 0;
+      const ply = Math.max(0, absolutePly - basePly);
       global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
         detail: {
           recordText: currentRecordText(),
           exact,
           ply,
-          canPrev: Boolean(exact && ply > 0),
+          canPrev: Boolean(exact && absolutePly > basePly),
           canNext: Boolean(exact && nextMove != null),
           selectedNextMove: nextMove,
           nextMoves,
@@ -837,6 +840,7 @@
               break;
             }
           }
+          basePly = Math.max(0, Math.min(service.ply(), Number(saved.basePly || 0)));
           exact = Boolean(saved.exact !== false && historyOk);
           rapfiDbActive = true;
           if (exact) {
@@ -859,6 +863,7 @@
       rapfiDbActive = true;
       exact = !lastBoard.some(Boolean);
       selectedNextByRoute.clear();
+      basePly = 0;
       if (exact) applyCurrentBoard(true);
       else {
         saveState(true);
@@ -937,6 +942,7 @@
         const service = db();
         lastBoard = readBoard();
         selectedNextByRoute.clear();
+        basePly = 0;
         exact = true;
         if (rapfiDbActive && service?.isReady) {
           service.clear(currentRule);
@@ -954,6 +960,7 @@
         const service = db();
         lastBoard = readBoard();
         selectedNextByRoute.clear();
+        basePly = 0;
         exact = false;
         if (rapfiDbActive && service?.isReady) {
           service.clear(currentRule);
@@ -980,6 +987,7 @@
           exact,
           board: Array.from(lastBoard),
           rootRecordText: captured.rootRecordText,
+          basePly,
         };
       },
       currentRecordText,
@@ -1025,18 +1033,75 @@
         if (!normalized.length && !board.some(Boolean)) exact = true;
 
         lastBoard = board;
+        basePly = 0;
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
         saveState(true);
         notify();
         return exact;
       },
+      async importYXDB(bytes, rule, history = [], importedBasePly = 0) {
+        const service = db();
+        if (!service?.isReady) return false;
+        const nextRule = normalizeRule(rule);
+        restoringRule = true;
+        try {
+          const radio = ruleBox?.querySelector(`input[name="rules"][value="${nextRule}"]`);
+          if (radio) radio.checked = true;
+          if (ruleBox) ruleBox.dataset.activeRules = String(nextRule);
+          await global.vcfSetRules?.(nextRule);
+        } finally {
+          restoringRule = false;
+        }
+        currentRule = nextRule;
+        if (!service.restoreYXDB(bytes, currentRule)) return false;
+        rapfiDbActive = true;
+        if (!restoreDbHistory(history)) return false;
+        basePly = Math.max(0, Math.min(service.ply(), Number(importedBasePly || 0)));
+        exact = true;
+        selectedNextByRoute.clear();
+        persistedDbBase64 = "";
+        service.ensureCurrent();
+        return applyCurrentBoard(true);
+      },
+      async importRoutes(routes, rule, openHistory = []) {
+        const service = db();
+        if (!service?.isReady) return false;
+        const nextRule = normalizeRule(rule);
+        restoringRule = true;
+        try {
+          const radio = ruleBox?.querySelector(`input[name="rules"][value="${nextRule}"]`);
+          if (radio) radio.checked = true;
+          if (ruleBox) ruleBox.dataset.activeRules = String(nextRule);
+          await global.vcfSetRules?.(nextRule);
+        } finally {
+          restoringRule = false;
+        }
+        currentRule = nextRule;
+        service.clear(currentRule);
+        service.ensureCurrent();
+        for (const rawRoute of Array.isArray(routes) ? routes : []) {
+          service.resetBoard(currentRule);
+          service.ensureCurrent();
+          for (const rawMove of rawRoute || []) {
+            if (!service.replayMove(Number(rawMove), true)) return false;
+          }
+        }
+        if (!restoreDbHistory(openHistory)) return false;
+        basePly = 0;
+        exact = true;
+        rapfiDbActive = true;
+        selectedNextByRoute.clear();
+        persistedDbBase64 = "";
+        service.ensureCurrent();
+        return applyCurrentBoard(true);
+      },
       navigateStep(direction) {
         const service = db();
         if (!rapfiDbActive || !exact || !service?.isReady) return false;
         if (direction < 0) {
           const history = service.history();
-          if (!history.length) return false;
+          if (service.ply() <= basePly || !history.length) return false;
           const move = history[history.length - 1];
           if (!service.undo()) return false;
           rememberSelectedNext(move);
@@ -1054,14 +1119,14 @@
         if (!rapfiDbActive || !exact || !service?.isReady) return false;
 
         if (direction < 0) {
-          if (service.ply() <= 0) return false;
+          if (service.ply() <= basePly) return false;
           do {
             const history = service.history();
             const move = history[history.length - 1];
             if (!service.undo()) break;
             rememberSelectedNext(move);
-            if (queryChildren().length > 1 || service.ply() <= 0) break;
-          } while (service.ply() > 0);
+            if (queryChildren().length > 1 || service.ply() <= basePly) break;
+          } while (service.ply() > basePly);
           return applyCurrentBoard(false);
         }
 
@@ -1087,7 +1152,7 @@
       },
       deleteCurrentAndFollowing() {
         const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady || service.ply() <= 0) return false;
+        if (!rapfiDbActive || !exact || !service?.isReady || service.ply() <= basePly) return false;
         if (!service.deleteCurrentAndChildren()) return false;
         if (!service.undo()) return false;
         selectedNextByRoute.delete(routeKey());
