@@ -500,9 +500,9 @@ for (const forbiddenToken of [
   }
 }
 const entry = read("makevcf.html");
-if (!entry.includes('makevcf-layout.js?v=20260913-search-stats')
-    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260920-rapfi-db')
-    || !entry.includes('rapfi/vcf-record-tools.js?v=20260913-direct-board-edit')) {
+if (!entry.includes('makevcf-layout.js?v=20260920-rollback1')
+    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260920-rollback1')
+    || !entry.includes('rapfi/vcf-record-tools.js?v=20260920-rollback1')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
 }
 
