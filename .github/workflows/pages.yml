@@ -177,14 +177,15 @@ jobs:
             rapfi/vcf-rapfi-db-bridge.cpp
             "$rapfi_root/core/hash.cpp"
             "$rapfi_root/core/utils.cpp"
+            "$rapfi_root/external/lz4/src/xxhash.c"
             "$rapfi_root/game/pattern.cpp"
             "$rapfi_root/game/board.cpp"
             "$rapfi_root/database/dbtypes.cpp"
             "$rapfi_root/database/dbclient.cpp"
           )
-          g++ "${sources[@]}" -I"$rapfi_root"             -O2 -std=c++17 -DVCF_RAPFI_DB_BRIDGE_TEST_MAIN             -o /tmp/vcf-rapfi-db-test
+          g++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include"             -O2 -std=c++17 -DVCF_RAPFI_DB_BRIDGE_TEST_MAIN             -o /tmp/vcf-rapfi-db-test
           /tmp/vcf-rapfi-db-test
-          em++ "${sources[@]}" -I"$rapfi_root"             -O3 -flto -DNDEBUG -std=c++17 --no-entry             -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFRapfiDBModule             -s ENVIRONMENT='web,worker,node' -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1             -s "EXPORTED_FUNCTIONS=['_vcfRapfiDbInit','_vcfRapfiDbResetBoard','_vcfRapfiDbClear','_vcfRapfiDbReady','_vcfRapfiDbEnsureCurrent','_vcfRapfiDbReplayMove','_vcfRapfiDbPlay','_vcfRapfiDbUndo','_vcfRapfiDbPly','_vcfRapfiDbHistoryMove','_vcfRapfiDbSideToMove','_vcfRapfiDbBoardCell','_vcfRapfiDbIsForbidden','_vcfRapfiDbSetRawText','_vcfRapfiDbGetRawText','_vcfRapfiDbSetComment','_vcfRapfiDbGetComment','_vcfRapfiDbTextPtr','_vcfRapfiDbTextLength','_vcfRapfiDbSetBoardText','_vcfRapfiDbQueryBoardTexts','_vcfRapfiDbBoardTextMove','_vcfRapfiDbBoardTextValue','_vcfRapfiDbQueryChildren','_vcfRapfiDbChildMove','_vcfRapfiDbRecordCount','_malloc','_free']"             -s "EXPORTED_RUNTIME_METHODS=['cwrap']"             -o .cache/vcf-rapfi-db/vcf-rapfi-db.js
+          em++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include"             -O3 -flto -DNDEBUG -std=c++17 --no-entry             -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFRapfiDBModule             -s ENVIRONMENT='web,worker,node' -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1             -s "EXPORTED_FUNCTIONS=['_vcfRapfiDbInit','_vcfRapfiDbResetBoard','_vcfRapfiDbClear','_vcfRapfiDbReady','_vcfRapfiDbEnsureCurrent','_vcfRapfiDbReplayMove','_vcfRapfiDbPlay','_vcfRapfiDbUndo','_vcfRapfiDbPly','_vcfRapfiDbHistoryMove','_vcfRapfiDbSideToMove','_vcfRapfiDbBoardCell','_vcfRapfiDbIsForbidden','_vcfRapfiDbSetRawText','_vcfRapfiDbGetRawText','_vcfRapfiDbSetComment','_vcfRapfiDbGetComment','_vcfRapfiDbTextPtr','_vcfRapfiDbTextLength','_vcfRapfiDbSetBoardText','_vcfRapfiDbQueryBoardTexts','_vcfRapfiDbBoardTextMove','_vcfRapfiDbBoardTextValue','_vcfRapfiDbQueryChildren','_vcfRapfiDbChildMove','_vcfRapfiDbRecordCount','_malloc','_free']"             -s "EXPORTED_RUNTIME_METHODS=['cwrap']"             -o .cache/vcf-rapfi-db/vcf-rapfi-db.js
 
       - name: Build YXDB binary index engine
         if: steps.yxdb-cache.outputs.cache-hit != 'true'
