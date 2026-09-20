@@ -40,6 +40,7 @@ RAPFI_FILES = [
     "vcf-shortest-vcf-ui.js",
     "vcf-forbidden-overlay.js",
     "rapfi-workbench-header.js",
+    "vcf-rapfi-db.js",
     "vcf-record-tools.js",
     "rapfi-question-bank.js",
     "vcf-lz4-cloud.js",
@@ -58,6 +59,16 @@ def inject_pages_scripts() -> None:
     """Inject deployment-only fixed scripts without runtime dynamic loading."""
     index = SITE / "index.html"
     html = index.read_text(encoding="utf-8")
+    rapfi_db_header = '<script src="rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2"></script>'
+    rapfi_db_tags = "\n".join([
+        '<script src="rapfi/engine/vcf-rapfi-db.js"></script>',
+        '<script src="rapfi/vcf-rapfi-db.js?v=20260920-rapfi-db"></script>',
+        rapfi_db_header,
+    ])
+    if rapfi_db_header not in html:
+        raise RuntimeError("root entry is missing Rapfi workbench header script")
+    html = html.replace(rapfi_db_header, rapfi_db_tags, 1)
+
     tags = "\n".join([
         '<script src="rapfi/engine/vcf-yxdb-index.js"></script>',
         '<script src="rapfi/vcf-lz4-cloud.js?v=20260913-cloud-load-board"></script>',
@@ -97,6 +108,7 @@ def main() -> None:
         (ROOT / ".cache" / "vcf-pattern-engine", "vcf-pattern-engine.*"),
         (ROOT / ".cache" / "vcf-bitboard-engine", "vcf-bitboard-engine.*"),
         (ROOT / ".cache" / "vcf-yxdb-index", "vcf-yxdb-index.*"),
+        (ROOT / ".cache" / "vcf-rapfi-db", "vcf-rapfi-db.*"),
     ]
     for cache_dir, pattern in cache_patterns:
         matches = sorted(cache_dir.glob(pattern))
@@ -132,6 +144,7 @@ def main() -> None:
         "vcf-shortest-vcf-ui.js",
         "vcf-forbidden-overlay.js",
         "vcf-yxdb-index.js",
+        "vcf-rapfi-db.js",
         "vcf-lz4-cloud.js",
         "vcf-google-popup-auth.js",
     ]
