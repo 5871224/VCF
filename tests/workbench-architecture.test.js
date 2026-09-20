@@ -135,6 +135,9 @@ if (!layout.includes("function renderCalculationDisplay({ updateStatus = true } 
   throw new Error("calculation result sync must preserve completed search statistics");
 }
 const workbenchHtml = read("makevcf.html");
+if (!workbenchHtml.includes("window._getNextColor = () => nextColor;")) {
+  throw new Error("manual board next color must be exposed to Rapfi setup adoption");
+}
 if (workbenchHtml.includes('pathname.endsWith("/VCF")')
     || workbenchHtml.includes('pathname.endsWith("/VCF/index.html")')) {
   throw new Error("Bitboard deployment entry must not be hard-coded to /VCF");
@@ -163,6 +166,10 @@ if (recordTools.includes("VCFImportedRecordAPI")) {
 if (!recordTools.includes("const basePly = Math.max(0, Math.min(history.length, Number(snapshot?.basePly || 0)))")) {
   throw new Error("record hand numbers must ignore imported setup plies");
 }
+for (const token of [
+  'if (!global.VCFWorkbenchRecord?.isActive?.()) return;',
+  'global.VCFWorkbenchRecord?.editAt?.(point.index)',
+]) if (!recordTools.includes(token)) throw new Error(`direct Rapfi board edit contract missing: ${token}`);
 for (const token of [
   'double_arrow_left.svg',
   'photo.svg',
@@ -215,7 +222,7 @@ for (const token of [
   'appendPass()',
   'deleteCurrentAndFollowing()',
   'transform(transform)',
-  'vcf_rapfi_workbench_v1',
+  'vcf_rapfi_workbench_v2',
   'snapshotYXDB()',
   'restoreYXDB(base64ToBytes(saved.db), currentRule)',
   'service.children()',
@@ -472,7 +479,7 @@ for (const token of [
   'renderRecordNextMoveMarkers(event.detail?.nextMoves || [])',
 ]) if (!layout.includes(token)) throw new Error(`manual record navigation contract missing: ${token}`);
 for (const token of [
-  'vcf_rapfi_workbench_v1',
+  'vcf_rapfi_workbench_v2',
   'navigateStep(direction)',
   'navigateBranch(direction)',
   'selectedNextMove',
@@ -481,6 +488,10 @@ for (const token of [
   'service.undo()',
   'service.play(move, false)',
   'service.snapshotYXDB()',
+  'isActive()',
+  'playAt(move)',
+  'editAt(move)',
+  'setupHistoryForBoard = (board, desiredSide = BLACK)',
   'async importYXDB(bytes, rule, history = [], importedBasePly = 0)',
   'async importRoutes(routes, rule, openHistory = [])',
   'basePly',
