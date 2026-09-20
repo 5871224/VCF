@@ -442,9 +442,9 @@ for (const token of [
   'navigateStep(direction)',
   'navigateBranch(direction)',
   'selectedNextMove',
-  'nextMoves: exact ? current.children.map(child => child.move) : []',
-  'while (target.parent && target.children.length <= 1)',
-  'while (target.children.length === 1)',
+  'nextMoves: exact ? sharedNextMovesForNode(current) : []',
+  'while (target.parent && sharedBranchCountForNode(target) <= 1)',
+  'while (sharedBranchCountForNode(target) === 1)',
   'children: []',
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
