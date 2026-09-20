@@ -1,11 +1,11 @@
 {
-  "status": "cancelled",
-  "run_id": 35496230165,
-  "run_number": 766,
-  "head_sha": "3aea4f25e769a267d710033652174d1278050dfb",
+  "status": "failure",
+  "run_id": 35496265377,
+  "run_number": 768,
+  "head_sha": "2ac8c81d6fde4be54f31ebcec120041976fa484f",
   "event": "push",
-  "html_url": "https://github.com/5871224/VCF/actions/runs/35496230165",
-  "created_at": "2026-09-20T07:12:04Z",
-  "updated_at": "2026-09-20T07:12:54Z",
-  "reported_at": "2026-09-20T07:13:00.571Z"
+  "html_url": "https://github.com/5871224/VCF/actions/runs/35496265377",
+  "created_at": "2026-09-20T07:12:51Z",
+  "updated_at": "2026-09-20T07:13:43Z",
+  "reported_at": "2026-09-20T07:13:49.623Z"
 }
