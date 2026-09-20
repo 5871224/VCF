@@ -36,12 +36,28 @@
       boardTextMove: instance.cwrap("vcfRapfiDbBoardTextMove", "number", ["number"]),
       boardTextValue: instance.cwrap("vcfRapfiDbBoardTextValue", "number", ["number"]),
       recordCount: instance.cwrap("vcfRapfiDbRecordCount", "number", []),
+      exportYXDB: instance.cwrap("vcfRapfiDbExportYXDB", "number", []),
+      importYXDB: instance.cwrap("vcfRapfiDbImportYXDB", "number", ["number", "number", "number"]),
+      bytesPtr: instance.cwrap("vcfRapfiDbBytesPtr", "number", []),
+      bytesLength: instance.cwrap("vcfRapfiDbBytesLength", "number", []),
     };
   }
 
   function withBytes(text, callback) {
     const { module: instance } = requireReady();
     const bytes = encoder.encode(String(text || ""));
+    const ptr = instance._malloc(Math.max(1, bytes.length));
+    try {
+      if (bytes.length) instance.HEAPU8.set(bytes, ptr);
+      return callback(ptr, bytes.length);
+    } finally {
+      instance._free(ptr);
+    }
+  }
+
+  function withByteArray(value, callback) {
+    const { module: instance } = requireReady();
+    const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
     const ptr = instance._malloc(Math.max(1, bytes.length));
     try {
       if (bytes.length) instance.HEAPU8.set(bytes, ptr);
@@ -109,6 +125,19 @@
         result.push({ move, text: readResultText(length) });
       }
       return result;
+    },
+    snapshotYXDB() {
+      const { module: instance, api: bound } = requireReady();
+      const length = bound.exportYXDB();
+      if (!(length > 0)) return new Uint8Array();
+      const ptr = bound.bytesPtr();
+      return ptr ? instance.HEAPU8.slice(ptr, ptr + length) : new Uint8Array();
+    },
+    restoreYXDB(value, rule = 2) {
+      const { api: bound } = requireReady();
+      return Boolean(withByteArray(value, (ptr, length) => (
+        length > 0 && bound.importYXDB(ptr, length, Number(rule))
+      )));
     },
     recordCount() { return requireReady().api.recordCount(); },
   };
