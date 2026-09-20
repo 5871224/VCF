@@ -559,6 +559,34 @@ int vcfRapfiDbDeleteCurrentAndChildren()
     return 1;
 }
 
+int vcfRapfiDbCloneRule(int fromRule, int toRule)
+{
+    if (!ready())
+        return 0;
+    const Rule from = normalizeRule(fromRule);
+    const Rule to = normalizeRule(toRule);
+    if (from == to)
+        return 1;
+
+    g_client->sync(true);
+    std::vector<std::pair<DBKey, DBRecord>> records;
+    const size_t total = g_storage->size();
+    if (total)
+        g_storage->scan(0, total, records);
+
+    int copied = 0;
+    for (const auto &[key, record] : records) {
+        if (key.rule != from)
+            continue;
+        DBKey cloned = key;
+        cloned.rule = to;
+        g_storage->set(cloned, record, Database::RECORD_MASK_ALL);
+        copied++;
+    }
+    g_client->sync(true);
+    return copied + 1;
+}
+
 int vcfRapfiDbExportYXDB()
 {
     return exportStorageBytes() ? static_cast<int>(g_blobResult.size()) : 0;
