@@ -1012,8 +1012,7 @@
   });
   syncCalculationNavigation();
 
-  // 原始盤面被手動或其他功能改動時，退出已載入棋譜的瀏覽狀態；本模組自己的
-  // record-playback _setBoardArr 事件則保留 importedTree。
+  // 棋盤改動後，注釋編輯器只從唯一的 Rapfi workbench record state 重新同步。
   window.addEventListener("vcf-board-changed", () => {
     queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
