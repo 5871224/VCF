@@ -208,30 +208,16 @@ for (const token of [
   'appendPass()',
   'deleteCurrentAndFollowing()',
   'transform(transform)',
-  'positionRecords: Object.fromEntries(positionRecords)',
-  'historyForNodeWithPositionRecords',
-  'setRecordTextForPosition(current, text)',
-  'canonicalPositionInfo(board)',
-  'transformRapfiRecordText(canonicalText, state.inverseTransform)',
-  'sharedNextMovesForNode',
-  'sharedChildPositionKeysForNode',
-  'childPositionKeyForMove',
-  'sharedChildKeyCache',
-  'sharedNextMoveCache',
-  'invalidateSharedBranchCache',
-  'isLegalSharedMove',
-  'vcf-rules-changed',
-  'materializeSharedChild',
-  'const nextMoves = exact ? sharedNextMovesForNode(current) : [];',
-  'const nextMove = selectedNextMove(current, nextMoves);',
-  'const nextMove = selectedNextMove(target);',
-  'historyForNodeWithStoredTexts',
-  'rapfiBoardNode',
-  'if (sharedMoves.includes(localMove)) return localMove;',
-  'rapfiDbActive ? "rapfi-db" : "js-fallback"',
-  'rebuildRapfiDatabase',
-  'global.VCFRapfiDB.getDisplayText()',
-  'global.VCFRapfiDB.setDisplayText(String(text || ""))',
+  'vcf_rapfi_workbench_v1',
+  'snapshotYXDB()',
+  'restoreYXDB(base64ToBytes(saved.db), currentRule)',
+  'service.children()',
+  'service.history()',
+  'service.getDisplayText()',
+  'service.setDisplayText(String(text || ""))',
+  'service.deleteCurrentAndChildren()',
+  'service.cloneRule(currentRule, nextRule)',
+  'positionBackend: rapfiDbActive ? "rapfi-db" : "initializing"',
   'global.addEventListener("vcf-rapfi-db-ready"',
   'YXDB 無法表示 PASS',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
@@ -469,16 +455,30 @@ for (const token of [
   'renderRecordNextMoveMarkers(children.map(child => child.move))',
 ]) if (!layout.includes(token)) throw new Error(`manual record navigation contract missing: ${token}`);
 for (const token of [
-  'vcf_board_record_tree_v3',
+  'vcf_rapfi_workbench_v1',
   'navigateStep(direction)',
   'navigateBranch(direction)',
   'selectedNextMove',
-  'const nextMoves = exact ? sharedNextMovesForNode(current) : [];',
+  'const nextMoves = queryChildren();',
   'nextBranchCount: nextMoves.length',
-  'while (target.parent && sharedBranchCountForNode(target) <= 1)',
-  'while (sharedBranchCountForNode(target) === 1)',
-  'children: []',
-]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
+  'service.undo()',
+  'service.play(move, false)',
+  'service.snapshotYXDB()',
+]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
+for (const forbiddenToken of [
+  'vcf_board_record_tree_v3',
+  'vcf_board_history_v2',
+  'positionRecords',
+  'sharedChildKeyCache',
+  'sharedNextMoveCache',
+  'sharedNextMovesForNode',
+  'rebuildRapfiDatabase',
+  'js-fallback',
+]) {
+  if (header.includes(forbiddenToken)) {
+    throw new Error(`obsolete JavaScript record-state fallback remains: ${forbiddenToken}`);
+  }
+}
 const entry = read("makevcf.html");
 if (!entry.includes('makevcf-layout.js?v=20260913-search-stats')
     || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260920-rapfi-db')
@@ -504,6 +504,12 @@ for (const token of [
   'vcfRapfiDbQueryChildren',
   'vcfRapfiDbSetDisplayText',
   'vcfRapfiDbGetDisplayText',
+  'vcfRapfiDbExportYXDB',
+  'vcfRapfiDbImportYXDB',
+  'vcfRapfiDbDeleteCurrentAndChildren',
+  'vcfRapfiDbCloneRule',
+  'snapshotYXDB()',
+  'restoreYXDB(value, rule = 2)',
 ]) if (!rapfiDbAdapter.includes(token)) throw new Error(`Rapfi DB adapter contract missing: ${token}`);
 const rapfiDbBridge = read("rapfi/vcf-rapfi-db-bridge.cpp");
 for (const token of [
@@ -513,6 +519,11 @@ for (const token of [
   'vcfRapfiDbQueryChildren',
   'vcfRapfiDbSetDisplayText',
   'vcfRapfiDbGetDisplayText',
+  'YXDBStorage',
+  'vcfRapfiDbExportYXDB',
+  'vcfRapfiDbImportYXDB',
+  'vcfRapfiDbDeleteCurrentAndChildren',
+  'vcfRapfiDbCloneRule',
 ]) if (!rapfiDbBridge.includes(token)) throw new Error(`Rapfi DB bridge contract missing: ${token}`);
 const pagesBuilderCloud = read("tools/prepare-pages-site.py");
 if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260913-cloud-load-board')) {
