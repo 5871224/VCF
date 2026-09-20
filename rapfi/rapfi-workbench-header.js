@@ -942,15 +942,21 @@
 
     const currentHistory = () => historyForNodeWithPositionRecords(current);
     const currentRecordText = () => recordTextForNode(current);
-    const selectedNextNode = () => {
-      if (!exact) return null;
-      if (current?.children?.length) {
-        current.selectedChild = Math.max(0, Math.min(current.children.length - 1, Number(current.selectedChild || 0)));
-        return current.children[current.selectedChild] || null;
+    const selectedNextMove = node => {
+      if (!exact || !node) return null;
+      if (node.children.length) {
+        node.selectedChild = Math.max(0, Math.min(node.children.length - 1, Number(node.selectedChild || 0)));
+        return node.children[node.selectedChild]?.move ?? null;
       }
-      const sharedMoves = sharedNextMovesForNode(current);
-      if (!sharedMoves.length) return null;
-      return materializeSharedChild(current, sharedMoves[0]);
+      const sharedMoves = sharedNextMovesForNode(node);
+      return sharedMoves.length ? sharedMoves[0] : null;
+    };
+    const selectedNextNode = () => {
+      const move = selectedNextMove(current);
+      if (move == null) return null;
+      let child = current.children.find(candidate => candidate.move === move);
+      if (!child) child = materializeSharedChild(current, move);
+      return child || null;
     };
     const persist = () => {
       try {
@@ -963,7 +969,7 @@
       } catch (_) {}
     };
     const notify = () => {
-      const next = selectedNextNode();
+      const nextMove = selectedNextMove(current);
       const siblings = current?.parent?.children || [];
       global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
         detail: {
@@ -971,8 +977,8 @@
           exact,
           ply: currentHistory().length,
           canPrev: Boolean(exact && current?.parent),
-          canNext: Boolean(next),
-          selectedNextMove: next?.move ?? null,
+          canNext: Boolean(nextMove != null),
+          selectedNextMove: nextMove,
           nextMoves: exact ? sharedNextMovesForNode(current) : [],
           nextBranchCount: exact ? sharedBranchCountForNode(current) : 0,
           siblingCount: siblings.length,
