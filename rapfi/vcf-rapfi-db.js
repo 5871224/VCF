@@ -36,6 +36,7 @@
       boardTextMove: instance.cwrap("vcfRapfiDbBoardTextMove", "number", ["number"]),
       boardTextValue: instance.cwrap("vcfRapfiDbBoardTextValue", "number", ["number"]),
       recordCount: instance.cwrap("vcfRapfiDbRecordCount", "number", []),
+      deleteCurrentAndChildren: instance.cwrap("vcfRapfiDbDeleteCurrentAndChildren", "number", []),
       exportYXDB: instance.cwrap("vcfRapfiDbExportYXDB", "number", []),
       importYXDB: instance.cwrap("vcfRapfiDbImportYXDB", "number", ["number", "number", "number"]),
       bytesPtr: instance.cwrap("vcfRapfiDbBytesPtr", "number", []),
@@ -139,6 +140,7 @@
         length > 0 && bound.importYXDB(ptr, length, Number(rule))
       )));
     },
+    deleteCurrentAndChildren() { return Boolean(requireReady().api.deleteCurrentAndChildren()); },
     recordCount() { return requireReady().api.recordCount(); },
   };
 
