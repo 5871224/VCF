@@ -23,6 +23,7 @@ using Database::DBKey;
 using Database::DBRecord;
 using Database::DBRecordMask;
 using Database::DBStorage;
+using Database::StonePos;
 using Database::OverwriteRule;
 
 namespace Config {
