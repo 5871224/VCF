@@ -686,6 +686,94 @@
       return { root, current: node };
     };
 
+    const pathNodesForNode = node => {
+      const result = [];
+      let cursor = node;
+      while (cursor?.parent) {
+        result.push(cursor);
+        cursor = cursor.parent;
+      }
+      return result.reverse();
+    };
+    const positionKeyForBoard = (board, sideToMove) => {
+      let key = sideToMove === WHITE ? "w:" : "b:";
+      for (let i = 0; i < BOARD_CELLS; i++) key += String(Number(board[i]) || 0);
+      return key;
+    };
+    const positionStateForNode = node => {
+      const history = historyForNode(node);
+      const board = replay(history);
+      if (!board) return null;
+      const sideToMove = history.length % 2 === 0 ? BLACK : WHITE;
+      return { board, sideToMove, key: positionKeyForBoard(board, sideToMove) };
+    };
+    const walkTree = (node, visitor) => {
+      visitor(node);
+      for (const child of node.children) walkTree(child, visitor);
+    };
+    const positionRecords = new Map();
+    const loadPositionRecords = raw => {
+      positionRecords.clear();
+      if (!raw || typeof raw !== "object") return;
+      for (const [key, value] of Object.entries(raw)) {
+        if (typeof value === "string" && value.length) positionRecords.set(key, value);
+      }
+    };
+    const migrateTreeRecordTexts = treeRoot => {
+      walkTree(treeRoot, node => {
+        const text = String(node.recordText || "");
+        if (!text) return;
+        const state = positionStateForNode(node);
+        if (state && !positionRecords.has(state.key)) positionRecords.set(state.key, text);
+      });
+    };
+    const recordTextForNode = node => {
+      const state = positionStateForNode(node);
+      if (!state) return String(node?.recordText || "");
+      return String(positionRecords.get(state.key) ?? node?.recordText ?? "");
+    };
+    const syncTreeRecordTexts = treeRoot => {
+      walkTree(treeRoot, node => {
+        const state = positionStateForNode(node);
+        if (!state) return;
+        node.recordText = String(positionRecords.get(state.key) || "");
+      });
+    };
+    const setRecordTextForPosition = (node, text) => {
+      const state = positionStateForNode(node);
+      const value = String(text || "");
+      if (!state) {
+        node.recordText = value;
+        return;
+      }
+      if (value) positionRecords.set(state.key, value);
+      else positionRecords.delete(state.key);
+      walkTree(root, candidate => {
+        const candidateState = positionStateForNode(candidate);
+        if (candidateState?.key === state.key) candidate.recordText = value;
+      });
+    };
+    const historyForNodeWithPositionRecords = node => pathNodesForNode(node).map(child => ({
+      index: child.move,
+      stone: child.stone,
+      recordText: recordTextForNode(child),
+    }));
+    const prunePositionRecordsToTree = treeRoot => {
+      const liveKeys = new Set();
+      walkTree(treeRoot, node => {
+        const state = positionStateForNode(node);
+        if (state) liveKeys.add(state.key);
+      });
+      for (const key of positionRecords.keys()) {
+        if (!liveKeys.has(key)) positionRecords.delete(key);
+      }
+    };
+    const rebuildPositionRecordsFromTree = treeRoot => {
+      positionRecords.clear();
+      migrateTreeRecordTexts(treeRoot);
+      syncTreeRecordTexts(treeRoot);
+    };
+
     let root = makeNode();
     let current = root;
     let exact = false;
@@ -702,6 +790,9 @@
           root = candidateRoot;
           current = candidateCurrent;
           exact = saved.exact !== false;
+          loadPositionRecords(saved.positionRecords);
+          migrateTreeRecordTexts(root);
+          syncTreeRecordTexts(root);
           restored = true;
         }
       }
@@ -721,6 +812,9 @@
           root = linear.root;
           current = linear.current;
           exact = saved?.exact !== false;
+          positionRecords.clear();
+          migrateTreeRecordTexts(root);
+          syncTreeRecordTexts(root);
           restored = true;
         }
       } catch (_) {}
@@ -730,10 +824,11 @@
       root = makeNode();
       current = root;
       exact = true;
+      positionRecords.clear();
     }
 
-    const currentHistory = () => historyForNode(current);
-    const currentRecordText = () => String(current?.recordText || "");
+    const currentHistory = () => historyForNodeWithPositionRecords(current);
+    const currentRecordText = () => recordTextForNode(current);
     const selectedNextNode = () => {
       if (!exact || !current?.children?.length) return null;
       current.selectedChild = Math.max(0, Math.min(current.children.length - 1, Number(current.selectedChild || 0)));
@@ -745,6 +840,7 @@
           tree: serializeNode(root),
           currentPath: pathIndices(current),
           exact,
+          positionRecords: Object.fromEntries(positionRecords),
         }));
       } catch (_) {}
     };
@@ -798,6 +894,9 @@
       exact = Boolean(nextExact && valid);
       if (!board.some(Boolean)) exact = true;
       lastBoard = new Uint8Array(board);
+      positionRecords.clear();
+      migrateTreeRecordTexts(root);
+      syncTreeRecordTexts(root);
       persist();
       notify();
     };
@@ -848,6 +947,7 @@
         current = root;
         exact = true;
         lastBoard = readBoard();
+        positionRecords.clear();
         persist();
         notify();
       });
@@ -858,6 +958,7 @@
         current = root;
         exact = false;
         lastBoard = readBoard();
+        positionRecords.clear();
         persist();
         notify();
       });
@@ -905,16 +1006,16 @@
           history: currentHistory().map(item => ({ ...item })),
           exact,
           board: Array.from(lastBoard),
-          rootRecordText: String(root.recordText || ""),
+          rootRecordText: recordTextForNode(root),
         };
       },
       currentRecordText,
       setCurrentRecordText(text) {
-        current.recordText = String(text || "");
+        setRecordTextForPosition(current, text);
         persist();
         notify();
       },
-      setHistory(nextHistory, nextExact = true, nextRootRecordText = root.recordText || "") {
+      setHistory(nextHistory, nextExact = true, nextRootRecordText = recordTextForNode(root)) {
         resetToHistory(nextHistory, nextExact, nextRootRecordText);
       },
       navigateStep(direction) {
@@ -971,11 +1072,15 @@
           ? Math.max(0, Math.min(parent.children.length - 1, Number(parent.selectedChild || 0)))
           : 0;
         current = parent;
+        prunePositionRecordsToTree(root);
+        syncTreeRecordTexts(root);
         return applyCurrentBoard();
       },
       transform(transform) {
         if (!exact || !Number.isInteger(Number(transform)) || Number(transform) < 0 || Number(transform) > 7) return false;
+        syncTreeRecordTexts(root);
         transformTree(root, Number(transform));
+        rebuildPositionRecordsFromTree(root);
         return applyCurrentBoard();
       },
       invalidate() {
