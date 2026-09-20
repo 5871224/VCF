@@ -8,10 +8,13 @@
 #include "database/dbclient.h"
 #include "database/dbstorage.h"
 #include "database/dbtypes.h"
+#include "database/yxdbstorage.h"
 #include "game/board.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -25,6 +28,7 @@ using Database::DBRecordMask;
 using Database::DBStorage;
 using Database::StonePos;
 using Database::OverwriteRule;
+using Database::YXDBStorage;
 
 namespace Config {
 // Minimal model tables required by Rapfi Board. PatternConfig in pattern.cpp fills P4SCORES.
@@ -35,6 +39,7 @@ Pattern4Score P4SCORES[RULE_NB + 1][PCODE_NB] {};
 float ScalingFactor = 200.0f;
 int DatabaseOverwriteExactBias = 3;
 int DatabaseOverwriteDepthBoundBias = -1;
+uint16_t DatabaseLegacyFileCodePage = 65001;
 }  // namespace Config
 
 namespace {
@@ -42,77 +47,20 @@ namespace {
 constexpr int BOARD_SIZE = 15;
 constexpr int BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
 
-class MemoryStorage final : public DBStorage
-{
-public:
-    bool get(const DBKey &key, DBRecord &record, DBRecordMask mask) noexcept override
-    {
-        auto it = records.find(key);
-        if (it == records.end())
-            return false;
-
-        if (mask == Database::RECORD_MASK_ALL)
-            record = it->second;
-        else if (mask != Database::RECORD_MASK_NONE) {
-            record = DBRecord {Database::LABEL_NULL};
-            record.update(it->second, mask);
-        }
-        return true;
-    }
-
-    void set(const DBKey &key, const DBRecord &record, DBRecordMask mask) noexcept override
-    {
-        auto it = records.find(key);
-        if (it == records.end()) {
-            DBRecord inserted {Database::LABEL_NULL};
-            inserted.update(record, mask);
-            // New entries still need their label when only text is being saved.
-            if (mask == Database::RECORD_MASK_ALL)
-                inserted = record;
-            records.emplace(key, std::move(inserted));
-            return;
-        }
-
-        if (mask == Database::RECORD_MASK_ALL)
-            it->second = record;
-        else
-            it->second.update(record, mask);
-    }
-
-    void del(const DBKey &key) noexcept override { records.erase(key); }
-    bool flush() noexcept override { return true; }
-    size_t size() noexcept override { return records.size(); }
-
-    Cursor scan(Cursor cursor,
-                size_t count,
-                std::vector<std::pair<DBKey, DBRecord>> &out) noexcept override
-    {
-        // The project pins Rapfi 3aedf3a, where DBStorage::Cursor is a numeric offset.
-        // Cursor 0 means "start"; returning 0 means the scan reached the end.
-        if (cursor >= records.size() || count == 0)
-            return 0;
-
-        auto it = records.begin();
-        std::advance(it, static_cast<std::ptrdiff_t>(cursor));
-        size_t copied = 0;
-        for (; it != records.end() && copied < count; ++it, ++copied)
-            out.emplace_back(it->first, it->second);
-
-        const size_t next = cursor + copied;
-        return next >= records.size() ? 0 : next;
-    }
-
-private:
-    std::map<DBKey, DBRecord> records;
-};
-
-std::unique_ptr<MemoryStorage> g_storage;
+std::unique_ptr<YXDBStorage> g_storage;
 std::unique_ptr<DBClient> g_client;
 std::unique_ptr<Board> g_board;
 Rule g_rule = RENJU;
 std::string g_textResult;
 std::vector<std::pair<Pos, DBRecord>> g_children;
 std::vector<std::pair<Pos, std::string>> g_boardTexts;
+std::vector<uint8_t> g_blobResult;
+
+#ifdef __EMSCRIPTEN__
+constexpr const char *STORAGE_PATH = "/vcf-workbench.db";
+#else
+constexpr const char *STORAGE_PATH = "/tmp/vcf-workbench-bridge.db";
+#endif
 
 Rule normalizeRule(int rule)
 {
@@ -169,13 +117,26 @@ void resetBoard(Rule rule)
     g_textResult.clear();
 }
 
+void openStorage(Rule rule)
+{
+    g_storage = std::make_unique<YXDBStorage>(
+        std::filesystem::path(STORAGE_PATH),
+        false,
+        false,
+        0,
+        false);
+    g_client = std::make_unique<DBClient>(*g_storage, Database::RECORD_MASK_ALL, 256, 1024);
+    resetBoard(rule);
+}
+
 void clearAll(Rule rule)
 {
     // Client must be destroyed before storage because its destructor writes dirty cache entries.
     g_client.reset();
-    g_storage = std::make_unique<MemoryStorage>();
-    g_client = std::make_unique<DBClient>(*g_storage, Database::RECORD_MASK_ALL, 256, 1024);
-    resetBoard(rule);
+    g_storage.reset();
+    std::error_code ec;
+    std::filesystem::remove(std::filesystem::path(STORAGE_PATH), ec);
+    openStorage(rule);
 }
 
 bool queryCurrentRecord(DBRecord &record)
@@ -318,6 +279,50 @@ std::string inputString(const char *ptr, int length)
     if (!ptr || length <= 0)
         return {};
     return std::string(ptr, ptr + length);
+}
+
+bool exportStorageBytes()
+{
+    if (!ready())
+        return false;
+    g_client->sync(true);
+    if (!g_storage->flush())
+        return false;
+
+    std::ifstream file(STORAGE_PATH, std::ios::binary);
+    if (!file)
+        return false;
+    g_blobResult.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    return true;
+}
+
+bool importStorageBytes(const uint8_t *bytes, int length, Rule rule)
+{
+    if (!bytes || length <= 0)
+        return false;
+
+    g_client.reset();
+    g_storage.reset();
+
+    {
+        std::ofstream file(STORAGE_PATH, std::ios::binary | std::ios::trunc);
+        if (!file)
+            return false;
+        file.write(reinterpret_cast<const char *>(bytes), length);
+        if (!file)
+            return false;
+    }
+
+    try {
+        openStorage(rule);
+        g_blobResult.clear();
+        return true;
+    }
+    catch (...) {
+        g_client.reset();
+        g_storage.reset();
+        return false;
+    }
 }
 
 }  // namespace
@@ -528,6 +533,26 @@ int vcfRapfiDbRecordCount()
     return static_cast<int>(g_storage->size());
 }
 
+int vcfRapfiDbExportYXDB()
+{
+    return exportStorageBytes() ? static_cast<int>(g_blobResult.size()) : 0;
+}
+
+int vcfRapfiDbImportYXDB(const uint8_t *bytes, int length, int rule)
+{
+    return importStorageBytes(bytes, length, normalizeRule(rule)) ? 1 : 0;
+}
+
+const uint8_t *vcfRapfiDbBytesPtr()
+{
+    return g_blobResult.empty() ? nullptr : g_blobResult.data();
+}
+
+int vcfRapfiDbBytesLength()
+{
+    return static_cast<int>(g_blobResult.size());
+}
+
 }  // extern "C"
 
 #ifdef VCF_RAPFI_DB_BRIDGE_TEST_MAIN
@@ -589,6 +614,26 @@ int main()
     assert(vcfRapfiDbUndo() == 1);
     int childCount = vcfRapfiDbQueryChildren();
     assert(childCount >= 1);
+
+    // Persist the whole native position database through Rapfi's own YXDBStorage serializer.
+    const int beforeCount = vcfRapfiDbRecordCount();
+    const int snapshotLength = vcfRapfiDbExportYXDB();
+    assert(snapshotLength > 0);
+    std::vector<uint8_t> snapshot(g_blobResult.begin(), g_blobResult.end());
+    assert(snapshot.size() == static_cast<size_t>(snapshotLength));
+
+    assert(vcfRapfiDbClear(RENJU) == 1);
+    assert(vcfRapfiDbRecordCount() == 1);
+    assert(vcfRapfiDbImportYXDB(snapshot.data(), static_cast<int>(snapshot.size()), RENJU) == 1);
+    assert(vcfRapfiDbRecordCount() == beforeCount);
+
+    // Comment/marker and branch survive a full YXDB round-trip.
+    replayPath({112, 97, 111, 96}, false);
+    assert(vcfRapfiDbGetDisplayText() > 0);
+    assert(g_textResult.find("67A") != std::string::npos);
+    assert(g_textResult.find("same canonical position") != std::string::npos);
+    replayPath({112}, false);
+    assert(vcfRapfiDbQueryChildren() >= 1);
 
     std::cout << "vcf-rapfi-db bridge self-test passed with "
               << vcfRapfiDbRecordCount() << " records\n";
