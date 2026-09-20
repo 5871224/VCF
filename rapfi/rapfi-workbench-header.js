@@ -632,6 +632,7 @@
         if (fallback) fallback.checked = true;
       } else {
         ruleBox.dataset.activeRules = String(rules);
+        global.dispatchEvent(new CustomEvent("vcf-rules-changed", { detail: { rules } }));
       }
     }, true);
 
@@ -818,6 +819,15 @@
       stone: child.stone,
       recordText: recordTextForNode(child),
     }));
+    const activeRule = () => Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
+    const sharedChildKeyCache = new Map();
+    const sharedNextMoveCache = new Map();
+    let sharedBranchRevision = 0;
+    const invalidateSharedBranchCache = () => {
+      sharedBranchRevision++;
+      sharedChildKeyCache.clear();
+      sharedNextMoveCache.clear();
+    };
     const childPositionKeyForMove = (state, move) => {
       if (!state || !Number.isInteger(Number(move))) return null;
       const index = Number(move);
@@ -835,6 +845,10 @@
     const sharedChildPositionKeysForNode = node => {
       const state = positionStateForNode(node);
       if (!state) return new Set();
+      const cacheKey = `${sharedBranchRevision}:${state.key}`;
+      const cached = sharedChildKeyCache.get(cacheKey);
+      if (cached) return cached;
+
       const keys = new Set();
       walkTree(root, candidate => {
         const candidateState = positionStateForNode(candidate);
@@ -844,7 +858,19 @@
           if (childState) keys.add(childState.key);
         }
       });
+      sharedChildKeyCache.set(cacheKey, keys);
       return keys;
+    };
+    const isLegalSharedMove = (state, move, rule) => {
+      if (move === PASS) return true;
+      if (!state || state.board[move] !== EMPTY) return false;
+      // Match Rapfi DBClient::queryChildren(): under Renju, black forbidden points are not children.
+      // The existing Bitboard Wasm foul checker is used when ready; before it is ready we preserve
+      // the previous branch display rather than hiding valid branches during startup.
+      if (rule === 2 && state.sideToMove === BLACK && typeof global.isFoul === "function") {
+        return !global.isFoul(move, state.board);
+      }
+      return true;
     };
     const sharedNextMovesForNode = node => {
       const state = positionStateForNode(node);
@@ -852,15 +878,28 @@
       const childKeys = sharedChildPositionKeysForNode(node);
       if (!childKeys.size) return [];
 
+      const rule = activeRule();
+      const foulReady = typeof global.isFoul === "function" ? 1 : 0;
+      // state.transform distinguishes the current on-screen orientation of the same canonical parent.
+      const cacheKey = `${sharedBranchRevision}:${rule}:${foulReady}:${state.key}:t${state.transform}`;
+      const cached = sharedNextMoveCache.get(cacheKey);
+      if (cached) return cached.slice();
+
+      // Rapfi-style child query: probe every empty point, canonicalize the child position,
+      // and keep the move iff that canonical child exists in this position DAG.
       const moves = [];
       for (let move = 0; move < BOARD_CELLS; move++) {
         if (state.board[move] !== EMPTY) continue;
         const childKey = childPositionKeyForMove(state, move);
-        if (childKey && childKeys.has(childKey)) moves.push(move);
+        if (!childKey || !childKeys.has(childKey)) continue;
+        if (!isLegalSharedMove(state, move, rule)) continue;
+        moves.push(move);
       }
       const passKey = childPositionKeyForMove(state, PASS);
       if (passKey && childKeys.has(passKey)) moves.push(PASS);
-      return moves.sort((a, b) => a - b);
+      moves.sort((a, b) => a - b);
+      sharedNextMoveCache.set(cacheKey, moves);
+      return moves.slice();
     };
     const sharedBranchCountForNode = node => sharedNextMovesForNode(node).length;
     const materializeSharedChild = (node, move) => {
@@ -871,10 +910,12 @@
       if (child) return child;
 
       const targetChildKey = childPositionKeyForMove(state, move);
-      if (!targetChildKey) return null;
+      if (!targetChildKey || !isLegalSharedMove(state, Number(move), activeRule())) return null;
       const sharedChildKeys = sharedChildPositionKeysForNode(node);
       if (!sharedChildKeys.has(targetChildKey)) return null;
 
+      // This only materializes an already-known canonical child under the current move order,
+      // so the canonical parent->child relation has not changed and the cache stays valid.
       child = makeNode(Number(move), expectedStone, "", node);
       node.children.push(child);
       return child;
@@ -1030,6 +1071,7 @@
       positionRecords.clear();
       migrateTreeRecordTexts(root);
       syncTreeRecordTexts(root);
+      invalidateSharedBranchCache();
       persist();
       notify();
     };
@@ -1053,6 +1095,7 @@
               } else {
                 const child = makeNode(index, after, "", current);
                 current.children.push(child);
+                invalidateSharedBranchCache();
                 childIndex = current.children.length - 1;
               }
             }
@@ -1086,6 +1129,7 @@
         exact = true;
         lastBoard = readBoard();
         positionRecords.clear();
+        invalidateSharedBranchCache();
         persist();
         notify();
       });
@@ -1097,6 +1141,7 @@
         exact = false;
         lastBoard = readBoard();
         positionRecords.clear();
+        invalidateSharedBranchCache();
         persist();
         notify();
       });
@@ -1181,6 +1226,7 @@
         if (childIndex < 0) {
           const child = makeNode(PASS, expected, "", current);
           current.children.push(child);
+          invalidateSharedBranchCache();
           childIndex = current.children.length - 1;
         }
         current.selectedChild = childIndex;
@@ -1193,6 +1239,7 @@
         const index = parent.children.indexOf(current);
         if (index < 0) return false;
         parent.children.splice(index, 1);
+        invalidateSharedBranchCache();
         parent.selectedChild = parent.children.length
           ? Math.max(0, Math.min(parent.children.length - 1, Number(parent.selectedChild || 0)))
           : 0;
@@ -1206,6 +1253,7 @@
         syncTreeRecordTexts(root);
         transformTree(root, Number(transform));
         rebuildPositionRecordsFromTree(root);
+        invalidateSharedBranchCache();
         return applyCurrentBoard();
       },
       invalidate() {
@@ -1215,6 +1263,11 @@
         notify();
       },
     };
+    global.addEventListener("vcf-rules-changed", () => {
+      invalidateSharedBranchCache();
+      notify();
+    });
+
     persist();
     notify();
   }
