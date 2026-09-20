@@ -674,8 +674,8 @@
     const db = () => global.VCFRapfiDB;
     const routeKey = () => {
       const service = db();
-      if (!rapfiDbActive || !service?.isReady) return \`\${currentRule}:\`;
-      return \`\${currentRule}:\${service.history().join(",")}\`;
+      if (!rapfiDbActive || !service?.isReady) return `\${currentRule}:`;
+      return `\${currentRule}:\${service.history().join(",")}`;
     };
     const replayBoard = history => {
       const board = new Uint8Array(BOARD_CELLS);
@@ -821,7 +821,7 @@
         const savedRule = normalizeRule(saved.rule);
         if (savedRule !== activeRule()) {
           restoringRule = true;
-          const radio = ruleBox?.querySelector(\`input[name="rules"][value="\${savedRule}"]\`);
+          const radio = ruleBox?.querySelector(`input[name="rules"][value="\${savedRule}"]`);
           if (radio) radio.checked = true;
           if (ruleBox) ruleBox.dataset.activeRules = String(savedRule);
           try { await global.vcfSetRules?.(savedRule); } finally { restoringRule = false; }
