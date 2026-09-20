@@ -167,6 +167,43 @@
     }
   }
 
+  function inverseTransform(transform) {
+    switch (Number(transform)) {
+      case 1: return 3;
+      case 3: return 1;
+      case 0:
+      case 2:
+      case 4:
+      case 5:
+      case 6:
+      case 7:
+      default: return Number(transform) || 0;
+    }
+  }
+
+  function transformRapfiRecordText(value, transform) {
+    const raw = String(value || "").replace(/\0+$/g, "");
+    if (!raw.startsWith("@BTXT@")) return raw;
+    const separator = raw.indexOf("\b");
+    const markerPart = raw.slice(6, separator >= 0 ? separator : raw.length);
+    const suffix = separator >= 0 ? raw.slice(separator) : "";
+    const decode = char => {
+      if (/^[0-9]$/.test(char)) return char.charCodeAt(0) - 48;
+      if (/^[A-F]$/i.test(char)) return char.toUpperCase().charCodeAt(0) - 55;
+      return -1;
+    };
+    const encode = number => Number(number).toString(16).toUpperCase();
+    const lines = markerPart.split("\n").map(line => {
+      if (line.length <= 2) return line;
+      const x = decode(line[0]);
+      const y = decode(line[1]);
+      if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) return line;
+      const [tx, ty] = transformXY(x, y, transform);
+      return `${encode(tx)}${encode(ty)}${line.slice(2)}`;
+    });
+    return `@BTXT@${lines.join("\n")}${suffix}`;
+  }
+
   function positionListForTransform(board, stone, transform) {
     const positions = [];
     for (let idx = 0; idx < BOARD_CELLS; idx++) {
@@ -190,12 +227,12 @@
     return left.length - right.length;
   }
 
-  function canonicalPosition(board) {
+  function canonicalPositionInfo(board) {
     let best = null;
     for (let transform = 0; transform < 8; transform++) {
       const black = positionListForTransform(board, BLACK, transform);
       const white = positionListForTransform(board, WHITE, transform);
-      const candidate = { black, white };
+      const candidate = { black, white, transform };
       if (!best) {
         best = candidate;
         continue;
@@ -206,6 +243,11 @@
       }
     }
     return best;
+  }
+
+  function canonicalPosition(board) {
+    const { black, white } = canonicalPositionInfo(board);
+    return { black, white };
   }
 
   function yxdbKeyBytes(board, rule) {
@@ -302,13 +344,17 @@
     const records = new Map();
     const add = (board, text = "") => {
       assertRapfiPosition(board);
-      const key = yxdbKeyBytes(board, rule);
+      const canonical = canonicalPositionInfo(board);
+      const key = [rule, BOARD_SIZE, BOARD_SIZE];
+      for (const [x, y] of canonical.black) key.push(x, y);
+      for (const [x, y] of canonical.white) key.push(x, y);
       const id = keyString(key);
+      const canonicalText = transformRapfiRecordText(text, canonical.transform);
       const existing = records.get(id);
       if (existing) {
-        if (!existing.text && text) existing.text = String(text);
+        if (!existing.text && canonicalText) existing.text = canonicalText;
       } else {
-        records.set(id, { key, text: String(text || "") });
+        records.set(id, { key, text: String(canonicalText || "") });
       }
     };
 
@@ -695,17 +741,25 @@
       }
       return result.reverse();
     };
-    const positionKeyForBoard = (board, sideToMove) => {
-      let key = sideToMove === WHITE ? "w:" : "b:";
-      for (let i = 0; i < BOARD_CELLS; i++) key += String(Number(board[i]) || 0);
-      return key;
+    const canonicalPositionKey = (canonical, sideToMove) => {
+      const prefix = sideToMove === WHITE ? "w:" : "b:";
+      const black = canonical.black.map(([x, y]) => `${x.toString(16)}${y.toString(16)}`).join(",");
+      const white = canonical.white.map(([x, y]) => `${x.toString(16)}${y.toString(16)}`).join(",");
+      return `${prefix}${black}|${white}`;
     };
     const positionStateForNode = node => {
       const history = historyForNode(node);
       const board = replay(history);
       if (!board) return null;
       const sideToMove = history.length % 2 === 0 ? BLACK : WHITE;
-      return { board, sideToMove, key: positionKeyForBoard(board, sideToMove) };
+      const canonical = canonicalPositionInfo(board);
+      return {
+        board,
+        sideToMove,
+        transform: canonical.transform,
+        inverseTransform: inverseTransform(canonical.transform),
+        key: canonicalPositionKey(canonical, sideToMove),
+      };
     };
     const walkTree = (node, visitor) => {
       visitor(node);
@@ -724,19 +778,23 @@
         const text = String(node.recordText || "");
         if (!text) return;
         const state = positionStateForNode(node);
-        if (state && !positionRecords.has(state.key)) positionRecords.set(state.key, text);
+        if (!state || positionRecords.has(state.key)) return;
+        positionRecords.set(state.key, transformRapfiRecordText(text, state.transform));
       });
     };
     const recordTextForNode = node => {
       const state = positionStateForNode(node);
       if (!state) return String(node?.recordText || "");
-      return String(positionRecords.get(state.key) ?? node?.recordText ?? "");
+      const canonicalText = positionRecords.get(state.key);
+      if (canonicalText == null) return String(node?.recordText || "");
+      return transformRapfiRecordText(canonicalText, state.inverseTransform);
     };
     const syncTreeRecordTexts = treeRoot => {
       walkTree(treeRoot, node => {
         const state = positionStateForNode(node);
         if (!state) return;
-        node.recordText = String(positionRecords.get(state.key) || "");
+        const canonicalText = String(positionRecords.get(state.key) || "");
+        node.recordText = transformRapfiRecordText(canonicalText, state.inverseTransform);
       });
     };
     const setRecordTextForPosition = (node, text) => {
@@ -746,11 +804,13 @@
         node.recordText = value;
         return;
       }
-      if (value) positionRecords.set(state.key, value);
+      const canonicalText = transformRapfiRecordText(value, state.transform);
+      if (canonicalText) positionRecords.set(state.key, canonicalText);
       else positionRecords.delete(state.key);
       walkTree(root, candidate => {
         const candidateState = positionStateForNode(candidate);
-        if (candidateState?.key === state.key) candidate.recordText = value;
+        if (candidateState?.key !== state.key) return;
+        candidate.recordText = transformRapfiRecordText(canonicalText, candidateState.inverseTransform);
       });
     };
     const historyForNodeWithPositionRecords = node => pathNodesForNode(node).map(child => ({
@@ -792,6 +852,7 @@
           exact = saved.exact !== false;
           loadPositionRecords(saved.positionRecords);
           migrateTreeRecordTexts(root);
+          prunePositionRecordsToTree(root);
           syncTreeRecordTexts(root);
           restored = true;
         }
@@ -964,29 +1025,6 @@
       });
     });
 
-
-    const transformRecordText = (value, transform) => {
-      const raw = String(value || "").replace(/\0+$/g, "");
-      if (!raw.startsWith("@BTXT@")) return raw;
-      const separator = raw.indexOf("\b");
-      const markerPart = raw.slice(6, separator >= 0 ? separator : raw.length);
-      const suffix = separator >= 0 ? raw.slice(separator) : "";
-      const decode = char => {
-        if (/^[0-9]$/.test(char)) return char.charCodeAt(0) - 48;
-        if (/^[A-F]$/i.test(char)) return char.toUpperCase().charCodeAt(0) - 55;
-        return -1;
-      };
-      const encode = number => Number(number).toString(16).toUpperCase();
-      const lines = markerPart.split("\n").map(line => {
-        if (line.length <= 2) return line;
-        const x = decode(line[0]);
-        const y = decode(line[1]);
-        if (x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) return line;
-        const [tx, ty] = transformXY(x, y, transform);
-        return `${encode(tx)}${encode(ty)}${line.slice(2)}`;
-      });
-      return `@BTXT@${lines.join("\n")}${suffix}`;
-    };
     const transformMove = (move, transform) => {
       if (!Number.isInteger(move) || move === PASS) return move;
       const x = move % BOARD_SIZE;
@@ -996,7 +1034,7 @@
     };
     const transformTree = (node, transform) => {
       node.move = transformMove(node.move, transform);
-      node.recordText = transformRecordText(node.recordText, transform);
+      node.recordText = transformRapfiRecordText(node.recordText, transform);
       for (const child of node.children) transformTree(child, transform);
     };
 
