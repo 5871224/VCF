@@ -31,6 +31,9 @@ namespace Config {
 Eval EVALS[RULE_NB + 1][PCODE_NB] {};
 Eval EVALS_THREAT[RULE_NB + 1][THREAT_NB] {};
 Pattern4Score P4SCORES[RULE_NB + 1][PCODE_NB] {};
+float ScalingFactor = 200.0f;
+int DatabaseOverwriteExactBias = 3;
+int DatabaseOverwriteDepthBoundBias = -1;
 }  // namespace Config
 
 namespace {
