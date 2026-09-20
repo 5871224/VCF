@@ -201,9 +201,16 @@ for (const token of [
   'sharedNextMovesForNode',
   'sharedChildPositionKeysForNode',
   'childPositionKeyForMove',
+  'sharedChildKeyCache',
+  'sharedNextMoveCache',
+  'invalidateSharedBranchCache',
+  'isLegalSharedMove',
+  'vcf-rules-changed',
   'materializeSharedChild',
   'nextMoves: exact ? sharedNextMovesForNode(current) : []',
   'const nextMove = selectedNextMove(current);',
+  'const nextMove = selectedNextMove(target);',
+  'if (sharedMoves.includes(localMove)) return localMove;',
   'YXDB 無法表示 PASS',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
 
