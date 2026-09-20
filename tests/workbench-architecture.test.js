@@ -199,6 +199,8 @@ for (const token of [
   'canonicalPositionInfo(board)',
   'transformRapfiRecordText(canonicalText, state.inverseTransform)',
   'sharedNextMovesForNode',
+  'sharedChildPositionKeysForNode',
+  'childPositionKeyForMove',
   'materializeSharedChild',
   'nextMoves: exact ? sharedNextMovesForNode(current) : []',
   'const nextMove = selectedNextMove(current);',
