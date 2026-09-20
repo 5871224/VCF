@@ -57,8 +57,15 @@ jobs:
           path: .cache/vcf-yxdb-index
           key: vcf-yxdb-index-v1-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-yxdb-index.cpp') }}
 
+      - name: Restore Rapfi DB bridge cache
+        id: rapfi-db-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcf-rapfi-db
+          key: vcf-rapfi-db-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-db-bridge.cpp') }}
+
       - name: Install Emscripten SDK
-        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.yxdb-cache.outputs.cache-hit != 'true'
+        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.yxdb-cache.outputs.cache-hit != 'true' || steps.rapfi-db-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -149,6 +156,35 @@ jobs:
             })
             .catch(error => { console.error(error); process.exit(1); });
           NODE
+
+      - name: Build Rapfi native DB bridge
+        if: steps.rapfi-db-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .build/emsdk/emsdk_env.sh
+          if [ ! -d .build/rapfi/.git ]; then
+            rm -rf .build/rapfi
+            mkdir -p .build
+            git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
+            git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
+            git -C .build/rapfi checkout --detach "$RAPFI_REF"
+          fi
+          rm -rf .cache/vcf-rapfi-db
+          mkdir -p .cache/vcf-rapfi-db
+          rapfi_root="$GITHUB_WORKSPACE/.build/rapfi/Rapfi"
+          sources=(
+            rapfi/vcf-rapfi-db-bridge.cpp
+            "$rapfi_root/core/hash.cpp"
+            "$rapfi_root/core/utils.cpp"
+            "$rapfi_root/game/pattern.cpp"
+            "$rapfi_root/game/board.cpp"
+            "$rapfi_root/database/dbtypes.cpp"
+            "$rapfi_root/database/dbclient.cpp"
+          )
+          g++ "${sources[@]}" -I"$rapfi_root"             -O2 -std=c++17 -DVCF_RAPFI_DB_BRIDGE_TEST_MAIN             -o /tmp/vcf-rapfi-db-test
+          /tmp/vcf-rapfi-db-test
+          em++ "${sources[@]}" -I"$rapfi_root"             -O3 -flto -DNDEBUG -std=c++17 --no-entry             -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFRapfiDBModule             -s ENVIRONMENT='web,worker,node' -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1             -s "EXPORTED_FUNCTIONS=['_vcfRapfiDbInit','_vcfRapfiDbResetBoard','_vcfRapfiDbClear','_vcfRapfiDbReady','_vcfRapfiDbEnsureCurrent','_vcfRapfiDbReplayMove','_vcfRapfiDbPlay','_vcfRapfiDbUndo','_vcfRapfiDbPly','_vcfRapfiDbHistoryMove','_vcfRapfiDbSideToMove','_vcfRapfiDbBoardCell','_vcfRapfiDbIsForbidden','_vcfRapfiDbSetRawText','_vcfRapfiDbGetRawText','_vcfRapfiDbSetComment','_vcfRapfiDbGetComment','_vcfRapfiDbTextPtr','_vcfRapfiDbTextLength','_vcfRapfiDbSetBoardText','_vcfRapfiDbQueryBoardTexts','_vcfRapfiDbBoardTextMove','_vcfRapfiDbBoardTextValue','_vcfRapfiDbQueryChildren','_vcfRapfiDbChildMove','_vcfRapfiDbRecordCount','_malloc','_free']"             -s "EXPORTED_RUNTIME_METHODS=['cwrap']"             -o .cache/vcf-rapfi-db/vcf-rapfi-db.js
 
       - name: Build YXDB binary index engine
         if: steps.yxdb-cache.outputs.cache-hit != 'true'
