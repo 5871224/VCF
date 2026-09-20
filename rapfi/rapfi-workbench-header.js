@@ -994,12 +994,14 @@
     const currentRecordText = () => recordTextForNode(current);
     const selectedNextMove = node => {
       if (!exact || !node) return null;
+      const sharedMoves = sharedNextMovesForNode(node);
+      if (!sharedMoves.length) return null;
       if (node.children.length) {
         node.selectedChild = Math.max(0, Math.min(node.children.length - 1, Number(node.selectedChild || 0)));
-        return node.children[node.selectedChild]?.move ?? null;
+        const localMove = node.children[node.selectedChild]?.move;
+        if (sharedMoves.includes(localMove)) return localMove;
       }
-      const sharedMoves = sharedNextMovesForNode(node);
-      return sharedMoves.length ? sharedMoves[0] : null;
+      return sharedMoves[0];
     };
     const selectedNextNode = () => {
       const move = selectedNextMove(current);
@@ -1202,16 +1204,10 @@
         if (!sharedBranchCountForNode(current)) return false;
         let target = current;
         do {
-          let next = null;
-          if (target.children.length) {
-            target.selectedChild = Math.max(0, Math.min(target.children.length - 1, Number(target.selectedChild || 0)));
-            next = target.children[target.selectedChild] || null;
-          }
-          if (!next) {
-            const sharedMoves = sharedNextMovesForNode(target);
-            if (!sharedMoves.length) break;
-            next = materializeSharedChild(target, sharedMoves[0]);
-          }
+          const nextMove = selectedNextMove(target);
+          if (nextMove == null) break;
+          let next = target.children.find(child => child.move === nextMove) || null;
+          if (!next) next = materializeSharedChild(target, nextMove);
           if (!next) break;
           target = next;
         } while (sharedBranchCountForNode(target) === 1);
