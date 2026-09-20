@@ -257,9 +257,6 @@
   }
 
   function replaceCurrentRecordText(text) {
-    if (global.VCFImportedRecordAPI?.isActive?.()) {
-      global.VCFImportedRecordAPI.setCurrentRecordText?.(text);
-    }
     global.VCFWorkbenchRecord?.setCurrentRecordText?.(text);
   }
 
@@ -295,10 +292,11 @@
     if (!state.showNumbers) return;
     const snapshot = global.VCFWorkbenchRecord?.snapshot?.();
     const history = snapshot?.history || [];
+    const basePly = Math.max(0, Math.min(history.length, Number(snapshot?.basePly || 0)));
     const boardArray = snapshot?.board || global._getArr?.() || [];
-    for (let i = 0; i < history.length; i++) {
+    for (let i = basePly; i < history.length; i++) {
       const move = Number(history[i]?.index ?? history[i]?.move);
-      const ply = i + 1;
+      const ply = i + 1 - basePly;
       if (move < 0 || move >= BOARD_CELLS) continue;
       if (ply <= state.hideFirstNumbers) continue;
       const label = ply - state.reduceNumbers;
@@ -393,23 +391,14 @@
   }
 
   function appendPass() {
-    if (global.VCFImportedRecordAPI?.isActive?.()) {
-      if (global.VCFImportedRecordAPI.appendPass?.()) return true;
-    }
     return Boolean(global.VCFWorkbenchRecord?.appendPass?.());
   }
 
   function deleteCurrentAndFollowing() {
-    if (global.VCFImportedRecordAPI?.isActive?.()) {
-      if (global.VCFImportedRecordAPI.deleteCurrentAndFollowing?.()) return true;
-    }
     return Boolean(global.VCFWorkbenchRecord?.deleteCurrentAndFollowing?.());
   }
 
   function transformRecord(transform) {
-    if (global.VCFImportedRecordAPI?.isActive?.()) {
-      if (global.VCFImportedRecordAPI.transform?.(transform)) return true;
-    }
     return Boolean(global.VCFWorkbenchRecord?.transform?.(transform));
   }
 
