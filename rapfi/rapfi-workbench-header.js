@@ -1110,9 +1110,29 @@
           nextBranchCount: exact ? sharedBranchCountForNode(current) : 0,
           siblingCount: siblings.length,
           siblingIndex: siblings.indexOf(current),
+          positionBackend: rapfiDbActive ? "rapfi-db" : "js-fallback",
         },
       }));
     };
+    const activateRapfiDatabase = () => {
+      if (rapfiDbActive) return true;
+      if (!global.VCFRapfiDB?.isReady) return false;
+      if (!rebuildRapfiDatabase()) return false;
+      rapfiDbActive = true;
+      invalidateSharedBranchCache();
+      syncRapfiBoardToNode(current, true);
+      notify();
+      global.dispatchEvent(new CustomEvent("vcf-rapfi-db-active"));
+      return true;
+    };
+    global.addEventListener("vcf-rapfi-db-ready", () => queueMicrotask(activateRapfiDatabase));
+    if (global.VCFRapfiDB?.isReady) {
+      queueMicrotask(activateRapfiDatabase);
+    } else {
+      global.VCFRapfiDB?.ready?.then(() => queueMicrotask(activateRapfiDatabase)).catch(error => {
+        console.warn("Rapfi DB bridge 未啟用，繼續使用 JS 相容層", error);
+      });
+    }
     const applyCurrentBoard = () => {
       if (!exact) return false;
       const history = currentHistory();
@@ -1210,6 +1230,7 @@
         lastBoard = readBoard();
         positionRecords.clear();
         invalidateSharedBranchCache();
+        if (rapfiDbActive) rebuildRapfiDatabase();
         persist();
         notify();
       });
@@ -1222,6 +1243,7 @@
         lastBoard = readBoard();
         positionRecords.clear();
         invalidateSharedBranchCache();
+        if (rapfiDbActive) rebuildRapfiDatabase();
         persist();
         notify();
       });
@@ -1252,6 +1274,11 @@
       currentRecordText,
       setCurrentRecordText(text) {
         setRecordTextForPosition(current, text);
+        if (rapfiDbActive && syncRapfiBoardToNode(current, true)) {
+          try { global.VCFRapfiDB.setDisplayText(String(text || "")); } catch (error) {
+            console.warn("Rapfi DB 寫入 recordText 失敗，保留 JS 相容資料", error);
+          }
+        }
         persist();
         notify();
       },
@@ -1320,6 +1347,7 @@
         current = parent;
         prunePositionRecordsToTree(root);
         syncTreeRecordTexts(root);
+        if (rapfiDbActive) rebuildRapfiDatabase();
         return applyCurrentBoard();
       },
       transform(transform) {
@@ -1328,6 +1356,7 @@
         transformTree(root, Number(transform));
         rebuildPositionRecordsFromTree(root);
         invalidateSharedBranchCache();
+        if (rapfiDbActive) rebuildRapfiDatabase();
         return applyCurrentBoard();
       },
       invalidate() {
@@ -1339,6 +1368,7 @@
     };
     global.addEventListener("vcf-rules-changed", () => {
       invalidateSharedBranchCache();
+      if (rapfiDbActive) rebuildRapfiDatabase();
       notify();
     });
 
