@@ -450,8 +450,9 @@ int main()
     vcfRapfiDbGetComment();
     assert(g_textResult == comment);
 
-    // Horizontal mirror of the same final position must hit the same Rapfi DBRecord.
-    replayPath({112, 103, 111, 102}, false);
+    // Horizontal mirror x -> 14-x:
+    // 112=(7,7)->112, 97=(7,6)->97, 113=(8,7)->111, 98=(8,6)->96.
+    replayPath({112, 97, 111, 96}, false);
     vcfRapfiDbGetComment();
     assert(g_textResult == comment);
 
