@@ -196,6 +196,8 @@ for (const token of [
   'positionRecords: Object.fromEntries(positionRecords)',
   'historyForNodeWithPositionRecords',
   'setRecordTextForPosition(current, text)',
+  'canonicalPositionInfo(board)',
+  'transformRapfiRecordText(canonicalText, state.inverseTransform)',
   'YXDB 無法表示 PASS',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
 
@@ -242,6 +244,34 @@ const mirroredBoard = boardOf([[112, 1], [111, 2]]);
 const mirroredYXDB = rapfiFormats.createYXDB({ board: mirroredBoard, rule: 2 });
 if (Buffer.compare(Buffer.from(yxdb.bytes), Buffer.from(mirroredYXDB.bytes)) !== 0) {
   throw new Error("YXDB symmetry canonicalization is inconsistent");
+}
+
+const markedBoard = boardOf([[112, 1], [98, 2], [113, 1], [97, 2]]);
+const markedMirror = boardOf([[112, 1], [112 - (98 - 112), 2], [111, 1], [112 - (97 - 112), 2]]);
+const markedYXDB = rapfiFormats.createYXDB({
+  board: markedBoard,
+  rule: 2,
+  history: [
+    { index: 112, stone: 1 },
+    { index: 98, stone: 2 },
+    { index: 113, stone: 1 },
+    { index: 97, stone: 2, recordText: "@BTXT@70A\b對稱標記" },
+  ],
+  historyExact: true,
+});
+const markedMirrorYXDB = rapfiFormats.createYXDB({
+  board: markedMirror,
+  rule: 2,
+  history: [
+    { index: 112, stone: 1 },
+    { index: 126, stone: 2 },
+    { index: 111, stone: 1 },
+    { index: 127, stone: 2, recordText: "@BTXT@70A\b對稱標記" },
+  ],
+  historyExact: true,
+});
+if (Buffer.compare(Buffer.from(markedYXDB.bytes), Buffer.from(markedMirrorYXDB.bytes)) !== 0) {
+  throw new Error("YXDB canonicalization did not transform @BTXT@ marker coordinates with the board");
 }
 const formatRoutes = [[111, 126, 110]];
 const routedYXDB = rapfiFormats.createYXDB({ board: formatBoard, routes: formatRoutes, attacker: 1, rule: 2 });
