@@ -643,7 +643,7 @@
   }
 
   function installWorkbenchRecordState() {
-    const STORAGE_KEY = "vcf_rapfi_workbench_v1";
+    const STORAGE_KEY = "vcf_rapfi_workbench_v2";
     const readBoard = () => normalizeBoard(global._getArr?.());
     const activeRule = () => Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
     const normalizeRule = rule => [0, 1, 2].includes(Number(rule)) ? Number(rule) : 2;
@@ -675,8 +675,8 @@
     const db = () => global.VCFRapfiDB;
     const routeKey = () => {
       const service = db();
-      if (!rapfiDbActive || !service?.isReady) return `\${currentRule}:`;
-      return `\${currentRule}:\${service.history().join(",")}`;
+      if (!rapfiDbActive || !service?.isReady) return `${currentRule}:`;
+      return `${currentRule}:${service.history().join(",")}`;
     };
     const replayBoard = history => {
       const board = new Uint8Array(BOARD_CELLS);
@@ -700,6 +700,49 @@
         apply();
       }
     };
+    const setupHistoryForBoard = board => {
+      const black = [];
+      const white = [];
+      for (let index = 0; index < BOARD_CELLS; index++) {
+        if (board[index] === BLACK) black.push(index);
+        else if (board[index] === WHITE) white.push(index);
+      }
+      if (!(black.length === white.length || black.length === white.length + 1)) return null;
+      const history = [];
+      const rounds = Math.max(black.length, white.length);
+      for (let i = 0; i < rounds; i++) {
+        if (i < black.length) history.push(black[i]);
+        if (i < white.length) history.push(white[i]);
+      }
+      return history;
+    };
+    const adoptCurrentBoardAsSetup = () => {
+      const service = db();
+      if (!rapfiDbActive || !service?.isReady) return false;
+      const board = readBoard();
+      const setup = setupHistoryForBoard(board);
+      if (!setup) return false;
+      service.clear(currentRule);
+      service.ensureCurrent();
+      for (const move of setup) {
+        if (!service.replayMove(move, true)) return false;
+      }
+      basePly = service.ply();
+      exact = true;
+      lastBoard = new Uint8Array(board);
+      selectedNextByRoute.clear();
+      persistedDbBase64 = "";
+      return true;
+    };
+    const ensureExactCurrentBoard = () => {
+      const service = db();
+      if (!rapfiDbActive || !service?.isReady) return false;
+      if (!exact) return adoptCurrentBoardAsSetup();
+      const serviceBoard = new Uint8Array(service.board());
+      const liveBoard = readBoard();
+      if (!boardsEqual(serviceBoard, liveBoard)) return adoptCurrentBoardAsSetup();
+      return true;
+    };
     const saveState = (databaseChanged = false) => {
       const service = db();
       if (!rapfiDbActive || !service?.isReady) return false;
@@ -710,7 +753,7 @@
           persistedDbBase64 = bytesToBase64(snapshot);
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 1,
+          version: 2,
           rule: currentRule,
           db: persistedDbBase64,
           history: service.history(),
@@ -820,11 +863,11 @@
       try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
       catch (_) {}
 
-      if (saved?.version === 1 && typeof saved.db === "string" && saved.db.length) {
+      if (saved?.version === 2 && typeof saved.db === "string" && saved.db.length) {
         const savedRule = normalizeRule(saved.rule);
         if (savedRule !== activeRule()) {
           restoringRule = true;
-          const radio = ruleBox?.querySelector(`input[name="rules"][value="\${savedRule}"]`);
+          const radio = ruleBox?.querySelector(`input[name="rules"][value="${savedRule}"]`);
           if (radio) radio.checked = true;
           if (ruleBox) ruleBox.dataset.activeRules = String(savedRule);
           try { await global.vcfSetRules?.(savedRule); } finally { restoringRule = false; }
@@ -861,14 +904,18 @@
       service.clear(currentRule);
       service.ensureCurrent();
       rapfiDbActive = true;
-      exact = !lastBoard.some(Boolean);
+      exact = true;
       selectedNextByRoute.clear();
       basePly = 0;
-      if (exact) applyCurrentBoard(true);
-      else {
-        saveState(true);
-        notify();
+      if (lastBoard.some(Boolean)) {
+        if (!adoptCurrentBoardAsSetup()) {
+          exact = false;
+          saveState(true);
+          notify();
+          return true;
+        }
       }
+      applyCurrentBoard(true);
       return true;
     };
     const activateRapfiDatabase = async () => {
@@ -892,50 +939,6 @@
       });
     }
 
-    const syncAfterManualEdit = () => {
-      const service = db();
-      const board = readBoard();
-      const changed = [];
-      for (let i = 0; i < BOARD_CELLS; i++) if (board[i] !== lastBoard[i]) changed.push(i);
-
-      let databaseChanged = false;
-      if (!rapfiDbActive || !service?.isReady) {
-        exact = false;
-      } else if (changed.length === 1 && exact) {
-        const index = changed[0];
-        const before = lastBoard[index];
-        const after = board[index];
-
-        if (before === EMPTY && after === service.sideToMove()) {
-          const parentKey = routeKey();
-          if (service.play(index, true)) {
-            selectedNextByRoute.set(parentKey, index);
-            databaseChanged = true;
-          } else {
-            exact = false;
-          }
-        } else if (before !== EMPTY && after === EMPTY) {
-          const history = service.history();
-          if (history.length && history[history.length - 1] === index) {
-            if (service.undo()) rememberSelectedNext(index);
-            else exact = false;
-          } else {
-            exact = false;
-          }
-        } else {
-          exact = false;
-        }
-      } else if (changed.length) {
-        exact = false;
-      }
-
-      lastBoard = board;
-      saveState(databaseChanged);
-      notify();
-    };
-
-    const boardSvg = document.getElementById("board-svg");
-    boardSvg?.addEventListener("click", () => queueMicrotask(syncAfterManualEdit));
 
     document.getElementById("btn-clear")?.addEventListener("click", () => {
       queueMicrotask(() => {
@@ -961,12 +964,12 @@
         lastBoard = readBoard();
         selectedNextByRoute.clear();
         basePly = 0;
-        exact = false;
         if (rapfiDbActive && service?.isReady) {
-          service.clear(currentRule);
-          service.ensureCurrent();
-          persistedDbBase64 = "";
+          exact = true;
+          if (!adoptCurrentBoardAsSetup()) exact = false;
           saveState(true);
+        } else {
+          exact = false;
         }
         notify();
       });
@@ -993,7 +996,7 @@
       currentRecordText,
       setCurrentRecordText(text) {
         const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        if (!rapfiDbActive || !service?.isReady || !ensureExactCurrentBoard()) return false;
         if (!service.setDisplayText(String(text || ""))) return false;
         persistedDbBase64 = "";
         saveState(true);
@@ -1096,6 +1099,20 @@
         service.ensureCurrent();
         return applyCurrentBoard(true);
       },
+      playAt(move) {
+        const service = db();
+        const index = Number(move);
+        if (!rapfiDbActive || !service?.isReady || !Number.isInteger(index)
+            || index < 0 || index >= BOARD_CELLS) return false;
+        if (!ensureExactCurrentBoard()) return false;
+        const board = service.board();
+        if (Number(board[index])) return false;
+        const parentKey = routeKey();
+        if (!service.play(index, true)) return false;
+        selectedNextByRoute.set(parentKey, index);
+        persistedDbBase64 = "";
+        return applyCurrentBoard(true);
+      },
       navigateStep(direction) {
         const service = db();
         if (!rapfiDbActive || !exact || !service?.isReady) return false;
@@ -1143,7 +1160,7 @@
       },
       appendPass() {
         const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        if (!rapfiDbActive || !service?.isReady || !ensureExactCurrentBoard()) return false;
         const parentKey = routeKey();
         if (!service.play(PASS, true)) return false;
         selectedNextByRoute.set(parentKey, PASS);
@@ -1162,7 +1179,7 @@
       transform(transform) {
         const service = db();
         const normalized = Number(transform);
-        if (!rapfiDbActive || !exact || !service?.isReady
+        if (!rapfiDbActive || !service?.isReady || !ensureExactCurrentBoard()
             || !Number.isInteger(normalized) || normalized < 0 || normalized > 7) return false;
         const original = service.history();
         const transformed = original.map(move => transformMove(move, normalized));
