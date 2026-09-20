@@ -551,10 +551,8 @@ const pagesBuilderCloud = read("tools/prepare-pages-site.py");
 if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260913-cloud-load-board')) {
   throw new Error("cloud record script must be cache-busted in Pages artifact");
 }
-if (!pagesBuilderCloud.includes('rapfi/engine/vcf-rapfi-db.js')
-    || !pagesBuilderCloud.includes('rapfi/vcf-rapfi-db.js?v=20260920-rapfi-db')
-    || !pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
-  throw new Error("Rapfi DB bridge must be deployed before the workbench header");
+if (!pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
+  throw new Error("Rapfi DB bridge build output must remain available for later lazy loading");
 }
 
 const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");
