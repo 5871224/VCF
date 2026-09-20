@@ -413,7 +413,9 @@ console.log("Workbench and repository architecture checks passed");
 if (!layout.includes('btn-vcf-branch-prev')) throw new Error('棋譜導覽需固定包含前一分支按鈕');
 if (!layout.includes('btn-vcf-branch-next')) throw new Error('棋譜導覽需固定包含後一分支按鈕');
 if (!layout.includes('parseRapfiRecordText')) throw new Error('YXDB loader 必須解析 Rapfi record text');
-if (!layout.includes('vcf-record-text-layer')) throw new Error('工作台必須顯示 Rapfi @BTXT@ 盤面標記');
+if (!recordTools.includes('vcf-record-marker-layer') || !recordTools.includes('parseRecordText')) {
+  throw new Error('工作台必須由 record-tools 顯示 Rapfi @BTXT@ 盤面標記');
+}
 if (!header.includes('VCFWorkbenchRecord')) throw new Error('盤面必須保存可匯出的落子 history');
 if (!header.includes('normalizeSetupHistory')) throw new Error('YXDB setup path 必須以實際 history 驗證');
 
