@@ -818,6 +818,58 @@
       stone: child.stone,
       recordText: recordTextForNode(child),
     }));
+    const moveToCanonical = (move, state) => {
+      if (!Number.isInteger(Number(move)) || Number(move) === PASS) return Number(move);
+      const index = Number(move);
+      const [x, y] = transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), state.transform);
+      return y * BOARD_SIZE + x;
+    };
+    const moveFromCanonical = (move, state) => {
+      if (!Number.isInteger(Number(move)) || Number(move) === PASS) return Number(move);
+      const index = Number(move);
+      const [x, y] = transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), state.inverseTransform);
+      return y * BOARD_SIZE + x;
+    };
+    const sharedNextMovesForNode = node => {
+      const state = positionStateForNode(node);
+      if (!state) return [];
+      const canonicalMoves = new Set();
+      walkTree(root, candidate => {
+        const candidateState = positionStateForNode(candidate);
+        if (candidateState?.key !== state.key) return;
+        for (const child of candidate.children) {
+          canonicalMoves.add(moveToCanonical(child.move, candidateState));
+        }
+      });
+      return Array.from(canonicalMoves, move => moveFromCanonical(move, state))
+        .filter(move => Number.isInteger(move))
+        .sort((a, b) => a - b);
+    };
+    const sharedBranchCountForNode = node => sharedNextMovesForNode(node).length;
+    const materializeSharedChild = (node, move) => {
+      const state = positionStateForNode(node);
+      if (!state) return null;
+      const expectedStone = state.sideToMove;
+      let child = node.children.find(candidate => candidate.move === move && candidate.stone === expectedStone);
+      if (child) return child;
+
+      const canonicalMove = moveToCanonical(move, state);
+      let existsElsewhere = false;
+      walkTree(root, candidate => {
+        if (existsElsewhere) return;
+        const candidateState = positionStateForNode(candidate);
+        if (candidateState?.key !== state.key) return;
+        existsElsewhere = candidate.children.some(candidateChild => (
+          candidateChild.stone === expectedStone &&
+          moveToCanonical(candidateChild.move, candidateState) === canonicalMove
+        ));
+      });
+      if (!existsElsewhere) return null;
+
+      child = makeNode(move, expectedStone, "", node);
+      node.children.push(child);
+      return child;
+    };
     const prunePositionRecordsToTree = treeRoot => {
       const liveKeys = new Set();
       walkTree(treeRoot, node => {
@@ -891,9 +943,14 @@
     const currentHistory = () => historyForNodeWithPositionRecords(current);
     const currentRecordText = () => recordTextForNode(current);
     const selectedNextNode = () => {
-      if (!exact || !current?.children?.length) return null;
-      current.selectedChild = Math.max(0, Math.min(current.children.length - 1, Number(current.selectedChild || 0)));
-      return current.children[current.selectedChild] || null;
+      if (!exact) return null;
+      if (current?.children?.length) {
+        current.selectedChild = Math.max(0, Math.min(current.children.length - 1, Number(current.selectedChild || 0)));
+        return current.children[current.selectedChild] || null;
+      }
+      const sharedMoves = sharedNextMovesForNode(current);
+      if (!sharedMoves.length) return null;
+      return materializeSharedChild(current, sharedMoves[0]);
     };
     const persist = () => {
       try {
@@ -916,8 +973,8 @@
           canPrev: Boolean(exact && current?.parent),
           canNext: Boolean(next),
           selectedNextMove: next?.move ?? null,
-          nextMoves: exact ? current.children.map(child => child.move) : [],
-          nextBranchCount: current?.children?.length || 0,
+          nextMoves: exact ? sharedNextMovesForNode(current) : [],
+          nextBranchCount: exact ? sharedBranchCountForNode(current) : 0,
           siblingCount: siblings.length,
           siblingIndex: siblings.indexOf(current),
         },
@@ -975,9 +1032,14 @@
           if (after === expected) {
             let childIndex = current.children.findIndex(child => child.move === index && child.stone === after);
             if (childIndex < 0) {
-              const child = makeNode(index, after, "", current);
-              current.children.push(child);
-              childIndex = current.children.length - 1;
+              const sharedChild = materializeSharedChild(current, index);
+              if (sharedChild) {
+                childIndex = current.children.indexOf(sharedChild);
+              } else {
+                const child = makeNode(index, after, "", current);
+                current.children.push(child);
+                childIndex = current.children.length - 1;
+              }
             }
             current.selectedChild = childIndex;
             current = current.children[childIndex];
@@ -1073,16 +1135,26 @@
         if (direction < 0) {
           if (!current.parent) return false;
           let target = current.parent;
-          while (target.parent && target.children.length <= 1) target = target.parent;
+          while (target.parent && sharedBranchCountForNode(target) <= 1) target = target.parent;
           current = target;
           return applyCurrentBoard();
         }
-        if (!current.children.length) return false;
+        if (!sharedBranchCountForNode(current)) return false;
         let target = current;
         do {
-          target.selectedChild = Math.max(0, Math.min(target.children.length - 1, Number(target.selectedChild || 0)));
-          target = target.children[target.selectedChild];
-        } while (target.children.length === 1);
+          let next = null;
+          if (target.children.length) {
+            target.selectedChild = Math.max(0, Math.min(target.children.length - 1, Number(target.selectedChild || 0)));
+            next = target.children[target.selectedChild] || null;
+          }
+          if (!next) {
+            const sharedMoves = sharedNextMovesForNode(target);
+            if (!sharedMoves.length) break;
+            next = materializeSharedChild(target, sharedMoves[0]);
+          }
+          if (!next) break;
+          target = next;
+        } while (sharedBranchCountForNode(target) === 1);
         current = target;
         return applyCurrentBoard();
       },
