@@ -572,3 +572,6 @@ for (const token of [
   'const markerText = markerInput.value.trim()',
   'if (point.index >= 0) addOrReplaceMarker(point.index)',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);
+
+const pagesBuild = read("tools/prepare-pages-site.py");
+if (pagesBuild.includes('<script src="rapfi/engine/vcf-rapfi-db.js"></script>') || pagesBuild.includes('<script src="rapfi/vcf-rapfi-db.js')) throw new Error("GitHub Pages must not auto-load Rapfi DB during root startup");
