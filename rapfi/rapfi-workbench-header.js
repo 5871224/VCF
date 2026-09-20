@@ -1018,14 +1018,27 @@
     const syncRapfiBoardToNode = (node, ensureCurrent = false) => {
       const db = global.VCFRapfiDB;
       if (!db?.isReady || !node) return false;
+      const rule = activeRule();
       try {
-        db.resetBoard(activeRule());
+        if (rapfiBoardNode === node && rapfiBoardRule === rule) {
+          if (ensureCurrent) db.ensureCurrent();
+          return true;
+        }
+        db.resetBoard(rule);
         for (const pathNode of pathNodesForNode(node)) {
-          if (!db.replayMove(pathNode.move, false)) return false;
+          if (!db.replayMove(pathNode.move, false)) {
+            rapfiBoardNode = null;
+            rapfiBoardRule = null;
+            return false;
+          }
         }
         if (ensureCurrent) db.ensureCurrent();
+        rapfiBoardNode = node;
+        rapfiBoardRule = rule;
         return true;
       } catch (error) {
+        rapfiBoardNode = null;
+        rapfiBoardRule = null;
         console.warn("同步 Rapfi Board 失敗", error);
         return false;
       }
@@ -1034,6 +1047,8 @@
       const db = global.VCFRapfiDB;
       if (!db?.isReady) return false;
       try {
+        rapfiBoardNode = null;
+        rapfiBoardRule = null;
         db.clear(activeRule());
         let ok = true;
         const visit = node => {
@@ -1072,16 +1087,20 @@
       return moves;
     };
 
-    const currentHistory = () => historyForNodeWithPositionRecords(current);
+    const currentHistory = () => (
+      rapfiDbActive
+        ? historyForNodeWithStoredTexts(current)
+        : historyForNodeWithPositionRecords(current)
+    );
     const currentRecordText = () => {
       if (rapfiDbActive && syncRapfiBoardToNode(current, false)) {
         try { return String(global.VCFRapfiDB.getDisplayText() || ""); } catch (_) {}
       }
       return recordTextForNode(current);
     };
-    const selectedNextMove = node => {
+    const selectedNextMove = (node, knownMoves = null) => {
       if (!exact || !node) return null;
-      const sharedMoves = sharedNextMovesForNode(node);
+      const sharedMoves = Array.isArray(knownMoves) ? knownMoves : sharedNextMovesForNode(node);
       if (!sharedMoves.length) return null;
       if (node.children.length) {
         node.selectedChild = Math.max(0, Math.min(node.children.length - 1, Number(node.selectedChild || 0)));
@@ -1091,7 +1110,8 @@
       return sharedMoves[0];
     };
     const selectedNextNode = () => {
-      const move = selectedNextMove(current);
+      const sharedMoves = sharedNextMovesForNode(current);
+      const move = selectedNextMove(current, sharedMoves);
       if (move == null) return null;
       let child = current.children.find(candidate => candidate.move === move);
       if (!child) child = materializeSharedChild(current, move);
@@ -1108,18 +1128,20 @@
       } catch (_) {}
     };
     const notify = () => {
-      const nextMove = selectedNextMove(current);
+      const nextMoves = exact ? sharedNextMovesForNode(current) : [];
+      const nextMove = selectedNextMove(current, nextMoves);
+      const history = currentHistory();
       const siblings = current?.parent?.children || [];
       global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
         detail: {
           recordText: currentRecordText(),
           exact,
-          ply: currentHistory().length,
+          ply: history.length,
           canPrev: Boolean(exact && current?.parent),
           canNext: Boolean(nextMove != null),
           selectedNextMove: nextMove,
-          nextMoves: exact ? sharedNextMovesForNode(current) : [],
-          nextBranchCount: exact ? sharedBranchCountForNode(current) : 0,
+          nextMoves,
+          nextBranchCount: nextMoves.length,
           siblingCount: siblings.length,
           siblingIndex: siblings.indexOf(current),
           positionBackend: rapfiDbActive ? "rapfi-db" : "js-fallback",
