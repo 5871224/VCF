@@ -423,15 +423,13 @@
       return;
     }
     if (point.index >= 0) {
+      // Rapfi bridge 尚未 active 時，不攔截舊棋盤 click；載入完成後會自動
+      // 把目前盤面收編成 setup。active 後則由 Rapfi 成為唯一盤面編輯來源。
+      if (!global.VCFWorkbenchRecord?.isActive?.()) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const currentBoard = global._getArr?.() || [];
-      if (Number(currentBoard[point.index])) {
-        status("要刪除棋子請使用刪除目前棋子及後續分支按鈕");
-        return;
-      }
-      if (!global.VCFWorkbenchRecord?.playAt?.(point.index)) {
-        status("目前棋盤狀態無法落子，請確認棋譜已載入完成");
+      if (!global.VCFWorkbenchRecord?.editAt?.(point.index)) {
+        status("目前棋盤狀態無法修改");
       }
     }
   }, true);
