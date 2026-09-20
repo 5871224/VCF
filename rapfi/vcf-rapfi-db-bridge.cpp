@@ -83,14 +83,19 @@ public:
                 size_t count,
                 std::vector<std::pair<DBKey, DBRecord>> &out) noexcept override
     {
-        auto it = cursor ? records.upper_bound(cursor.lastKey) : records.begin();
+        // The project pins Rapfi 3aedf3a, where DBStorage::Cursor is a numeric offset.
+        // Cursor 0 means "start"; returning 0 means the scan reached the end.
+        if (cursor >= records.size() || count == 0)
+            return 0;
+
+        auto it = records.begin();
+        std::advance(it, static_cast<std::ptrdiff_t>(cursor));
         size_t copied = 0;
         for (; it != records.end() && copied < count; ++it, ++copied)
             out.emplace_back(it->first, it->second);
 
-        if (it == records.end() || copied == 0)
-            return Cursor {};
-        return Cursor {out.back().first};
+        const size_t next = cursor + copied;
+        return next >= records.size() ? 0 : next;
     }
 
 private:
