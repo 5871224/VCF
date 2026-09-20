@@ -211,6 +211,11 @@ for (const token of [
   'const nextMove = selectedNextMove(current);',
   'const nextMove = selectedNextMove(target);',
   'if (sharedMoves.includes(localMove)) return localMove;',
+  'rapfiDbActive ? "rapfi-db" : "js-fallback"',
+  'rebuildRapfiDatabase',
+  'global.VCFRapfiDB.getDisplayText()',
+  'global.VCFRapfiDB.setDisplayText(String(text || ""))',
+  'global.addEventListener("vcf-rapfi-db-ready"',
   'YXDB 無法表示 PASS',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
 
@@ -458,7 +463,7 @@ for (const token of [
 ]) if (!header.includes(token)) throw new Error(`record tree state contract missing: ${token}`);
 const entry = read("makevcf.html");
 if (!entry.includes('makevcf-layout.js?v=20260913-search-stats')
-    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260826-record-tools-v2')
+    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260920-rapfi-db')
     || !entry.includes('rapfi/vcf-record-tools.js?v=20260913-direct-board-edit')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
 }
@@ -474,9 +479,31 @@ for (const token of [
   'importer.loadBytes(result.bytes',
   'loadButton.textContent = "載入棋譜";',
 ]) if (!cloudYXDB.includes(token)) throw new Error(`cloud record load contract missing: ${token}`);
+const rapfiDbAdapter = read("rapfi/vcf-rapfi-db.js");
+for (const token of [
+  'global.VCFRapfiDB = facade;',
+  'global.VCFRapfiDBModule',
+  'vcfRapfiDbQueryChildren',
+  'vcfRapfiDbSetDisplayText',
+  'vcfRapfiDbGetDisplayText',
+]) if (!rapfiDbAdapter.includes(token)) throw new Error(`Rapfi DB adapter contract missing: ${token}`);
+const rapfiDbBridge = read("rapfi/vcf-rapfi-db-bridge.cpp");
+for (const token of [
+  'DBClient',
+  'DBRecord',
+  'constructDBKey',
+  'vcfRapfiDbQueryChildren',
+  'vcfRapfiDbSetDisplayText',
+  'vcfRapfiDbGetDisplayText',
+]) if (!rapfiDbBridge.includes(token)) throw new Error(`Rapfi DB bridge contract missing: ${token}`);
 const pagesBuilderCloud = read("tools/prepare-pages-site.py");
 if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260913-cloud-load-board')) {
   throw new Error("cloud record script must be cache-busted in Pages artifact");
+}
+if (!pagesBuilderCloud.includes('rapfi/engine/vcf-rapfi-db.js')
+    || !pagesBuilderCloud.includes('rapfi/vcf-rapfi-db.js?v=20260920-rapfi-db')
+    || !pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
+  throw new Error("Rapfi DB bridge must be deployed before the workbench header");
 }
 
 const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");
