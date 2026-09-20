@@ -193,6 +193,9 @@ for (const token of [
   'appendPass()',
   'deleteCurrentAndFollowing()',
   'transform(transform)',
+  'positionRecords: Object.fromEntries(positionRecords)',
+  'historyForNodeWithPositionRecords',
+  'setRecordTextForPosition(current, text)',
   'YXDB 無法表示 PASS',
 ]) if (!header.includes(token)) throw new Error(`Rapfi export contract missing: ${token}`);
 
