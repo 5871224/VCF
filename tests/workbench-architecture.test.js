@@ -247,7 +247,8 @@ if (Buffer.compare(Buffer.from(yxdb.bytes), Buffer.from(mirroredYXDB.bytes)) !==
 }
 
 const markedBoard = boardOf([[112, 1], [98, 2], [113, 1], [97, 2]]);
-const markedMirror = boardOf([[112, 1], [112 - (98 - 112), 2], [111, 1], [112 - (97 - 112), 2]]);
+// Diagonal reflection (x,y) -> (y,x): 112->112, 98->126, 113->127, 97->111.
+const markedMirror = boardOf([[112, 1], [126, 2], [127, 1], [111, 2]]);
 const markedYXDB = rapfiFormats.createYXDB({
   board: markedBoard,
   rule: 2,
@@ -265,8 +266,8 @@ const markedMirrorYXDB = rapfiFormats.createYXDB({
   history: [
     { index: 112, stone: 1 },
     { index: 126, stone: 2 },
-    { index: 111, stone: 1 },
-    { index: 127, stone: 2, recordText: "@BTXT@70A\b對稱標記" },
+    { index: 127, stone: 1 },
+    { index: 111, stone: 2, recordText: "@BTXT@07A\b對稱標記" },
   ],
   historyExact: true,
 });
