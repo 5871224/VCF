@@ -819,12 +819,19 @@
       stone: child.stone,
       recordText: recordTextForNode(child),
     }));
+    const historyForNodeWithStoredTexts = node => pathNodesForNode(node).map(child => ({
+      index: child.move,
+      stone: child.stone,
+      recordText: String(child.recordText || ""),
+    }));
     const activeRule = () => Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
     const sharedChildKeyCache = new Map();
     const sharedNextMoveCache = new Map();
     let sharedBranchRevision = 0;
     let rapfiDbActive = false;
     let rapfiQueryChildrenForNode = null;
+    let rapfiBoardNode = null;
+    let rapfiBoardRule = null;
     const invalidateSharedBranchCache = () => {
       sharedBranchRevision++;
       sharedChildKeyCache.clear();
@@ -906,14 +913,17 @@
       sharedNextMoveCache.set(cacheKey, moves);
       return moves.slice();
     };
-    const sharedBranchCountForNode = node => sharedNextMovesForNode(node).length;
+    const sharedBranchCountForNode = (node, knownMoves = null) => (
+      Array.isArray(knownMoves) ? knownMoves.length : sharedNextMovesForNode(node).length
+    );
     const materializeSharedChild = (node, move) => {
-      const state = positionStateForNode(node);
-      if (!state) return null;
-      const expectedStone = state.sideToMove;
+      if (!node) return null;
+      const expectedStone = pathNodesForNode(node).length % 2 === 0 ? BLACK : WHITE;
       let child = node.children.find(candidate => candidate.move === move && candidate.stone === expectedStone);
       if (child) return child;
 
+      // Once the native Rapfi DB is active, do not run the JavaScript canonical-position
+      // fallback at all. Rapfi queryChildren() is the single source of truth.
       if (rapfiDbActive && typeof rapfiQueryChildrenForNode === "function") {
         const sharedMoves = rapfiQueryChildrenForNode(node);
         if (!sharedMoves.includes(Number(move))) return null;
@@ -922,6 +932,8 @@
         return child;
       }
 
+      const state = positionStateForNode(node);
+      if (!state) return null;
       const targetChildKey = childPositionKeyForMove(state, move);
       if (!targetChildKey || !isLegalSharedMove(state, Number(move), activeRule())) return null;
       const sharedChildKeys = sharedChildPositionKeysForNode(node);
