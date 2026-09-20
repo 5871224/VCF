@@ -818,32 +818,49 @@
       stone: child.stone,
       recordText: recordTextForNode(child),
     }));
-    const moveToCanonical = (move, state) => {
-      if (!Number.isInteger(Number(move)) || Number(move) === PASS) return Number(move);
+    const childPositionKeyForMove = (state, move) => {
+      if (!state || !Number.isInteger(Number(move))) return null;
       const index = Number(move);
-      const [x, y] = transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), state.transform);
-      return y * BOARD_SIZE + x;
+      const nextSide = oppositeStone(state.sideToMove);
+      if (index === PASS) {
+        const canonical = canonicalPositionInfo(state.board);
+        return canonicalPositionKey(canonical, nextSide);
+      }
+      if (index < 0 || index >= BOARD_CELLS || state.board[index] !== EMPTY) return null;
+      const childBoard = new Uint8Array(state.board);
+      childBoard[index] = state.sideToMove;
+      const canonical = canonicalPositionInfo(childBoard);
+      return canonicalPositionKey(canonical, nextSide);
     };
-    const moveFromCanonical = (move, state) => {
-      if (!Number.isInteger(Number(move)) || Number(move) === PASS) return Number(move);
-      const index = Number(move);
-      const [x, y] = transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), state.inverseTransform);
-      return y * BOARD_SIZE + x;
-    };
-    const sharedNextMovesForNode = node => {
+    const sharedChildPositionKeysForNode = node => {
       const state = positionStateForNode(node);
-      if (!state) return [];
-      const canonicalMoves = new Set();
+      if (!state) return new Set();
+      const keys = new Set();
       walkTree(root, candidate => {
         const candidateState = positionStateForNode(candidate);
         if (candidateState?.key !== state.key) return;
         for (const child of candidate.children) {
-          canonicalMoves.add(moveToCanonical(child.move, candidateState));
+          const childState = positionStateForNode(child);
+          if (childState) keys.add(childState.key);
         }
       });
-      return Array.from(canonicalMoves, move => moveFromCanonical(move, state))
-        .filter(move => Number.isInteger(move))
-        .sort((a, b) => a - b);
+      return keys;
+    };
+    const sharedNextMovesForNode = node => {
+      const state = positionStateForNode(node);
+      if (!state) return [];
+      const childKeys = sharedChildPositionKeysForNode(node);
+      if (!childKeys.size) return [];
+
+      const moves = [];
+      for (let move = 0; move < BOARD_CELLS; move++) {
+        if (state.board[move] !== EMPTY) continue;
+        const childKey = childPositionKeyForMove(state, move);
+        if (childKey && childKeys.has(childKey)) moves.push(move);
+      }
+      const passKey = childPositionKeyForMove(state, PASS);
+      if (passKey && childKeys.has(passKey)) moves.push(PASS);
+      return moves.sort((a, b) => a - b);
     };
     const sharedBranchCountForNode = node => sharedNextMovesForNode(node).length;
     const materializeSharedChild = (node, move) => {
@@ -853,20 +870,12 @@
       let child = node.children.find(candidate => candidate.move === move && candidate.stone === expectedStone);
       if (child) return child;
 
-      const canonicalMove = moveToCanonical(move, state);
-      let existsElsewhere = false;
-      walkTree(root, candidate => {
-        if (existsElsewhere) return;
-        const candidateState = positionStateForNode(candidate);
-        if (candidateState?.key !== state.key) return;
-        existsElsewhere = candidate.children.some(candidateChild => (
-          candidateChild.stone === expectedStone &&
-          moveToCanonical(candidateChild.move, candidateState) === canonicalMove
-        ));
-      });
-      if (!existsElsewhere) return null;
+      const targetChildKey = childPositionKeyForMove(state, move);
+      if (!targetChildKey) return null;
+      const sharedChildKeys = sharedChildPositionKeysForNode(node);
+      if (!sharedChildKeys.has(targetChildKey)) return null;
 
-      child = makeNode(move, expectedStone, "", node);
+      child = makeNode(Number(move), expectedStone, "", node);
       node.children.push(child);
       return child;
     };
