@@ -249,7 +249,7 @@ bool replayMove(int move, bool createRecord, bool enforceForbidden)
         return false;
 
     Pos pos = toRapfiPos(move);
-    if (!g_board->isLegal(pos))
+    if (pos != Pos::PASS && !g_board->isLegal(pos))
         return false;
 
     if (enforceForbidden && g_rule == RENJU && g_board->sideToMove() == BLACK
@@ -515,6 +515,20 @@ int vcfRapfiDbQueryChildren()
     if (!ready())
         return 0;
     g_children = g_client->queryChildren(*g_board, g_rule);
+
+    // Rapfi DBClient::queryChildren() enumerates board intersections only. The workbench
+    // also supports an explicit PASS node (for RenLib / side-to-move preservation), so query
+    // the same board with the opposite side-to-move as one additional database child.
+    DBRecord passRecord;
+    g_board->move(g_rule, Pos::PASS);
+    const bool hasPass = g_client->query(*g_board, g_rule, passRecord);
+    g_board->undo(g_rule);
+    if (hasPass)
+        g_children.emplace_back(Pos::PASS, std::move(passRecord));
+
+    std::sort(g_children.begin(), g_children.end(), [](const auto &a, const auto &b) {
+        return toWebMove(a.first) < toWebMove(b.first);
+    });
     return static_cast<int>(g_children.size());
 }
 
@@ -531,6 +545,18 @@ int vcfRapfiDbRecordCount()
         return 0;
     flushWrites();
     return static_cast<int>(g_storage->size());
+}
+
+int vcfRapfiDbDeleteCurrentAndChildren()
+{
+    if (!ready() || g_board->ply() <= 0)
+        return 0;
+    g_client->delChildren(*g_board, g_rule);
+    g_client->del(*g_board, g_rule);
+    flushWrites();
+    g_children.clear();
+    g_boardTexts.clear();
+    return 1;
 }
 
 int vcfRapfiDbExportYXDB()
