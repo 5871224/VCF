@@ -823,6 +823,8 @@
     const sharedChildKeyCache = new Map();
     const sharedNextMoveCache = new Map();
     let sharedBranchRevision = 0;
+    let rapfiDbActive = false;
+    let rapfiQueryChildrenForNode = null;
     const invalidateSharedBranchCache = () => {
       sharedBranchRevision++;
       sharedChildKeyCache.clear();
@@ -873,6 +875,9 @@
       return true;
     };
     const sharedNextMovesForNode = node => {
+      if (rapfiDbActive && typeof rapfiQueryChildrenForNode === "function") {
+        return rapfiQueryChildrenForNode(node);
+      }
       const state = positionStateForNode(node);
       if (!state) return [];
       const childKeys = sharedChildPositionKeysForNode(node);
@@ -908,6 +913,14 @@
       const expectedStone = state.sideToMove;
       let child = node.children.find(candidate => candidate.move === move && candidate.stone === expectedStone);
       if (child) return child;
+
+      if (rapfiDbActive && typeof rapfiQueryChildrenForNode === "function") {
+        const sharedMoves = rapfiQueryChildrenForNode(node);
+        if (!sharedMoves.includes(Number(move))) return null;
+        child = makeNode(Number(move), expectedStone, "", node);
+        node.children.push(child);
+        return child;
+      }
 
       const targetChildKey = childPositionKeyForMove(state, move);
       if (!targetChildKey || !isLegalSharedMove(state, Number(move), activeRule())) return null;
@@ -990,8 +1003,70 @@
       positionRecords.clear();
     }
 
+    const syncRapfiBoardToNode = (node, ensureCurrent = false) => {
+      const db = global.VCFRapfiDB;
+      if (!db?.isReady || !node) return false;
+      try {
+        db.resetBoard(activeRule());
+        for (const pathNode of pathNodesForNode(node)) {
+          if (!db.replayMove(pathNode.move, false)) return false;
+        }
+        if (ensureCurrent) db.ensureCurrent();
+        return true;
+      } catch (error) {
+        console.warn("同步 Rapfi Board 失敗", error);
+        return false;
+      }
+    };
+    const rebuildRapfiDatabase = () => {
+      const db = global.VCFRapfiDB;
+      if (!db?.isReady) return false;
+      try {
+        db.clear(activeRule());
+        let ok = true;
+        const visit = node => {
+          db.ensureCurrent();
+          const text = recordTextForNode(node);
+          if (text) db.setDisplayText(text);
+          for (const child of node.children) {
+            if (!db.replayMove(child.move, true)) {
+              ok = false;
+              continue;
+            }
+            visit(child);
+            db.undo();
+          }
+        };
+        visit(root);
+        if (!ok) return false;
+        return syncRapfiBoardToNode(current, true);
+      } catch (error) {
+        console.warn("重建 Rapfi position DB 失敗，保留 JS 相容層", error);
+        return false;
+      }
+    };
+    rapfiQueryChildrenForNode = node => {
+      const db = global.VCFRapfiDB;
+      if (!rapfiDbActive || !db?.isReady || !node) return [];
+      const restoreNode = current;
+      if (!syncRapfiBoardToNode(node, false)) return [];
+      let moves = [];
+      try {
+        moves = db.children().map(Number).filter(Number.isInteger).sort((a, b) => a - b);
+      } catch (error) {
+        console.warn("Rapfi queryChildren 失敗", error);
+      }
+      if (node !== restoreNode) syncRapfiBoardToNode(restoreNode, false);
+      return moves;
+    };
+
     const currentHistory = () => historyForNodeWithPositionRecords(current);
-    const currentRecordText = () => recordTextForNode(current);
+    const currentRecordText = () => {
+      if (rapfiDbActive && syncRapfiBoardToNode(current, false)) {
+        try { return String(global.VCFRapfiDB.getDisplayText() || ""); } catch (_) {}
+      }
+      return recordTextForNode(current);
+    };
     const selectedNextMove = node => {
       if (!exact || !node) return null;
       const sharedMoves = sharedNextMovesForNode(node);
@@ -1051,6 +1126,7 @@
         apply();
       }
       lastBoard = new Uint8Array(board);
+      if (rapfiDbActive) syncRapfiBoardToNode(current, true);
       persist();
       notify();
       return true;
@@ -1074,6 +1150,7 @@
       migrateTreeRecordTexts(root);
       syncTreeRecordTexts(root);
       invalidateSharedBranchCache();
+      if (rapfiDbActive) rebuildRapfiDatabase();
       persist();
       notify();
     };
@@ -1117,6 +1194,7 @@
         exact = false;
       }
       lastBoard = board;
+      if (rapfiDbActive && exact) syncRapfiBoardToNode(current, true);
       persist();
       notify();
     };
