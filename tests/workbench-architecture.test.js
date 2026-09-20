@@ -30,6 +30,21 @@ for (const token of [
 ]) if (!main.includes(token)) throw new Error(`bitboard runtime contract missing: ${token}`);
 if (main.includes("Number(rules) || 2")) throw new Error("free-rule falsy fallback remains");
 
+const bitboardWorker = read("rapfi/vcf-bitboard-worker.js");
+for (const [file, source] of [
+  ["rapfi/vcf-bitboard-main.js", main],
+  ["rapfi/vcf-bitboard-worker.js", bitboardWorker],
+]) {
+  if (source.includes("VCFRapfiDB") || source.includes("vcfRapfiDb")) {
+    throw new Error(`${file} must not depend on the Rapfi record DB; VCF search hot path must stay isolated`);
+  }
+}
+
+const rapfiDbAdapter = read("rapfi/vcf-rapfi-db.js");
+if (rapfiDbAdapter.includes("findVCF") || rapfiDbAdapter.includes("vcfRegisterEngineRequestProvider")) {
+  throw new Error("Rapfi record DB adapter must not participate in VCF search requests");
+}
+
 const runtime = read("rapfi/vcf-bitboard-generator-compat.js");
 for (const token of [
   "global.vcfSetRules = async rules =>",
@@ -207,9 +222,11 @@ for (const token of [
   'isLegalSharedMove',
   'vcf-rules-changed',
   'materializeSharedChild',
-  'nextMoves: exact ? sharedNextMovesForNode(current) : []',
-  'const nextMove = selectedNextMove(current);',
+  'const nextMoves = exact ? sharedNextMovesForNode(current) : [];',
+  'const nextMove = selectedNextMove(current, nextMoves);',
   'const nextMove = selectedNextMove(target);',
+  'historyForNodeWithStoredTexts',
+  'rapfiBoardNode',
   'if (sharedMoves.includes(localMove)) return localMove;',
   'rapfiDbActive ? "rapfi-db" : "js-fallback"',
   'rebuildRapfiDatabase',
