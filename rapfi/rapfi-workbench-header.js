@@ -643,613 +643,289 @@
   }
 
   function installWorkbenchRecordState() {
-    const STORAGE_KEY = "vcf_board_record_tree_v3";
-    const LEGACY_STORAGE_KEY = "vcf_board_history_v2";
+    const STORAGE_KEY = "vcf_rapfi_workbench_v1";
     const readBoard = () => normalizeBoard(global._getArr?.());
-    const oppositeStone = stone => stone === BLACK ? WHITE : BLACK;
+    const activeRule = () => Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
+    const normalizeRule = rule => [0, 1, 2].includes(Number(rule)) ? Number(rule) : 2;
+    const ruleBox = document.getElementById("rule-box");
 
-    const makeNode = (move = null, stone = 0, recordText = "", parent = null) => ({
-      move,
-      stone,
-      recordText: String(recordText || ""),
-      children: [],
-      selectedChild: 0,
-      parent,
-    });
-    const hydrateNode = (raw, parent = null) => {
-      const node = makeNode(
-        Number.isInteger(Number(raw?.move)) ? Number(raw.move) : null,
-        Number(raw?.stone) === BLACK || Number(raw?.stone) === WHITE ? Number(raw.stone) : 0,
-        typeof raw?.recordText === "string" ? raw.recordText : "",
-        parent,
-      );
-      node.children = Array.isArray(raw?.children) ? raw.children.map(child => hydrateNode(child, node)) : [];
-      node.selectedChild = node.children.length
-        ? Math.max(0, Math.min(node.children.length - 1, Number(raw?.selectedChild || 0)))
-        : 0;
-      return node;
-    };
-    const serializeNode = node => ({
-      move: node.move,
-      stone: node.stone,
-      recordText: node.recordText || "",
-      selectedChild: Number(node.selectedChild || 0),
-      children: node.children.map(serializeNode),
-    });
-    const historyForNode = node => {
-      const result = [];
-      let cursor = node;
-      while (cursor?.parent) {
-        result.push({ index: cursor.move, stone: cursor.stone, recordText: cursor.recordText || "" });
-        cursor = cursor.parent;
+    let exact = false;
+    let lastBoard = readBoard();
+    let rapfiDbActive = false;
+    let currentRule = normalizeRule(activeRule());
+    let persistedDbBase64 = "";
+    let restoringRule = false;
+    const selectedNextByRoute = new Map();
+
+    const bytesToBase64 = bytes => {
+      const value = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || 0);
+      let binary = "";
+      for (let offset = 0; offset < value.length; offset += 0x8000) {
+        binary += String.fromCharCode(...value.subarray(offset, Math.min(value.length, offset + 0x8000)));
       }
-      return result.reverse();
+      return btoa(binary);
     };
-    const replay = history => {
+    const base64ToBytes = value => {
+      const binary = atob(String(value || ""));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 0xff;
+      return bytes;
+    };
+    const db = () => global.VCFRapfiDB;
+    const routeKey = () => {
+      const service = db();
+      if (!rapfiDbActive || !service?.isReady) return \`\${currentRule}:\`;
+      return \`\${currentRule}:\${service.history().join(",")}\`;
+    };
+    const replayBoard = history => {
       const board = new Uint8Array(BOARD_CELLS);
-      let expected = BLACK;
-      if (!Array.isArray(history)) return null;
-      for (const raw of history) {
-        const index = Number(raw?.index ?? raw?.move);
-        const stone = Number(raw?.stone ?? raw?.color);
-        if (!Number.isInteger(index) || (index !== PASS && (index < 0 || index >= BOARD_CELLS)) || stone !== expected) return null;
+      let stone = BLACK;
+      for (const move of history || []) {
+        const index = Number(move?.index ?? move?.move ?? move);
+        if (!Number.isInteger(index) || (index !== PASS && (index < 0 || index >= BOARD_CELLS))) return null;
         if (index !== PASS) {
-          if (board[index]) return null;
+          if (board[index] !== EMPTY) return null;
           board[index] = stone;
         }
-        expected = oppositeStone(expected);
+        stone = stone === BLACK ? WHITE : BLACK;
       }
       return board;
     };
-    const pathIndices = node => {
-      const result = [];
-      let cursor = node;
-      while (cursor?.parent) {
-        const index = cursor.parent.children.indexOf(cursor);
-        if (index < 0) return [];
-        result.push(index);
-        cursor = cursor.parent;
-      }
-      return result.reverse();
-    };
-    const nodeAtPath = (root, path) => {
-      let node = root;
-      for (const rawIndex of Array.isArray(path) ? path : []) {
-        const index = Number(rawIndex);
-        if (!Number.isInteger(index) || !node.children[index]) return null;
-        node = node.children[index];
-      }
-      return node;
-    };
-    const buildLinearTree = (history, rootRecordText = "") => {
-      const root = makeNode(null, 0, rootRecordText, null);
-      let node = root;
-      for (const raw of history || []) {
-        const child = makeNode(Number(raw.index), Number(raw.stone), raw.recordText || "", node);
-        node.children.push(child);
-        node.selectedChild = 0;
-        node = child;
-      }
-      return { root, current: node };
-    };
-
-    const pathNodesForNode = node => {
-      const result = [];
-      let cursor = node;
-      while (cursor?.parent) {
-        result.push(cursor);
-        cursor = cursor.parent;
-      }
-      return result.reverse();
-    };
-    const canonicalPositionKey = (canonical, sideToMove) => {
-      const prefix = sideToMove === WHITE ? "w:" : "b:";
-      const black = canonical.black.map(([x, y]) => `${x.toString(16)}${y.toString(16)}`).join(",");
-      const white = canonical.white.map(([x, y]) => `${x.toString(16)}${y.toString(16)}`).join(",");
-      return `${prefix}${black}|${white}`;
-    };
-    const positionStateForNode = node => {
-      const history = historyForNode(node);
-      const board = replay(history);
-      if (!board) return null;
-      const sideToMove = history.length % 2 === 0 ? BLACK : WHITE;
-      const canonical = canonicalPositionInfo(board);
-      return {
-        board,
-        sideToMove,
-        transform: canonical.transform,
-        inverseTransform: inverseTransform(canonical.transform),
-        key: canonicalPositionKey(canonical, sideToMove),
-      };
-    };
-    const walkTree = (node, visitor) => {
-      visitor(node);
-      for (const child of node.children) walkTree(child, visitor);
-    };
-    const positionRecords = new Map();
-    const loadPositionRecords = raw => {
-      positionRecords.clear();
-      if (!raw || typeof raw !== "object") return;
-      for (const [key, value] of Object.entries(raw)) {
-        if (typeof value === "string" && value.length) positionRecords.set(key, value);
-      }
-    };
-    const migrateTreeRecordTexts = treeRoot => {
-      walkTree(treeRoot, node => {
-        const text = String(node.recordText || "");
-        if (!text) return;
-        const state = positionStateForNode(node);
-        if (!state || positionRecords.has(state.key)) return;
-        positionRecords.set(state.key, transformRapfiRecordText(text, state.transform));
-      });
-    };
-    const recordTextForNode = node => {
-      const state = positionStateForNode(node);
-      if (!state) return String(node?.recordText || "");
-      const canonicalText = positionRecords.get(state.key);
-      if (canonicalText == null) return String(node?.recordText || "");
-      return transformRapfiRecordText(canonicalText, state.inverseTransform);
-    };
-    const syncTreeRecordTexts = treeRoot => {
-      walkTree(treeRoot, node => {
-        const state = positionStateForNode(node);
-        if (!state) return;
-        const canonicalText = String(positionRecords.get(state.key) || "");
-        node.recordText = transformRapfiRecordText(canonicalText, state.inverseTransform);
-      });
-    };
-    const setRecordTextForPosition = (node, text) => {
-      const state = positionStateForNode(node);
-      const value = String(text || "");
-      if (!state) {
-        node.recordText = value;
-        return;
-      }
-      const canonicalText = transformRapfiRecordText(value, state.transform);
-      if (canonicalText) positionRecords.set(state.key, canonicalText);
-      else positionRecords.delete(state.key);
-      walkTree(root, candidate => {
-        const candidateState = positionStateForNode(candidate);
-        if (candidateState?.key !== state.key) return;
-        candidate.recordText = transformRapfiRecordText(canonicalText, candidateState.inverseTransform);
-      });
-    };
-    const historyForNodeWithPositionRecords = node => pathNodesForNode(node).map(child => ({
-      index: child.move,
-      stone: child.stone,
-      recordText: recordTextForNode(child),
-    }));
-    const historyForNodeWithStoredTexts = node => pathNodesForNode(node).map(child => ({
-      index: child.move,
-      stone: child.stone,
-      recordText: String(child.recordText || ""),
-    }));
-    const activeRule = () => Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
-    const sharedChildKeyCache = new Map();
-    const sharedNextMoveCache = new Map();
-    let sharedBranchRevision = 0;
-    let rapfiDbActive = false;
-    let rapfiQueryChildrenForNode = null;
-    let rapfiBoardNode = null;
-    let rapfiBoardRule = null;
-    const invalidateSharedBranchCache = () => {
-      sharedBranchRevision++;
-      sharedChildKeyCache.clear();
-      sharedNextMoveCache.clear();
-    };
-    const childPositionKeyForMove = (state, move) => {
-      if (!state || !Number.isInteger(Number(move))) return null;
-      const index = Number(move);
-      const nextSide = oppositeStone(state.sideToMove);
-      if (index === PASS) {
-        const canonical = canonicalPositionInfo(state.board);
-        return canonicalPositionKey(canonical, nextSide);
-      }
-      if (index < 0 || index >= BOARD_CELLS || state.board[index] !== EMPTY) return null;
-      const childBoard = new Uint8Array(state.board);
-      childBoard[index] = state.sideToMove;
-      const canonical = canonicalPositionInfo(childBoard);
-      return canonicalPositionKey(canonical, nextSide);
-    };
-    const sharedChildPositionKeysForNode = node => {
-      const state = positionStateForNode(node);
-      if (!state) return new Set();
-      const cacheKey = `${sharedBranchRevision}:${state.key}`;
-      const cached = sharedChildKeyCache.get(cacheKey);
-      if (cached) return cached;
-
-      const keys = new Set();
-      walkTree(root, candidate => {
-        const candidateState = positionStateForNode(candidate);
-        if (candidateState?.key !== state.key) return;
-        for (const child of candidate.children) {
-          const childState = positionStateForNode(child);
-          if (childState) keys.add(childState.key);
-        }
-      });
-      sharedChildKeyCache.set(cacheKey, keys);
-      return keys;
-    };
-    const isLegalSharedMove = (state, move, rule) => {
-      if (move === PASS) return true;
-      if (!state || state.board[move] !== EMPTY) return false;
-      // Match Rapfi DBClient::queryChildren(): under Renju, black forbidden points are not children.
-      // The existing Bitboard Wasm foul checker is used when ready; before it is ready we preserve
-      // the previous branch display rather than hiding valid branches during startup.
-      if (rule === 2 && state.sideToMove === BLACK && typeof global.isFoul === "function") {
-        return !global.isFoul(move, state.board);
-      }
-      return true;
-    };
-    const sharedNextMovesForNode = node => {
-      if (rapfiDbActive && typeof rapfiQueryChildrenForNode === "function") {
-        return rapfiQueryChildrenForNode(node);
-      }
-      const state = positionStateForNode(node);
-      if (!state) return [];
-      const childKeys = sharedChildPositionKeysForNode(node);
-      if (!childKeys.size) return [];
-
-      const rule = activeRule();
-      const foulReady = typeof global.isFoul === "function" ? 1 : 0;
-      // state.transform distinguishes the current on-screen orientation of the same canonical parent.
-      const cacheKey = `${sharedBranchRevision}:${rule}:${foulReady}:${state.key}:t${state.transform}`;
-      const cached = sharedNextMoveCache.get(cacheKey);
-      if (cached) return cached.slice();
-
-      // Rapfi-style child query: probe every empty point, canonicalize the child position,
-      // and keep the move iff that canonical child exists in this position DAG.
-      const moves = [];
-      for (let move = 0; move < BOARD_CELLS; move++) {
-        if (state.board[move] !== EMPTY) continue;
-        const childKey = childPositionKeyForMove(state, move);
-        if (!childKey || !childKeys.has(childKey)) continue;
-        if (!isLegalSharedMove(state, move, rule)) continue;
-        moves.push(move);
-      }
-      const passKey = childPositionKeyForMove(state, PASS);
-      if (passKey && childKeys.has(passKey)) moves.push(PASS);
-      moves.sort((a, b) => a - b);
-      sharedNextMoveCache.set(cacheKey, moves);
-      return moves.slice();
-    };
-    const sharedBranchCountForNode = (node, knownMoves = null) => (
-      Array.isArray(knownMoves) ? knownMoves.length : sharedNextMovesForNode(node).length
-    );
-    const materializeSharedChild = (node, move) => {
-      if (!node) return null;
-      const expectedStone = pathNodesForNode(node).length % 2 === 0 ? BLACK : WHITE;
-      let child = node.children.find(candidate => candidate.move === move && candidate.stone === expectedStone);
-      if (child) return child;
-
-      // Once the native Rapfi DB is active, do not run the JavaScript canonical-position
-      // fallback at all. Rapfi queryChildren() is the single source of truth.
-      if (rapfiDbActive && typeof rapfiQueryChildrenForNode === "function") {
-        const sharedMoves = rapfiQueryChildrenForNode(node);
-        if (!sharedMoves.includes(Number(move))) return null;
-        child = makeNode(Number(move), expectedStone, "", node);
-        node.children.push(child);
-        return child;
-      }
-
-      const state = positionStateForNode(node);
-      if (!state) return null;
-      const targetChildKey = childPositionKeyForMove(state, move);
-      if (!targetChildKey || !isLegalSharedMove(state, Number(move), activeRule())) return null;
-      const sharedChildKeys = sharedChildPositionKeysForNode(node);
-      if (!sharedChildKeys.has(targetChildKey)) return null;
-
-      // This only materializes an already-known canonical child under the current move order,
-      // so the canonical parent->child relation has not changed and the cache stays valid.
-      child = makeNode(Number(move), expectedStone, "", node);
-      node.children.push(child);
-      return child;
-    };
-    const prunePositionRecordsToTree = treeRoot => {
-      const liveKeys = new Set();
-      walkTree(treeRoot, node => {
-        const state = positionStateForNode(node);
-        if (state) liveKeys.add(state.key);
-      });
-      for (const key of positionRecords.keys()) {
-        if (!liveKeys.has(key)) positionRecords.delete(key);
-      }
-    };
-    const rebuildPositionRecordsFromTree = treeRoot => {
-      positionRecords.clear();
-      migrateTreeRecordTexts(treeRoot);
-      syncTreeRecordTexts(treeRoot);
-    };
-
-    let root = makeNode();
-    let current = root;
-    let exact = false;
-    let lastBoard = readBoard();
-    let restored = false;
-
-    try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if (saved?.tree) {
-        const candidateRoot = hydrateNode(saved.tree);
-        const candidateCurrent = nodeAtPath(candidateRoot, saved.currentPath) || candidateRoot;
-        const candidateBoard = replay(historyForNode(candidateCurrent));
-        if (candidateBoard && boardsEqual(candidateBoard, lastBoard)) {
-          root = candidateRoot;
-          current = candidateCurrent;
-          exact = saved.exact !== false;
-          loadPositionRecords(saved.positionRecords);
-          migrateTreeRecordTexts(root);
-          prunePositionRecordsToTree(root);
-          syncTreeRecordTexts(root);
-          restored = true;
-        }
-      }
-    } catch (_) {}
-
-    if (!restored) {
-      try {
-        const saved = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "null");
-        const legacyHistory = Array.isArray(saved?.history) ? saved.history.map(item => ({
-          index: Number(item.index),
-          stone: Number(item.stone),
-          recordText: typeof item.recordText === "string" ? item.recordText : "",
-        })) : [];
-        const legacyBoard = replay(legacyHistory);
-        if (legacyBoard && boardsEqual(legacyBoard, lastBoard)) {
-          const linear = buildLinearTree(legacyHistory, typeof saved?.rootRecordText === "string" ? saved.rootRecordText : "");
-          root = linear.root;
-          current = linear.current;
-          exact = saved?.exact !== false;
-          positionRecords.clear();
-          migrateTreeRecordTexts(root);
-          syncTreeRecordTexts(root);
-          restored = true;
-        }
-      } catch (_) {}
-    }
-
-    if (!lastBoard.some(Boolean) && !restored) {
-      root = makeNode();
-      current = root;
-      exact = true;
-      positionRecords.clear();
-    }
-
-    const syncRapfiBoardToNode = (node, ensureCurrent = false) => {
-      const db = global.VCFRapfiDB;
-      if (!db?.isReady || !node) return false;
-      const rule = activeRule();
-      try {
-        if (rapfiBoardNode === node && rapfiBoardRule === rule) {
-          if (ensureCurrent) db.ensureCurrent();
-          return true;
-        }
-        db.resetBoard(rule);
-        for (const pathNode of pathNodesForNode(node)) {
-          if (!db.replayMove(pathNode.move, false)) {
-            rapfiBoardNode = null;
-            rapfiBoardRule = null;
-            return false;
-          }
-        }
-        if (ensureCurrent) db.ensureCurrent();
-        rapfiBoardNode = node;
-        rapfiBoardRule = rule;
-        return true;
-      } catch (error) {
-        rapfiBoardNode = null;
-        rapfiBoardRule = null;
-        console.warn("同步 Rapfi Board 失敗", error);
-        return false;
-      }
-    };
-    const rebuildRapfiDatabase = () => {
-      const db = global.VCFRapfiDB;
-      if (!db?.isReady) return false;
-      try {
-        rapfiBoardNode = null;
-        rapfiBoardRule = null;
-        db.clear(activeRule());
-        let ok = true;
-        const visit = node => {
-          db.ensureCurrent();
-          const text = recordTextForNode(node);
-          if (text) db.setDisplayText(text);
-          for (const child of node.children) {
-            if (!db.replayMove(child.move, true)) {
-              ok = false;
-              continue;
-            }
-            visit(child);
-            db.undo();
-          }
-        };
-        visit(root);
-        if (!ok) return false;
-        return syncRapfiBoardToNode(current, true);
-      } catch (error) {
-        console.warn("重建 Rapfi position DB 失敗，保留 JS 相容層", error);
-        return false;
-      }
-    };
-    rapfiQueryChildrenForNode = node => {
-      const db = global.VCFRapfiDB;
-      if (!rapfiDbActive || !db?.isReady || !node) return [];
-      const restoreNode = current;
-      if (!syncRapfiBoardToNode(node, false)) return [];
-      let moves = [];
-      try {
-        moves = db.children().map(Number).filter(Number.isInteger).sort((a, b) => a - b);
-      } catch (error) {
-        console.warn("Rapfi queryChildren 失敗", error);
-      }
-      if (node !== restoreNode) syncRapfiBoardToNode(restoreNode, false);
-      return moves;
-    };
-
-    const currentHistory = () => (
-      rapfiDbActive
-        ? historyForNodeWithStoredTexts(current)
-        : historyForNodeWithPositionRecords(current)
-    );
-    const currentRecordText = () => {
-      if (rapfiDbActive && syncRapfiBoardToNode(current, false)) {
-        try { return String(global.VCFRapfiDB.getDisplayText() || ""); } catch (_) {}
-      }
-      return recordTextForNode(current);
-    };
-    const selectedNextMove = (node, knownMoves = null) => {
-      if (!exact || !node) return null;
-      const sharedMoves = Array.isArray(knownMoves) ? knownMoves : sharedNextMovesForNode(node);
-      if (!sharedMoves.length) return null;
-      if (node.children.length) {
-        node.selectedChild = Math.max(0, Math.min(node.children.length - 1, Number(node.selectedChild || 0)));
-        const localMove = node.children[node.selectedChild]?.move;
-        if (sharedMoves.includes(localMove)) return localMove;
-      }
-      return sharedMoves[0];
-    };
-    const selectedNextNode = () => {
-      const sharedMoves = sharedNextMovesForNode(current);
-      const move = selectedNextMove(current, sharedMoves);
-      if (move == null) return null;
-      let child = current.children.find(candidate => candidate.move === move);
-      if (!child) child = materializeSharedChild(current, move);
-      return child || null;
-    };
-    const persist = () => {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          tree: serializeNode(root),
-          currentPath: pathIndices(current),
-          exact,
-          positionRecords: Object.fromEntries(positionRecords),
-        }));
-      } catch (_) {}
-    };
-    const notify = () => {
-      const nextMoves = exact ? sharedNextMovesForNode(current) : [];
-      const nextMove = selectedNextMove(current, nextMoves);
-      const history = currentHistory();
-      const siblings = current?.parent?.children || [];
-      global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
-        detail: {
-          recordText: currentRecordText(),
-          exact,
-          ply: history.length,
-          canPrev: Boolean(exact && current?.parent),
-          canNext: Boolean(nextMove != null),
-          selectedNextMove: nextMove,
-          nextMoves,
-          nextBranchCount: nextMoves.length,
-          siblingCount: siblings.length,
-          siblingIndex: siblings.indexOf(current),
-          positionBackend: rapfiDbActive ? "rapfi-db" : "js-fallback",
-        },
-      }));
-    };
-    const activateRapfiDatabase = () => {
-      if (rapfiDbActive) return true;
-      if (!global.VCFRapfiDB?.isReady) return false;
-      if (!rebuildRapfiDatabase()) return false;
-      rapfiDbActive = true;
-      invalidateSharedBranchCache();
-      syncRapfiBoardToNode(current, true);
-      notify();
-      global.dispatchEvent(new CustomEvent("vcf-rapfi-db-active"));
-      return true;
-    };
-    global.addEventListener("vcf-rapfi-db-ready", () => queueMicrotask(activateRapfiDatabase));
-    if (global.VCFRapfiDB?.isReady) {
-      queueMicrotask(activateRapfiDatabase);
-    } else {
-      global.VCFRapfiDB?.ready?.then(() => queueMicrotask(activateRapfiDatabase)).catch(error => {
-        console.warn("Rapfi DB bridge 未啟用，繼續使用 JS 相容層", error);
-      });
-    }
-    const applyCurrentBoard = () => {
-      if (!exact) return false;
-      const history = currentHistory();
-      const board = replay(history);
-      if (!board) return false;
-      const sideToMove = history.length % 2 === 0 ? BLACK : WHITE;
+    const setMainBoard = (board, sideToMove) => {
       const apply = () => global._setBoardArr?.(Array.from(board), sideToMove);
       if (typeof global.vcfWithBoardChangeSource === "function") {
         global.vcfWithBoardChangeSource("record-navigation", apply);
       } else {
         apply();
       }
-      lastBoard = new Uint8Array(board);
-      if (rapfiDbActive) syncRapfiBoardToNode(current, true);
-      persist();
+    };
+    const saveState = (databaseChanged = false) => {
+      const service = db();
+      if (!rapfiDbActive || !service?.isReady) return false;
+      try {
+        if (databaseChanged || !persistedDbBase64) {
+          const snapshot = service.snapshotYXDB();
+          if (!snapshot.length) return false;
+          persistedDbBase64 = bytesToBase64(snapshot);
+        }
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+          version: 1,
+          rule: currentRule,
+          db: persistedDbBase64,
+          history: service.history(),
+          exact,
+          board: Array.from(lastBoard),
+        }));
+        return true;
+      } catch (error) {
+        console.warn("保存 Rapfi 工作台狀態失敗", error);
+        return false;
+      }
+    };
+    const queryChildren = () => {
+      const service = db();
+      if (!rapfiDbActive || !exact || !service?.isReady) return [];
+      try {
+        return service.children().map(Number).filter(Number.isInteger).sort((a, b) => a - b);
+      } catch (error) {
+        console.warn("Rapfi queryChildren 失敗", error);
+        return [];
+      }
+    };
+    const selectedNextMove = knownMoves => {
+      const moves = Array.isArray(knownMoves) ? knownMoves : queryChildren();
+      if (!moves.length) return null;
+      const selected = selectedNextByRoute.get(routeKey());
+      return moves.includes(selected) ? selected : moves[0];
+    };
+    const rememberSelectedNext = move => {
+      if (Number.isInteger(Number(move))) selectedNextByRoute.set(routeKey(), Number(move));
+    };
+    const currentRecordText = () => {
+      const service = db();
+      if (!rapfiDbActive || !exact || !service?.isReady) return "";
+      try { return String(service.getDisplayText() || ""); }
+      catch (_) { return ""; }
+    };
+    const notify = () => {
+      const service = db();
+      const nextMoves = queryChildren();
+      const nextMove = selectedNextMove(nextMoves);
+      const ply = rapfiDbActive && service?.isReady ? service.ply() : 0;
+      global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
+        detail: {
+          recordText: currentRecordText(),
+          exact,
+          ply,
+          canPrev: Boolean(exact && ply > 0),
+          canNext: Boolean(exact && nextMove != null),
+          selectedNextMove: nextMove,
+          nextMoves,
+          nextBranchCount: nextMoves.length,
+          siblingCount: 0,
+          siblingIndex: -1,
+          positionBackend: rapfiDbActive ? "rapfi-db" : "initializing",
+        },
+      }));
+    };
+    const applyCurrentBoard = (databaseChanged = false) => {
+      const service = db();
+      if (!rapfiDbActive || !exact || !service?.isReady) return false;
+      const board = new Uint8Array(service.board());
+      setMainBoard(board, service.sideToMove());
+      lastBoard = board;
+      saveState(databaseChanged);
       notify();
       return true;
     };
-    const resetToHistory = (nextHistory, nextExact, nextRootRecordText = "") => {
-      const normalized = Array.isArray(nextHistory) ? nextHistory.map(item => ({
-        index: Number(item.index ?? item.move),
-        stone: Number(item.stone ?? item.color),
-        recordText: typeof item.recordText === "string" ? item.recordText : "",
-      })) : [];
-      const rebuilt = replay(normalized);
-      const board = readBoard();
-      const valid = Boolean(rebuilt && boardsEqual(rebuilt, board));
-      const linear = buildLinearTree(valid ? normalized : [], nextRootRecordText);
-      root = linear.root;
-      current = linear.current;
-      exact = Boolean(nextExact && valid);
-      if (!board.some(Boolean)) exact = true;
-      lastBoard = new Uint8Array(board);
-      positionRecords.clear();
-      migrateTreeRecordTexts(root);
-      syncTreeRecordTexts(root);
-      invalidateSharedBranchCache();
-      if (rapfiDbActive) rebuildRapfiDatabase();
-      persist();
-      notify();
+    const restoreDbHistory = moves => {
+      const service = db();
+      if (!service?.isReady) return false;
+      service.resetBoard(currentRule);
+      for (const raw of moves || []) {
+        if (!service.replayMove(Number(raw), false)) return false;
+      }
+      return true;
+    };
+    const captureHistoryWithTexts = () => {
+      const service = db();
+      if (!rapfiDbActive || !service?.isReady) return { history: [], rootRecordText: "" };
+      const moves = service.history();
+      const result = [];
+      let rootRecordText = "";
+      try {
+        service.resetBoard(currentRule);
+        rootRecordText = String(service.getDisplayText() || "");
+        for (let i = 0; i < moves.length; i++) {
+          if (!service.replayMove(moves[i], false)) throw new Error("Rapfi history replay failed");
+          result.push({
+            index: moves[i],
+            stone: i % 2 === 0 ? BLACK : WHITE,
+            recordText: String(service.getDisplayText() || ""),
+          });
+        }
+      } finally {
+        restoreDbHistory(moves);
+      }
+      return { history: result, rootRecordText };
+    };
+    const restoreSavedState = async () => {
+      const service = db();
+      if (!service?.isReady) return false;
+
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
+      catch (_) {}
+
+      if (saved?.version === 1 && typeof saved.db === "string" && saved.db.length) {
+        const savedRule = normalizeRule(saved.rule);
+        if (savedRule !== activeRule()) {
+          restoringRule = true;
+          const radio = ruleBox?.querySelector(\`input[name="rules"][value="\${savedRule}"]\`);
+          if (radio) radio.checked = true;
+          if (ruleBox) ruleBox.dataset.activeRules = String(savedRule);
+          try { await global.vcfSetRules?.(savedRule); } finally { restoringRule = false; }
+        }
+        currentRule = savedRule;
+        if (service.restoreYXDB(base64ToBytes(saved.db), currentRule)) {
+          persistedDbBase64 = saved.db;
+          service.resetBoard(currentRule);
+          let historyOk = true;
+          for (const move of Array.isArray(saved.history) ? saved.history : []) {
+            if (!service.replayMove(Number(move), false)) {
+              historyOk = false;
+              break;
+            }
+          }
+          exact = Boolean(saved.exact !== false && historyOk);
+          rapfiDbActive = true;
+          if (exact) {
+            service.ensureCurrent();
+            applyCurrentBoard(false);
+          } else {
+            const board = normalizeBoard(saved.board || []);
+            lastBoard = board;
+            setMainBoard(board, normalSideToMove(board) || BLACK);
+            saveState(false);
+            notify();
+          }
+          return true;
+        }
+      }
+
+      currentRule = normalizeRule(activeRule());
+      service.clear(currentRule);
+      service.ensureCurrent();
+      rapfiDbActive = true;
+      exact = !lastBoard.some(Boolean);
+      selectedNextByRoute.clear();
+      if (exact) applyCurrentBoard(true);
+      else {
+        saveState(true);
+        notify();
+      }
+      return true;
+    };
+    const activateRapfiDatabase = async () => {
+      if (rapfiDbActive) return true;
+      if (!global.VCFRapfiDB?.isReady) return false;
+      const ok = await restoreSavedState();
+      if (ok) global.dispatchEvent(new CustomEvent("vcf-rapfi-db-active"));
+      return ok;
     };
 
+    global.addEventListener("vcf-rapfi-db-ready", () => {
+      queueMicrotask(() => activateRapfiDatabase().catch(error => {
+        console.error("Rapfi DB 啟用失敗", error);
+      }));
+    });
+    if (global.VCFRapfiDB?.isReady) {
+      queueMicrotask(() => activateRapfiDatabase().catch(error => console.error("Rapfi DB 啟用失敗", error)));
+    } else {
+      global.VCFRapfiDB?.ready?.then(() => activateRapfiDatabase()).catch(error => {
+        console.error("Rapfi DB bridge 初始化失敗", error);
+      });
+    }
+
     const syncAfterManualEdit = () => {
+      const service = db();
       const board = readBoard();
       const changed = [];
       for (let i = 0; i < BOARD_CELLS; i++) if (board[i] !== lastBoard[i]) changed.push(i);
-      if (changed.length === 1 && exact) {
+
+      let databaseChanged = false;
+      if (!rapfiDbActive || !service?.isReady) {
+        exact = false;
+      } else if (changed.length === 1 && exact) {
         const index = changed[0];
         const before = lastBoard[index];
         const after = board[index];
-        if (!before && (after === BLACK || after === WHITE)) {
-          const expected = currentHistory().length % 2 === 0 ? BLACK : WHITE;
-          if (after === expected) {
-            let childIndex = current.children.findIndex(child => child.move === index && child.stone === after);
-            if (childIndex < 0) {
-              const sharedChild = materializeSharedChild(current, index);
-              if (sharedChild) {
-                childIndex = current.children.indexOf(sharedChild);
-              } else {
-                const child = makeNode(index, after, "", current);
-                current.children.push(child);
-                invalidateSharedBranchCache();
-                childIndex = current.children.length - 1;
-              }
-            }
-            current.selectedChild = childIndex;
-            current = current.children[childIndex];
+
+        if (before === EMPTY && after === service.sideToMove()) {
+          const parentKey = routeKey();
+          if (service.play(index, true)) {
+            selectedNextByRoute.set(parentKey, index);
+            databaseChanged = true;
           } else {
             exact = false;
           }
-        } else if (before && !after && current?.parent && current.move === index && current.stone === before) {
-          const parentBoard = replay(historyForNode(current.parent));
-          if (parentBoard && boardsEqual(parentBoard, board)) current = current.parent;
-          else exact = false;
+        } else if (before !== EMPTY && after === EMPTY) {
+          const history = service.history();
+          if (history.length && history[history.length - 1] === index) {
+            if (service.undo()) rememberSelectedNext(index);
+            else exact = false;
+          } else {
+            exact = false;
+          }
         } else {
           exact = false;
         }
       } else if (changed.length) {
         exact = false;
       }
+
       lastBoard = board;
-      if (rapfiDbActive && exact) syncRapfiBoardToNode(current, true);
-      persist();
+      saveState(databaseChanged);
       notify();
     };
 
@@ -1258,155 +934,209 @@
 
     document.getElementById("btn-clear")?.addEventListener("click", () => {
       queueMicrotask(() => {
-        root = makeNode();
-        current = root;
-        exact = true;
+        const service = db();
         lastBoard = readBoard();
-        positionRecords.clear();
-        invalidateSharedBranchCache();
-        if (rapfiDbActive) rebuildRapfiDatabase();
-        persist();
+        selectedNextByRoute.clear();
+        exact = true;
+        if (rapfiDbActive && service?.isReady) {
+          service.clear(currentRule);
+          service.ensureCurrent();
+          persistedDbBase64 = "";
+          saveState(true);
+        } else {
+          try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+        }
         notify();
       });
     });
     document.getElementById("btn-import-apply")?.addEventListener("click", () => {
       queueMicrotask(() => {
-        root = makeNode();
-        current = root;
-        exact = false;
+        const service = db();
         lastBoard = readBoard();
-        positionRecords.clear();
-        invalidateSharedBranchCache();
-        if (rapfiDbActive) rebuildRapfiDatabase();
-        persist();
+        selectedNextByRoute.clear();
+        exact = false;
+        if (rapfiDbActive && service?.isReady) {
+          service.clear(currentRule);
+          service.ensureCurrent();
+          persistedDbBase64 = "";
+          saveState(true);
+        }
         notify();
       });
     });
 
     const transformMove = (move, transform) => {
-      if (!Number.isInteger(move) || move === PASS) return move;
-      const x = move % BOARD_SIZE;
-      const y = Math.floor(move / BOARD_SIZE);
-      const [tx, ty] = transformXY(x, y, transform);
-      return ty * BOARD_SIZE + tx;
-    };
-    const transformTree = (node, transform) => {
-      node.move = transformMove(node.move, transform);
-      node.recordText = transformRapfiRecordText(node.recordText, transform);
-      for (const child of node.children) transformTree(child, transform);
+      if (!Number.isInteger(Number(move)) || Number(move) === PASS) return Number(move);
+      const index = Number(move);
+      const [x, y] = transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), transform);
+      return y * BOARD_SIZE + x;
     };
 
     global.VCFWorkbenchRecord = {
       snapshot() {
+        const captured = exact ? captureHistoryWithTexts() : { history: [], rootRecordText: "" };
         return {
-          history: currentHistory().map(item => ({ ...item })),
+          history: captured.history,
           exact,
           board: Array.from(lastBoard),
-          rootRecordText: recordTextForNode(root),
+          rootRecordText: captured.rootRecordText,
         };
       },
       currentRecordText,
       setCurrentRecordText(text) {
-        setRecordTextForPosition(current, text);
-        if (rapfiDbActive && syncRapfiBoardToNode(current, true)) {
-          try { global.VCFRapfiDB.setDisplayText(String(text || "")); } catch (error) {
-            console.warn("Rapfi DB 寫入 recordText 失敗，保留 JS 相容資料", error);
-          }
-        }
-        persist();
+        const service = db();
+        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        if (!service.setDisplayText(String(text || ""))) return false;
+        persistedDbBase64 = "";
+        saveState(true);
         notify();
+        return true;
       },
-      setHistory(nextHistory, nextExact = true, nextRootRecordText = recordTextForNode(root)) {
-        resetToHistory(nextHistory, nextExact, nextRootRecordText);
+      setHistory(nextHistory, nextExact = true, nextRootRecordText = "") {
+        const service = db();
+        if (!rapfiDbActive || !service?.isReady) return false;
+        const normalized = Array.isArray(nextHistory) ? nextHistory.map((item, index) => ({
+          index: Number(item?.index ?? item?.move),
+          stone: Number(item?.stone ?? item?.color ?? (index % 2 === 0 ? BLACK : WHITE)),
+          recordText: typeof item?.recordText === "string" ? item.recordText : "",
+        })) : [];
+        const rebuilt = replayBoard(normalized);
+        const board = readBoard();
+        const valid = Boolean(rebuilt && boardsEqual(rebuilt, board)
+          && normalized.every((item, i) => item.stone === (i % 2 === 0 ? BLACK : WHITE)));
+
+        service.clear(currentRule);
+        service.ensureCurrent();
+        if (nextRootRecordText) service.setDisplayText(String(nextRootRecordText));
+
+        exact = true;
+        if (valid) {
+          for (const item of normalized) {
+            if (!service.replayMove(item.index, true)) {
+              exact = false;
+              break;
+            }
+            if (item.recordText) service.setDisplayText(item.recordText);
+          }
+          if (exact) exact = Boolean(nextExact);
+        } else {
+          exact = false;
+        }
+        if (!normalized.length && !board.some(Boolean)) exact = true;
+
+        lastBoard = board;
+        selectedNextByRoute.clear();
+        persistedDbBase64 = "";
+        saveState(true);
+        notify();
+        return exact;
       },
       navigateStep(direction) {
-        if (!exact) return false;
+        const service = db();
+        if (!rapfiDbActive || !exact || !service?.isReady) return false;
         if (direction < 0) {
-          if (!current.parent) return false;
-          current = current.parent;
-          return applyCurrentBoard();
+          const history = service.history();
+          if (!history.length) return false;
+          const move = history[history.length - 1];
+          if (!service.undo()) return false;
+          rememberSelectedNext(move);
+          return applyCurrentBoard(false);
         }
-        const next = selectedNextNode();
-        if (!next) return false;
-        current = next;
-        return applyCurrentBoard();
+        const moves = queryChildren();
+        const move = selectedNextMove(moves);
+        if (move == null) return false;
+        rememberSelectedNext(move);
+        if (!service.play(move, false)) return false;
+        return applyCurrentBoard(false);
       },
       navigateBranch(direction) {
-        if (!exact) return false;
-        if (direction < 0) {
-          if (!current.parent) return false;
-          let target = current.parent;
-          while (target.parent && sharedBranchCountForNode(target) <= 1) target = target.parent;
-          current = target;
-          return applyCurrentBoard();
-        }
-        if (!sharedBranchCountForNode(current)) return false;
-        let target = current;
-        do {
-          const nextMove = selectedNextMove(target);
-          if (nextMove == null) break;
-          let next = target.children.find(child => child.move === nextMove) || null;
-          if (!next) next = materializeSharedChild(target, nextMove);
-          if (!next) break;
-          target = next;
-        } while (sharedBranchCountForNode(target) === 1);
-        current = target;
-        return applyCurrentBoard();
-      },
+        const service = db();
+        if (!rapfiDbActive || !exact || !service?.isReady) return false;
 
-      appendPass() {
-        if (!exact) return false;
-        const expected = currentHistory().length % 2 === 0 ? BLACK : WHITE;
-        let childIndex = current.children.findIndex(child => child.move === PASS && child.stone === expected);
-        if (childIndex < 0) {
-          const child = makeNode(PASS, expected, "", current);
-          current.children.push(child);
-          invalidateSharedBranchCache();
-          childIndex = current.children.length - 1;
+        if (direction < 0) {
+          if (service.ply() <= 0) return false;
+          do {
+            const history = service.history();
+            const move = history[history.length - 1];
+            if (!service.undo()) break;
+            rememberSelectedNext(move);
+            if (queryChildren().length > 1 || service.ply() <= 0) break;
+          } while (service.ply() > 0);
+          return applyCurrentBoard(false);
         }
-        current.selectedChild = childIndex;
-        current = current.children[childIndex];
-        return applyCurrentBoard();
+
+        let moves = queryChildren();
+        if (!moves.length) return false;
+        do {
+          const move = selectedNextMove(moves);
+          if (move == null) break;
+          rememberSelectedNext(move);
+          if (!service.play(move, false)) break;
+          moves = queryChildren();
+        } while (moves.length === 1);
+        return applyCurrentBoard(false);
+      },
+      appendPass() {
+        const service = db();
+        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        const parentKey = routeKey();
+        if (!service.play(PASS, true)) return false;
+        selectedNextByRoute.set(parentKey, PASS);
+        persistedDbBase64 = "";
+        return applyCurrentBoard(true);
       },
       deleteCurrentAndFollowing() {
-        if (!exact || !current.parent) return false;
-        const parent = current.parent;
-        const index = parent.children.indexOf(current);
-        if (index < 0) return false;
-        parent.children.splice(index, 1);
-        invalidateSharedBranchCache();
-        parent.selectedChild = parent.children.length
-          ? Math.max(0, Math.min(parent.children.length - 1, Number(parent.selectedChild || 0)))
-          : 0;
-        current = parent;
-        prunePositionRecordsToTree(root);
-        syncTreeRecordTexts(root);
-        if (rapfiDbActive) rebuildRapfiDatabase();
-        return applyCurrentBoard();
+        const service = db();
+        if (!rapfiDbActive || !exact || !service?.isReady || service.ply() <= 0) return false;
+        if (!service.deleteCurrentAndChildren()) return false;
+        if (!service.undo()) return false;
+        selectedNextByRoute.delete(routeKey());
+        persistedDbBase64 = "";
+        return applyCurrentBoard(true);
       },
       transform(transform) {
-        if (!exact || !Number.isInteger(Number(transform)) || Number(transform) < 0 || Number(transform) > 7) return false;
-        syncTreeRecordTexts(root);
-        transformTree(root, Number(transform));
-        rebuildPositionRecordsFromTree(root);
-        invalidateSharedBranchCache();
-        if (rapfiDbActive) rebuildRapfiDatabase();
-        return applyCurrentBoard();
+        const service = db();
+        const normalized = Number(transform);
+        if (!rapfiDbActive || !exact || !service?.isReady
+            || !Number.isInteger(normalized) || normalized < 0 || normalized > 7) return false;
+        const original = service.history();
+        const transformed = original.map(move => transformMove(move, normalized));
+        if (!restoreDbHistory(transformed)) {
+          restoreDbHistory(original);
+          return false;
+        }
+        selectedNextByRoute.clear();
+        return applyCurrentBoard(false);
       },
       invalidate() {
         exact = false;
         lastBoard = readBoard();
-        persist();
+        saveState(false);
         notify();
       },
     };
+
     global.addEventListener("vcf-rules-changed", () => {
-      invalidateSharedBranchCache();
-      if (rapfiDbActive) rebuildRapfiDatabase();
-      notify();
+      if (restoringRule || !rapfiDbActive || !db()?.isReady) return;
+      const service = db();
+      const nextRule = normalizeRule(activeRule());
+      if (nextRule === currentRule) {
+        notify();
+        return;
+      }
+      const moves = service.history();
+      service.cloneRule(currentRule, nextRule);
+      currentRule = nextRule;
+      if (!restoreDbHistory(moves)) exact = false;
+      selectedNextByRoute.clear();
+      persistedDbBase64 = "";
+      if (exact) applyCurrentBoard(true);
+      else {
+        saveState(true);
+        notify();
+      }
     });
 
-    persist();
     notify();
   }
 
