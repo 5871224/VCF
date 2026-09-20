@@ -37,6 +37,7 @@
       boardTextValue: instance.cwrap("vcfRapfiDbBoardTextValue", "number", ["number"]),
       recordCount: instance.cwrap("vcfRapfiDbRecordCount", "number", []),
       deleteCurrentAndChildren: instance.cwrap("vcfRapfiDbDeleteCurrentAndChildren", "number", []),
+      cloneRule: instance.cwrap("vcfRapfiDbCloneRule", "number", ["number", "number"]),
       exportYXDB: instance.cwrap("vcfRapfiDbExportYXDB", "number", []),
       importYXDB: instance.cwrap("vcfRapfiDbImportYXDB", "number", ["number", "number", "number"]),
       bytesPtr: instance.cwrap("vcfRapfiDbBytesPtr", "number", []),
@@ -141,6 +142,7 @@
       )));
     },
     deleteCurrentAndChildren() { return Boolean(requireReady().api.deleteCurrentAndChildren()); },
+    cloneRule(fromRule, toRule) { return requireReady().api.cloneRule(Number(fromRule), Number(toRule)); },
     recordCount() { return requireReady().api.recordCount(); },
   };
 
