@@ -5,6 +5,7 @@
   const SUPABASE_URL = "https://jblrnncqnrqtzwayxtnw.supabase.co";
   const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_wDnYw-EuDUZ4h2jfLC_6jw__k3P19gz";
   const TABLE_URL = `${SUPABASE_URL}/rest/v1/vcf_boards`;
+  const REQUEST_TIMEOUT_MS = 10000;
 
   const normalizeBoard = value => {
     if (!Array.isArray(value) && !(value && typeof value.length === "number")) return null;
@@ -46,15 +47,26 @@
   };
 
   const supabaseRequest = async (query = "", options = {}) => {
-    const response = await fetch(`${TABLE_URL}${query}`, {
-      ...options,
-      headers: {
-        apikey: SUPABASE_PUBLISHABLE_KEY,
-        Accept: "application/json",
-        ...(options.body ? { "Content-Type": "application/json" } : {}),
-        ...(options.headers || {}),
-      },
-    });
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : null;
+    let response;
+    try {
+      response = await fetch(`${TABLE_URL}${query}`, {
+        ...options,
+        signal: options.signal || controller?.signal,
+        headers: {
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Accept: "application/json",
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {}),
+        },
+      });
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("題庫連線逾時，請重新載入");
+      throw error;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
 
     if (!response.ok) {
       let detail = "";
@@ -119,6 +131,7 @@
         <button id="qb-add" type="button">加入題庫</button>
         <button id="qb-prev" type="button">上一題</button>
         <span id="qb-position" aria-live="polite">正在載入題庫…</span>
+        <button id="qb-retry" type="button" hidden>重新載入</button>
         <button id="qb-next" type="button">下一題</button>
         <button id="qb-delete" class="qb-delete" type="button">刪除</button>
       </div>
@@ -204,6 +217,7 @@
     const nextButton = section.querySelector("#qb-next");
     const deleteButton = section.querySelector("#qb-delete");
     const positionText = section.querySelector("#qb-position");
+    const retryButton = section.querySelector("#qb-retry");
 
     let bank = [];
     let currentIndex = -1;
@@ -230,6 +244,8 @@
       else positionText.textContent = `未選題／共 ${total} 題`;
 
       const disabled = isBusy() || loadFailed;
+      retryButton.hidden = !loadFailed;
+      retryButton.disabled = storageBusy || searchBusy;
       addButton.disabled = disabled;
       prevButton.disabled = disabled || currentIndex <= 0;
       nextButton.disabled = disabled || total === 0 || currentIndex >= total - 1;
@@ -391,6 +407,10 @@
         updateControls();
       }
     };
+
+    retryButton.addEventListener("click", () => {
+      if (!storageBusy && !searchBusy) initialize();
+    });
 
     initialize();
     return true;
