@@ -638,6 +638,12 @@ for (const token of [
   'vcfRapfiDbDeleteCurrentAndChildren',
   'vcfRapfiDbCloneRule',
 ]) if (!rapfiDbBridge.includes(token)) throw new Error(`Rapfi DB bridge contract missing: ${token}`);
+if (rapfiDbBridge.includes("g_storage->flush()")) {
+  throw new Error("Rapfi DB Wasm snapshot must not use the crashing Emscripten filesystem stream");
+}
+for (const token of ['const std::string metadata = "charset=\\\"UTF-8\\\""', "g_storage->scan(0, total, records)"]) {
+  if (!rapfiDbBridge.includes(token)) throw new Error("Rapfi DB bridge must serialize the YXDB snapshot from native records: " + token);
+}
 const pagesBuilderCloud = read("tools/prepare-pages-site.py");
 if (pagesBuilderCloud.includes('"vcf-lz4-cloud.js"')
     || pagesBuilderCloud.includes('"vcf-google-popup-auth.js"')
@@ -679,6 +685,7 @@ const pagesWorkflow = read(".github/workflows/pages.yml");
 for (const token of [
   'empty Rapfi DB snapshot failed',
   'played Rapfi DB snapshot failed',
+  'Rapfi DB snapshot restore failed',
   'Rapfi DB Wasm snapshot smoke test passed',
 ]) if (!pagesWorkflow.includes(token)) throw new Error("Pages must smoke-test Rapfi DB Wasm snapshots: " + token);
 

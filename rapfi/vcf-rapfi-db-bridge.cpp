@@ -12,7 +12,6 @@
 #include "game/board.h"
 
 #include <algorithm>
-#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -287,27 +286,75 @@ bool exportStorageBytes()
     if (!ready())
         return false;
     g_client->sync(true);
-    if (!g_storage->flush())
-        return false;
 
-    std::FILE *file = std::fopen(STORAGE_PATH, "rb");
-    if (!file)
-        return false;
-    if (std::fseek(file, 0, SEEK_END) != 0) {
-        std::fclose(file);
-        return false;
+    std::vector<std::pair<DBKey, DBRecord>> records;
+    const size_t total = g_storage->size();
+    if (total)
+        g_storage->scan(0, total, records);
+
+    g_blobResult.clear();
+    auto appendByte = [](std::vector<uint8_t> &out, int value) {
+        out.push_back(static_cast<uint8_t>(value));
+    };
+    auto appendU16 = [](std::vector<uint8_t> &out, uint16_t value) {
+        out.push_back(static_cast<uint8_t>(value));
+        out.push_back(static_cast<uint8_t>(value >> 8));
+    };
+    auto appendU32 = [](std::vector<uint8_t> &out, uint32_t value) {
+        for (int shift = 0; shift < 32; shift += 8)
+            out.push_back(static_cast<uint8_t>(value >> shift));
+    };
+    auto appendText = [](std::vector<uint8_t> &out, const std::string &text) {
+        out.insert(out.end(), text.begin(), text.end());
+    };
+
+    // ponytail: YXDB itself is little-endian, so serialize Rapfi's public records directly;
+    // this avoids Emscripten's crashing filesystem stream without creating another DB model.
+    appendU32(g_blobResult, static_cast<uint32_t>(records.size() + 1));
+    const std::string metadata = "charset=\"UTF-8\"";
+    appendU16(g_blobResult, 3);
+    g_blobResult.insert(g_blobResult.end(), 3, 0);
+    appendU16(g_blobResult, static_cast<uint16_t>(5 + metadata.size()));
+    g_blobResult.insert(g_blobResult.end(), 5, 0);
+    appendText(g_blobResult, metadata);
+
+    for (const auto &[key, record] : records) {
+        const uint16_t numStones = key.numBlackStones + key.numWhiteStones;
+        const Color normalSide = numStones % 2 == 0 ? BLACK : WHITE;
+        const bool addPass = normalSide != key.sideToMove;
+        appendU16(g_blobResult, static_cast<uint16_t>(3 + 2 * (numStones + addPass)));
+        appendByte(g_blobResult, key.rule);
+        appendByte(g_blobResult, key.boardWidth);
+        appendByte(g_blobResult, key.boardHeight);
+
+        for (const StonePos *stone = key.blackStonesBegin(); stone != key.blackStonesEnd(); stone++) {
+            appendByte(g_blobResult, stone->x);
+            appendByte(g_blobResult, stone->y);
+        }
+        if (addPass && normalSide == BLACK) {
+            appendByte(g_blobResult, -1);
+            appendByte(g_blobResult, -1);
+        }
+        for (const StonePos *stone = key.whiteStonesBegin(); stone != key.whiteStonesEnd(); stone++) {
+            appendByte(g_blobResult, stone->x);
+            appendByte(g_blobResult, stone->y);
+        }
+        if (addPass && normalSide == WHITE) {
+            appendByte(g_blobResult, -1);
+            appendByte(g_blobResult, -1);
+        }
+
+        if (record.isNull()) {
+            appendU16(g_blobResult, 0);
+            continue;
+        }
+        appendU16(g_blobResult, static_cast<uint16_t>(5 + record.text.size()));
+        appendByte(g_blobResult, record.label);
+        appendU16(g_blobResult, static_cast<uint16_t>(record.value));
+        appendU16(g_blobResult, static_cast<uint16_t>(record.depthbound));
+        appendText(g_blobResult, record.text);
     }
-    const long length = std::ftell(file);
-    if (length < 0 || std::fseek(file, 0, SEEK_SET) != 0) {
-        std::fclose(file);
-        return false;
-    }
-    g_blobResult.resize(static_cast<size_t>(length));
-    const bool ok = length == 0 || std::fread(g_blobResult.data(), 1, static_cast<size_t>(length), file) == static_cast<size_t>(length);
-    std::fclose(file);
-    if (!ok)
-        g_blobResult.clear();
-    return ok;
+    return true;
 }
 
 bool importStorageBytes(const uint8_t *bytes, int length, Rule rule)

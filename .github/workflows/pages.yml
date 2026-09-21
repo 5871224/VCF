@@ -198,8 +198,19 @@ jobs:
               const init = module.cwrap("vcfRapfiDbInit", "number", ["number"]);
               const play = module.cwrap("vcfRapfiDbPlay", "number", ["number", "number"]);
               const exportYXDB = module.cwrap("vcfRapfiDbExportYXDB", "number", []);
+              const bytesPtr = module.cwrap("vcfRapfiDbBytesPtr", "number", []);
+              const importYXDB = module.cwrap("vcfRapfiDbImportYXDB", "number", ["number", "number", "number"]);
+              const recordCount = module.cwrap("vcfRapfiDbRecordCount", "number", []);
               if (init(2) !== 1 || exportYXDB() <= 0) throw new Error("empty Rapfi DB snapshot failed");
-              if (play(112, 1) !== 1 || exportYXDB() <= 0) throw new Error("played Rapfi DB snapshot failed");
+              if (play(112, 1) !== 1) throw new Error("Rapfi DB play failed");
+              const length = exportYXDB();
+              if (length <= 0) throw new Error("played Rapfi DB snapshot failed");
+              const snapshot = module.HEAPU8.slice(bytesPtr(), bytesPtr() + length);
+              const buffer = module._malloc(length);
+              module.HEAPU8.set(snapshot, buffer);
+              const restored = importYXDB(buffer, length, 2);
+              module._free(buffer);
+              if (restored !== 1 || recordCount() < 2) throw new Error("Rapfi DB snapshot restore failed");
               console.log("Rapfi DB Wasm snapshot smoke test passed");
             })
             .catch(error => { console.error(error); process.exit(1); });
