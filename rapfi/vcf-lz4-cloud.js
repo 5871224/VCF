@@ -7,7 +7,6 @@
   const WHITE = 2;
   const PASS = -1;
   const API_URL = "api/yxdb.php";
-  const RECORD_STORAGE_KEY = "vcf_board_record_tree_v3";
   const AUTH_TOKEN_KEY = "vcf_google_auth_token_v1";
   const MAX_BLOCK = 64 * 1024;
   const FLG = 0x64;
@@ -204,12 +203,6 @@
     const value = Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
     return [0, 1, 2].includes(value) ? value : 2;
   }
-  function readStoredTree() {
-    let saved = null;
-    try { saved = JSON.parse(localStorage.getItem(RECORD_STORAGE_KEY) || "null"); } catch (_) {}
-    if (!saved?.tree || saved.exact === false) throw new Error("目前棋譜沒有可驗證的完整手順，請先從空盤依原手順建立棋譜。");
-    return saved.tree;
-  }
 
   function buildRawYXDBFromTree(tree, rule = currentRule()) {
     const records = new Map();
@@ -251,9 +244,17 @@
     return { raw: writer.finish(), recordCount: sorted.length, nodeCount };
   }
   function createCurrentYXDB() {
-    const built = buildRawYXDBFromTree(readStoredTree(), currentRule());
-    const bytes = createLZ4Frame(built.raw);
-    return { bytes, recordCount: built.recordCount, nodeCount: built.nodeCount, rawSize: built.raw.length, compressedSize: bytes.length };
+    const exported = global.VCFWorkbenchRecord?.exportYXDB?.();
+    if (!exported?.bytes?.length) throw new Error("Rapfi 棋譜尚未就緒");
+    const bytes = exported.bytes instanceof Uint8Array ? exported.bytes : new Uint8Array(exported.bytes);
+    const recordCount = Math.max(0, Number(exported.recordCount || 0));
+    return {
+      bytes,
+      recordCount,
+      nodeCount: recordCount,
+      rawSize: bytes.length,
+      compressedSize: bytes.length,
+    };
   }
 
   function getToken() { try { return localStorage.getItem(AUTH_TOKEN_KEY) || ""; } catch (_) { return ""; } }
