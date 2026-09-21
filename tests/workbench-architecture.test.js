@@ -502,16 +502,20 @@ for (const forbiddenToken of [
   }
 }
 const entry = read("makevcf.html");
-const recordScriptOrder = [
-  'rapfi/engine/vcf-rapfi-db.js?v=20260921-record-db1',
-  'rapfi/vcf-rapfi-db.js?v=20260921-record-db1',
-  'rapfi/rapfi-workbench-header.js?v=20260921-record-db1',
-  'rapfi/vcf-record-tools.js?v=20260921-record-db1',
-].map(token => entry.indexOf(token));
-if (!entry.includes('makevcf-layout.js?v=20260920-rollback1')
-    || recordScriptOrder.some(index => index < 0)
-    || recordScriptOrder.some((index, i) => i > 0 && index <= recordScriptOrder[i - 1])) {
-  throw new Error("Rapfi record DB and record UI scripts must load in engine -> facade -> header -> tools order");
+for (const token of [
+  'window.vcfRootEngineReady = engine._initP;',
+  'rapfi/rapfi-workbench-header.js?v=20260921-record-db2',
+  'rapfi/vcf-record-tools.js?v=20260921-record-db2',
+  'scheduleRapfiRecordDatabase',
+  'rapfi/engine/vcf-rapfi-db.js?v=',
+  'rapfi/vcf-rapfi-db.js?v=',
+  'mainReady.then(start)',
+]) {
+  if (!entry.includes(token)) throw new Error("Rapfi lazy record runtime contract missing: " + token);
+}
+if (entry.includes('<script src="rapfi/engine/vcf-rapfi-db.js')
+    || entry.includes('<script src="rapfi/vcf-rapfi-db.js')) {
+  throw new Error("Rapfi record DB must not start in parallel with the root Bitboard engine");
 }
 
 const cloudYXDB = read("rapfi/vcf-lz4-cloud.js");
@@ -578,6 +582,10 @@ for (const token of [
   'const markerText = markerInput.value.trim()',
   'if (point.index >= 0) addOrReplaceMarker(point.index)',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);
+for (const token of [
+  'global.__vcfRapfiDbScheduled',
+  '"棋譜引擎初始化中，請稍候"',
+]) if (!recordToolsMarkerToggle.includes(token)) throw new Error("record DB readiness guard missing: " + token);
 
 const pagesBuild = read("tools/prepare-pages-site.py");
 if (!pagesBuild.includes('vcf-rapfi-db.*')) {
