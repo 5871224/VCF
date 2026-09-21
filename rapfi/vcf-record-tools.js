@@ -430,7 +430,16 @@
         status("要刪除棋子請使用刪除目前棋子及後續分支按鈕");
         return;
       }
-      if (!global.VCFWorkbenchRecord?.isActive?.()) return;
+      if (!global.VCFWorkbenchRecord?.isActive?.()) {
+        if (global.__vcfRapfiDbScheduled) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          status(global.__vcfRapfiDbFailed
+            ? "棋譜引擎載入失敗，請重新整理"
+            : "棋譜引擎初始化中，請稍候");
+        }
+        return;
+      }
       event.preventDefault();
       event.stopImmediatePropagation();
       if (!global.VCFWorkbenchRecord?.playAt?.(point.index)) {
