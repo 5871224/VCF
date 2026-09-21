@@ -50,13 +50,6 @@ jobs:
           path: .cache/vcf-bitboard-engine
           key: vcf-bitboard-engine-lto-v4-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
 
-      - name: Restore YXDB binary index cache
-        id: yxdb-cache
-        uses: actions/cache@v4
-        with:
-          path: .cache/vcf-yxdb-index
-          key: vcf-yxdb-index-v1-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-yxdb-index.cpp') }}
-
       - name: Restore Rapfi DB bridge cache
         id: rapfi-db-cache
         uses: actions/cache@v4
@@ -65,7 +58,7 @@ jobs:
           key: vcf-rapfi-db-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-db-bridge.cpp') }}
 
       - name: Install Emscripten SDK
-        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.yxdb-cache.outputs.cache-hit != 'true' || steps.rapfi-db-cache.outputs.cache-hit != 'true'
+        if: steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.rapfi-db-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euxo pipefail
@@ -191,30 +184,26 @@ jobs:
           /tmp/vcf-rapfi-db-test
           em++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include"             -O3 -flto -DNDEBUG -std=c++17 --no-entry             -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFRapfiDBModule             -s ENVIRONMENT='web,worker,node' -s FORCE_FILESYSTEM=1 -s ALLOW_MEMORY_GROWTH=1             -s "EXPORTED_FUNCTIONS=['_vcfRapfiDbInit','_vcfRapfiDbResetBoard','_vcfRapfiDbClear','_vcfRapfiDbReady','_vcfRapfiDbEnsureCurrent','_vcfRapfiDbReplayMove','_vcfRapfiDbPlay','_vcfRapfiDbUndo','_vcfRapfiDbPly','_vcfRapfiDbHistoryMove','_vcfRapfiDbSideToMove','_vcfRapfiDbBoardCell','_vcfRapfiDbIsForbidden','_vcfRapfiDbSetDisplayText','_vcfRapfiDbGetDisplayText','_vcfRapfiDbSetRawText','_vcfRapfiDbGetRawText','_vcfRapfiDbSetComment','_vcfRapfiDbGetComment','_vcfRapfiDbTextPtr','_vcfRapfiDbTextLength','_vcfRapfiDbSetBoardText','_vcfRapfiDbQueryBoardTexts','_vcfRapfiDbBoardTextMove','_vcfRapfiDbBoardTextValue','_vcfRapfiDbQueryChildren','_vcfRapfiDbChildMove','_vcfRapfiDbRecordCount','_vcfRapfiDbDeleteCurrentAndChildren','_vcfRapfiDbCloneRule','_vcfRapfiDbExportYXDB','_vcfRapfiDbImportYXDB','_vcfRapfiDbBytesPtr','_vcfRapfiDbBytesLength','_malloc','_free']"             -s "EXPORTED_RUNTIME_METHODS=['cwrap']"             -o .cache/vcf-rapfi-db/vcf-rapfi-db.js
 
-      - name: Build YXDB binary index engine
-        if: steps.yxdb-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -euxo pipefail
-          source .build/emsdk/emsdk_env.sh
-          rm -rf .cache/vcf-yxdb-index
-          mkdir -p .cache/vcf-yxdb-index
-          g++ rapfi/vcf-yxdb-index.cpp -O3 -flto -DNDEBUG -std=c++17 -DVCF_YXDB_INDEX_TEST_MAIN -o /tmp/vcf-yxdb-index-test
-          /tmp/vcf-yxdb-index-test
-          em++ rapfi/vcf-yxdb-index.cpp \
-            -O3 -flto -DNDEBUG -std=c++17 --no-entry \
-            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFYxdbIndexModule \
-            -s ENVIRONMENT='web,worker,node' -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1 \
-            -s "EXPORTED_FUNCTIONS=['_vcfYxdbLoadFrame','_vcfYxdbQueryKey','_vcfYxdbQueryBoard','_vcfYxdbResultTextPtr','_vcfYxdbResultTextLength','_vcfYxdbQueryKeyPtr','_vcfYxdbQueryKeyLength','_vcfYxdbRecordCount','_vcfYxdbRawSize','_vcfYxdbIndexSlots','_vcfYxdbLastError','_malloc','_free']" \
-            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
-            -o .cache/vcf-yxdb-index/vcf-yxdb-index.js
-
       - name: Verify source architecture and runtime
         shell: bash
         run: |
           set -euxo pipefail
           npm run test:architecture
           VCF_BITBOARD_ENGINE_DIR=.cache/vcf-bitboard-engine npm run test:runtime
+          node - <<'NODE'
+          const path = require("path");
+          const createModule = require(path.resolve(".cache/vcf-rapfi-db/vcf-rapfi-db.js"));
+          createModule({ locateFile: file => path.resolve(".cache/vcf-rapfi-db", file) })
+            .then(module => {
+              const init = module.cwrap("vcfRapfiDbInit", "number", ["number"]);
+              const play = module.cwrap("vcfRapfiDbPlay", "number", ["number", "number"]);
+              const exportYXDB = module.cwrap("vcfRapfiDbExportYXDB", "number", []);
+              if (init(2) !== 1 || exportYXDB() <= 0) throw new Error("empty Rapfi DB snapshot failed");
+              if (play(112, 1) !== 1 || exportYXDB() <= 0) throw new Error("played Rapfi DB snapshot failed");
+              console.log("Rapfi DB Wasm snapshot smoke test passed");
+            })
+            .catch(error => { console.error(error); process.exit(1); });
+          NODE
 
       - name: Prepare static site from allowlist
         shell: bash

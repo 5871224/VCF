@@ -12,6 +12,7 @@
 #include "game/board.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -289,11 +290,24 @@ bool exportStorageBytes()
     if (!g_storage->flush())
         return false;
 
-    std::ifstream file(STORAGE_PATH, std::ios::binary);
+    std::FILE *file = std::fopen(STORAGE_PATH, "rb");
     if (!file)
         return false;
-    g_blobResult.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-    return true;
+    if (std::fseek(file, 0, SEEK_END) != 0) {
+        std::fclose(file);
+        return false;
+    }
+    const long length = std::ftell(file);
+    if (length < 0 || std::fseek(file, 0, SEEK_SET) != 0) {
+        std::fclose(file);
+        return false;
+    }
+    g_blobResult.resize(static_cast<size_t>(length));
+    const bool ok = length == 0 || std::fread(g_blobResult.data(), 1, static_cast<size_t>(length), file) == static_cast<size_t>(length);
+    std::fclose(file);
+    if (!ok)
+        g_blobResult.clear();
+    return ok;
 }
 
 bool importStorageBytes(const uint8_t *bytes, int length, Rule rule)
@@ -624,6 +638,7 @@ static void replayPath(const std::vector<int> &moves, bool save)
 int main()
 {
     assert(vcfRapfiDbInit(RENJU) == 1);
+    assert(vcfRapfiDbExportYXDB() > 0);
 
     // First route to a position.
     replayPath({112, 97, 113, 98}, true);

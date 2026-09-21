@@ -540,6 +540,7 @@ for (const token of [
   'clearPosition(source = "clear")',
   'exportYXDB()',
   'ensureActive() { return activateRapfiDatabase(); }',
+  'applyCurrentBoard(false, "init", false)',
   'playAt(move, source = "manual")',
   'service.play(index, true)',
   'global._renderBoardArr || global._setBoardArr',
@@ -563,8 +564,8 @@ for (const forbiddenToken of [
 }
 const entry = read("makevcf.html");
 for (const token of [
-  'rapfi/rapfi-workbench-header.js?v=20260921-rapfi-ready1',
-  'rapfi/vcf-record-tools.js?v=20260921-rapfi-ready1',
+  'rapfi/rapfi-workbench-header.js?v=20260921-rapfi-export1',
+  'rapfi/vcf-record-tools.js?v=20260921-rapfi-export1',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
   'global.VCFWorkbenchRecord?.ensureActive?.()',
@@ -638,8 +639,11 @@ for (const token of [
   'vcfRapfiDbCloneRule',
 ]) if (!rapfiDbBridge.includes(token)) throw new Error(`Rapfi DB bridge contract missing: ${token}`);
 const pagesBuilderCloud = read("tools/prepare-pages-site.py");
-if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260921-rapfi-ready1')) {
-  throw new Error("cloud record script must be cache-busted in Pages artifact");
+if (pagesBuilderCloud.includes('"vcf-lz4-cloud.js"')
+    || pagesBuilderCloud.includes('"vcf-google-popup-auth.js"')
+    || pagesBuilderCloud.includes('"vcf-yxdb-index.*"')
+    || pagesBuilderCloud.includes('inject_pages_scripts')) {
+  throw new Error("GitHub Pages must not package PHP-backed cloud record controls");
 }
 if (!pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
   throw new Error("Rapfi DB bridge build output must remain available for later lazy loading");
@@ -647,7 +651,7 @@ if (!pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
 
 const recordToolsMarkerToggle = read("rapfi/vcf-record-tools.js");
 for (const token of [
-  'const SETTINGS_VERSION = 2;',
+  'const SETTINGS_VERSION = 3;',
   'editMode: true,',
   'if (savedVersion < SETTINGS_VERSION) state.editMode = true;',
   'JSON.stringify({ ...state, version: SETTINGS_VERSION })',
@@ -671,6 +675,12 @@ const pagesBuild = read("tools/prepare-pages-site.py");
 if (!pagesBuild.includes('vcf-rapfi-db.*')) {
   throw new Error("GitHub Pages must package the Rapfi DB bridge runtime used by the root workbench");
 }
+const pagesWorkflow = read(".github/workflows/pages.yml");
+for (const token of [
+  'empty Rapfi DB snapshot failed',
+  'played Rapfi DB snapshot failed',
+  'Rapfi DB Wasm snapshot smoke test passed',
+]) if (!pagesWorkflow.includes(token)) throw new Error("Pages must smoke-test Rapfi DB Wasm snapshots: " + token);
 
 const startupSource = entry.match(/<script>\s*(\(function scheduleRapfiRecordDatabase[\s\S]*?\)\(window\);)\s*<\/script>/)?.[1];
 if (!startupSource) throw new Error("Rapfi startup runtime not found");

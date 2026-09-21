@@ -792,13 +792,13 @@
         },
       }));
     };
-    const applyCurrentBoard = (databaseChanged = false, source = "record-navigation") => {
+    const applyCurrentBoard = (databaseChanged = false, source = "record-navigation", persist = true) => {
       const service = db();
       if (!rapfiDbActive || !exact || !service?.isReady) return false;
       const board = new Uint8Array(service.board());
       lastBoard = board;
       setMainBoard(board, service.sideToMove());
-      saveState(databaseChanged);
+      if (persist) saveState(databaseChanged);
       notify();
       emitBoardChanged(source);
       return true;
@@ -876,7 +876,7 @@
       basePly = 0;
       selectedNextByRoute.clear();
       persistedDbBase64 = "";
-      return applyCurrentBoard(true, "init");
+      return applyCurrentBoard(false, "init", false);
     };
     const restoreSavedState = async () => {
       const service = db();

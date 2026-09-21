@@ -43,8 +43,6 @@ RAPFI_FILES = [
     "vcf-rapfi-db.js",
     "vcf-record-tools.js",
     "rapfi-question-bank.js",
-    "vcf-lz4-cloud.js",
-    "vcf-google-popup-auth.js",
 ]
 
 
@@ -53,23 +51,6 @@ def copy_file(source: Path, destination: Path) -> None:
         raise FileNotFoundError(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, destination)
-
-
-def inject_pages_scripts() -> None:
-    """Inject only deployment extras that do not change the root engine startup path."""
-    index = SITE / "index.html"
-    html = index.read_text(encoding="utf-8")
-
-    tags = "\n".join([
-        '<script src="rapfi/engine/vcf-yxdb-index.js"></script>',
-        '<script src="rapfi/vcf-lz4-cloud.js?v=20260921-rapfi-ready1"></script>',
-        '<script src="rapfi/vcf-google-popup-auth.js?v=20260913"></script>',
-    ])
-    if "vcf-yxdb-index.js" not in html:
-        if "</body>" not in html:
-            raise RuntimeError("root entry is missing </body>")
-        html = html.replace("</body>", f"{tags}\n\n</body>", 1)
-        index.write_text(html, encoding="utf-8")
 
 
 def main() -> None:
@@ -98,7 +79,6 @@ def main() -> None:
         (ROOT / ".cache" / "rapfi-wasm", "rapfi-single-simd128.*"),
         (ROOT / ".cache" / "vcf-pattern-engine", "vcf-pattern-engine.*"),
         (ROOT / ".cache" / "vcf-bitboard-engine", "vcf-bitboard-engine.*"),
-        (ROOT / ".cache" / "vcf-yxdb-index", "vcf-yxdb-index.*"),
         (ROOT / ".cache" / "vcf-rapfi-db", "vcf-rapfi-db.*"),
     ]
     for cache_dir, pattern in cache_patterns:
@@ -108,7 +88,6 @@ def main() -> None:
         for source in matches:
             copy_file(source, engine_dir / source.name)
 
-    inject_pages_scripts()
     (SITE / ".nojekyll").touch()
 
     forbidden = [
@@ -134,9 +113,6 @@ def main() -> None:
         "rapfi-bitboard-dashboard.js",
         "vcf-shortest-vcf-ui.js",
         "vcf-forbidden-overlay.js",
-        "vcf-yxdb-index.js",
-        "vcf-lz4-cloud.js",
-        "vcf-google-popup-auth.js",
     ]
     missing = [token for token in required_tokens if token not in html]
     if missing:

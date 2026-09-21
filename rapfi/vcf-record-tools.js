@@ -8,7 +8,7 @@
   const GRID_END = PAD + CELL * (BOARD_SIZE - 1);
   const NS = "http://www.w3.org/2000/svg";
   const SETTINGS_KEY = "vcf_record_tools_v1";
-  const SETTINGS_VERSION = 2;
+  const SETTINGS_VERSION = 3;
   const TITLE_KEY = "vcf_record_title_v1";
   const ICON_ROOT = "rapfi/record-svg/";
 
