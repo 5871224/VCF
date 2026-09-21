@@ -106,7 +106,7 @@
 
   const install = () => {
     if (document.getElementById("vcf-question-bank")) return true;
-    if (typeof window._getArr !== "function" || typeof window._setBoardArr !== "function") return false;
+    if (!window.VCFWorkbenchRecord || typeof window._getArr !== "function") return false;
 
     const anchor = document.getElementById("bitboard-architecture-panel");
     if (!anchor) return false;
@@ -255,11 +255,13 @@
       if (index < 0 || index >= bank.length || isBusy()) return;
       currentIndex = index;
       clearResultLayers();
-      const applyBoard = () => window._setBoardArr(bank[index].board, bank[index].attacker);
-      if (typeof window.vcfWithBoardChangeSource === "function") {
-        window.vcfWithBoardChangeSource("question-bank", applyBoard);
-      } else {
-        applyBoard();
+      const applied = window.VCFWorkbenchRecord?.replacePosition?.(bank[index].board, {
+        sideToMove: bank[index].attacker,
+        source: "question-bank",
+      });
+      if (!applied) {
+        if (typeof setStatus === "function") setStatus("Rapfi 棋盤引擎尚未就緒，無法載入題目");
+        return;
       }
       updateControls();
       if (typeof setStatus === "function") setStatus(`已載入題庫第 ${index + 1} 題，共 ${bank.length} 題`);
