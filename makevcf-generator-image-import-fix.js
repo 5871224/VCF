@@ -1286,12 +1286,15 @@
       orderStatus.classList.add("is-error");
       return false;
     }
-    const nextColor = history.length % 2 === 0 ? BLACK : WHITE;
-    global._setBoardArr?.(Array.from(state.board), nextColor);
-    if (global.VCFWorkbenchRecord?.setHistory) {
-      global.VCFWorkbenchRecord.setHistory(history, true);
+    const applied = global.VCFWorkbenchRecord?.replaceHistory?.(history, {
+      source: "image-import",
+    });
+    if (!applied) {
+      orderStatus.textContent = "Rapfi 棋盤引擎尚未就緒，無法套用手順。";
+      orderStatus.classList.add("is-error");
+      return false;
     }
-    orderStatus.textContent = `已將記譜紙手順套用到棋盤，共 ${history.length} 手。`;
+    orderStatus.textContent = `已將記譜紙手順套用到 Rapfi 棋盤，共 ${history.length} 手。`;
     orderStatus.classList.remove("is-error");
     return true;
   }
@@ -1310,10 +1313,8 @@
       const board = readBoard();
       state.board = board;
       pruneAssignments(board);
-      const history = buildExactHistory(board);
-      if (history && global.VCFWorkbenchRecord?.setHistory) {
-        global.VCFWorkbenchRecord.setHistory(history, true);
-      }
+      // 一般圖片辨識只有局面、沒有可信手順；保留為 Rapfi setup position，
+      // 不再猜測手順並覆寫成可 undo 的 history。
       if (state.active) renderAll();
     });
   });
