@@ -486,7 +486,12 @@ for (const token of [
   'basePly',
   'playAt(move)',
   'service.play(index, true)',
+  'boardsEqual(restoredBoard, savedBoard)',
+  'if (liveBoard.some(Boolean)) return false;',
 ]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
+if (header.includes('\\${currentRule}') || header.includes('\\${savedRule}')) {
+  throw new Error("escaped template literal regression remains in Rapfi workbench record state");
+}
 for (const forbiddenToken of [
   'vcf_board_record_tree_v3',
   'vcf_board_history_v2',
@@ -583,8 +588,9 @@ for (const token of [
   'if (point.index >= 0) addOrReplaceMarker(point.index)',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);
 for (const token of [
-  'global.__vcfRapfiDbScheduled',
+  'global.__vcfRapfiDbLoading',
   '"棋譜引擎初始化中，請稍候"',
+  '"棋譜引擎未啟用，已暫時恢復一般盤面落子"',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error("record DB readiness guard missing: " + token);
 
 const pagesBuild = read("tools/prepare-pages-site.py");
