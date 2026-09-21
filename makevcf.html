@@ -307,7 +307,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 
   window.__vcfRootBitboardWorkbench = true;
   document.write('<script src="rapfi/engine/vcf-bitboard-engine.js"><\/script>');
-  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20260914-bd-timing"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20260921-init-timeout1"><\/script>');
 })();
 </script>
 <script>
@@ -519,8 +519,8 @@ class WorkerPool {
 const engine = new VCFEngine();
 const pool = new WorkerPool();
 engine._initP
-  .then(() => setStatus("就緒，點擊棋盤交替落子，再點計算"))
-  .catch(e => setStatus("⚠ " + e.message));
+  .then(() => setStatus("VCF 計算引擎就緒，點擊棋盤交替落子，再點計算"))
+  .catch(e => setStatus("⚠ VCF 計算引擎初始化失敗：" + e.message + "；Rapfi 棋盤仍可使用"));
 
 // ============================================================
 // Board SVG
@@ -3352,7 +3352,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   }
 })(window);
 </script>
-<script src="rapfi/rapfi-question-bank.js"></script>
+<script src="rapfi/rapfi-question-bank.js?v=20260921-load-timeout1"></script>
 <script src="makevcf-generator-open-four-stop.js"></script>
 <script src="makevcf-generator-ui-compact.js"></script>
 <script src="makevcf-generator-layout-fix.js"></script>
