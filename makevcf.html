@@ -518,6 +518,7 @@ class WorkerPool {
 
 const engine = new VCFEngine();
 const pool = new WorkerPool();
+window.vcfRootEngineReady = engine._initP;
 engine._initP
   .then(() => setStatus("就緒，點擊棋盤交替落子，再點計算"))
   .catch(e => setStatus("⚠ " + e.message));
@@ -3316,10 +3317,54 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-forbidden-overlay.js"></script>
-<script src="rapfi/engine/vcf-rapfi-db.js?v=20260921-record-db1"></script>
-<script src="rapfi/vcf-rapfi-db.js?v=20260921-record-db1"></script>
-<script src="rapfi/rapfi-workbench-header.js?v=20260921-record-db1"></script>
-<script src="rapfi/vcf-record-tools.js?v=20260921-record-db1"></script>
+<script src="rapfi/rapfi-workbench-header.js?v=20260921-record-db2"></script>
+<script src="rapfi/vcf-record-tools.js?v=20260921-record-db2"></script>
+<script>
+(function scheduleRapfiRecordDatabase(global) {
+  const version = "20260921-record-db2";
+  global.__vcfRapfiDbScheduled = true;
+  global.__vcfRapfiDbLoading = false;
+  global.__vcfRapfiDbFailed = false;
+
+  const loadScript = src => new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = false;
+    script.onload = () => resolve(script);
+    script.onerror = () => reject(new Error("載入失敗：" + src));
+    document.head.appendChild(script);
+  });
+
+  const start = async () => {
+    if (global.VCFRapfiDB?.isReady || global.__vcfRapfiDbLoading) return;
+    global.__vcfRapfiDbLoading = true;
+    try {
+      if (typeof global.VCFRapfiDBModule !== "function") {
+        await loadScript("rapfi/engine/vcf-rapfi-db.js?v=" + version);
+      }
+      if (!global.VCFRapfiDB) {
+        await loadScript("rapfi/vcf-rapfi-db.js?v=" + version);
+      }
+      await global.VCFRapfiDB?.ready;
+      global.__vcfRapfiDbFailed = !global.VCFRapfiDB?.isReady;
+    } catch (error) {
+      global.__vcfRapfiDbFailed = true;
+      console.error("Rapfi 棋譜 DB 延遲初始化失敗", error);
+    } finally {
+      global.__vcfRapfiDbLoading = false;
+    }
+  };
+
+  const mainReady = global.vcfRootEngineReady;
+  if (mainReady && typeof mainReady.then === "function") {
+    mainReady.then(start).catch(error => {
+      console.warn("主引擎未就緒，略過 Rapfi 棋譜 DB 初始化", error);
+    });
+  } else {
+    queueMicrotask(start);
+  }
+})(window);
+</script>
 <script src="rapfi/rapfi-question-bank.js"></script>
 <script src="makevcf-generator-open-four-stop.js"></script>
 <script src="makevcf-generator-ui-compact.js"></script>
