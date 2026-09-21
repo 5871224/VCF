@@ -423,7 +423,7 @@
       return;
     }
     if (point.index >= 0) {
-      const currentBoard = global._getArr?.() || [];
+      const currentBoard = global.VCFWorkbenchRecord?.currentBoard?.() || [];
       if (Number(currentBoard[point.index])) {
         event.preventDefault();
         event.stopImmediatePropagation();
@@ -431,18 +431,16 @@
         return;
       }
       if (!global.VCFWorkbenchRecord?.isActive?.()) {
-        if (global.__vcfRapfiDbLoading) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          status("棋譜引擎初始化中，請稍候");
-        } else if (global.__vcfRapfiDbFailed) {
-          status("棋譜引擎未啟用，已暫時恢復一般盤面落子");
-        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        status(global.__vcfRapfiDbFailed
+          ? "Rapfi 棋盤引擎載入失敗，請重新整理"
+          : "Rapfi 棋盤引擎初始化中，請稍候");
         return;
       }
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (!global.VCFWorkbenchRecord?.playAt?.(point.index)) {
+      if (!global.VCFWorkbenchRecord?.playAt?.(point.index, "manual")) {
         status("目前棋盤狀態無法落子，請確認棋譜狀態");
       }
     }
