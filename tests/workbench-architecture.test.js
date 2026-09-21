@@ -143,7 +143,7 @@ for (const token of [
   'if (pathname.endsWith("/index.html"))',
   'const entryName = trimmedPath.split("/").filter(Boolean).pop() || "";',
   'if (entryName.includes(".")) return;',
-  'vcf-bitboard-main.js?v=20260914-bd-timing',
+  'vcf-bitboard-main.js?v=20260921-init-timeout1',
 ]) if (!workbenchHtml.includes(token)) {
   throw new Error(`path-independent Bitboard entry contract missing: ${token}`);
 }
@@ -153,6 +153,17 @@ if (!workbenchHtml.includes("includeStats: true")
 }
 if (!main.includes("normalized.includeStats ? result : result.points")) {
   throw new Error("getBlockVCF detailed statistics bridge missing");
+}
+for (const token of [
+  "const ENGINE_INIT_TIMEOUT_MS = 15000;",
+  "withTimeout",
+  '"Bitboard Worker 初始化逾時"',
+  '"主執行緒 Bitboard Wasm 初始化逾時"',
+]) if (!main.includes(token)) throw new Error("Bitboard startup timeout contract missing: " + token);
+if (!workbenchHtml.includes("VCF 計算引擎初始化失敗")
+    || !workbenchHtml.includes("Rapfi 棋盤仍可使用")
+    || !workbenchHtml.includes("rapfi/rapfi-question-bank.js?v=20260921-load-timeout1")) {
+  throw new Error("startup failure status/cache-bust contract missing");
 }
 
 const recordTools = read("rapfi/vcf-record-tools.js");
@@ -193,6 +204,13 @@ const questionBank = read("rapfi/rapfi-question-bank.js");
 for (const token of ["vcf-board-changed", "vcfRegisterBusyHook", "VCFWorkbenchRecord?.replacePosition"]) {
   if (!questionBank.includes(token)) throw new Error(`question bank event contract missing: ${token}`);
 }
+for (const token of [
+  "const REQUEST_TIMEOUT_MS = 10000;",
+  'controller.abort()',
+  '"題庫連線逾時，請重新載入"',
+  'retryButton.addEventListener("click"',
+  'id="qb-retry"',
+]) if (!questionBank.includes(token)) throw new Error("question bank timeout/retry contract missing: " + token);
 const forbidden = read("rapfi/vcf-forbidden-overlay.js");
 if (!forbidden.includes("vcf-board-changed") || !forbidden.includes("vcf-rule-changed")) {
   throw new Error("forbidden overlay is not event driven");
