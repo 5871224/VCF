@@ -2,6 +2,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
 
 const root = path.resolve(__dirname, "..");
 const read = file => fs.readFileSync(path.join(root, file), "utf8");
@@ -538,6 +539,7 @@ for (const token of [
   'currentBoard()',
   'clearPosition(source = "clear")',
   'exportYXDB()',
+  'ensureActive() { return activateRapfiDatabase(); }',
   'playAt(move, source = "manual")',
   'service.play(index, true)',
   'global._renderBoardArr || global._setBoardArr',
@@ -561,9 +563,12 @@ for (const forbiddenToken of [
 }
 const entry = read("makevcf.html");
 for (const token of [
-  'rapfi/rapfi-workbench-header.js?v=20260921-single-board1',
-  'rapfi/vcf-record-tools.js?v=20260921-single-board1',
+  'rapfi/rapfi-workbench-header.js?v=20260921-rapfi-ready1',
+  'rapfi/vcf-record-tools.js?v=20260921-rapfi-ready1',
   'scheduleRapfiRecordDatabase',
+  'Rapfi 棋盤啟用逾時',
+  'global.VCFWorkbenchRecord?.ensureActive?.()',
+  'global.VCFWorkbenchRecord?.isActive?.()',
   'rapfi/engine/vcf-rapfi-db.js?v=',
   'rapfi/vcf-rapfi-db.js?v=',
   'requestIdleCallback',
@@ -633,7 +638,7 @@ for (const token of [
   'vcfRapfiDbCloneRule',
 ]) if (!rapfiDbBridge.includes(token)) throw new Error(`Rapfi DB bridge contract missing: ${token}`);
 const pagesBuilderCloud = read("tools/prepare-pages-site.py");
-if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260921-single-board1')) {
+if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260921-rapfi-ready1')) {
   throw new Error("cloud record script must be cache-busted in Pages artifact");
 }
 if (!pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
@@ -666,3 +671,56 @@ const pagesBuild = read("tools/prepare-pages-site.py");
 if (!pagesBuild.includes('vcf-rapfi-db.*')) {
   throw new Error("GitHub Pages must package the Rapfi DB bridge runtime used by the root workbench");
 }
+
+const startupSource = entry.match(/<script>\s*(\(function scheduleRapfiRecordDatabase[\s\S]*?\)\(window\);)\s*<\/script>/)?.[1];
+if (!startupSource) throw new Error("Rapfi startup runtime not found");
+(async () => {
+  let active = false;
+  let activate = null;
+  const activationGate = new Promise(resolve => { activate = resolve; });
+  const window = {
+    VCFRapfiDBModule() {},
+    VCFRapfiDB: { isReady: true, ready: Promise.resolve(true) },
+    VCFWorkbenchRecord: {
+      isActive: () => active,
+      ensureActive: async () => { await activationGate; active = true; return true; },
+    },
+    addEventListener() {},
+    requestIdleCallback(callback) { callback(); },
+  };
+  vm.runInNewContext(startupSource, { window, document: {}, console, Map, Promise, Error, setTimeout, clearTimeout });
+  await Promise.resolve();
+  if (!window.__vcfRapfiDbLoading || window.__vcfRapfiDbFailed) {
+    throw new Error("Rapfi startup must remain loading while workbench activation is pending");
+  }
+  activate();
+  if (await window.__vcfRapfiDbReady !== true || !active || window.__vcfRapfiDbLoading || window.__vcfRapfiDbFailed) {
+    throw new Error("Rapfi startup must finish only after the workbench is active");
+  }
+
+  const stalledWindow = {
+    VCFRapfiDBModule() {},
+    VCFRapfiDB: { isReady: true, ready: Promise.resolve(true) },
+    VCFWorkbenchRecord: { isActive: () => false, ensureActive: () => new Promise(() => {}) },
+    addEventListener() {},
+    requestIdleCallback(callback) { callback(); },
+  };
+  const quietConsole = { error() {}, warn: console.warn, log: console.log };
+  const immediateTimeout = callback => { Promise.resolve().then(callback); return 1; };
+  vm.runInNewContext(startupSource, {
+    window: stalledWindow,
+    document: {},
+    console: quietConsole,
+    Map,
+    Promise,
+    Error,
+    setTimeout: immediateTimeout,
+    clearTimeout() {},
+  });
+  if (await stalledWindow.__vcfRapfiDbReady !== false || stalledWindow.__vcfRapfiDbLoading || !stalledWindow.__vcfRapfiDbFailed) {
+    throw new Error("Rapfi startup timeout must leave loading state and report failure");
+  }
+})().catch(error => {
+  console.error(error);
+  process.exitCode = 1;
+});

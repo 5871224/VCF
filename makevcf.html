@@ -3306,43 +3306,77 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-forbidden-overlay.js"></script>
-<script src="rapfi/rapfi-workbench-header.js?v=20260921-single-board1"></script>
-<script src="rapfi/vcf-record-tools.js?v=20260921-single-board1"></script>
+<script src="rapfi/rapfi-workbench-header.js?v=20260921-rapfi-ready1"></script>
+<script src="rapfi/vcf-record-tools.js?v=20260921-rapfi-ready1"></script>
 <script>
 (function scheduleRapfiRecordDatabase(global) {
-  const version = "20260921-single-board1";
+  const version = "20260921-rapfi-ready1";
+  const STARTUP_TIMEOUT_MS = 15000;
+  const scriptLoads = new Map();
+  let startPromise = null;
   global.__vcfRapfiDbScheduled = true;
   global.__vcfRapfiDbLoading = false;
   global.__vcfRapfiDbFailed = false;
 
-  const loadScript = src => new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = false;
-    script.onload = () => resolve(script);
-    script.onerror = () => reject(new Error("載入失敗：" + src));
-    document.head.appendChild(script);
-  });
+  const loadScript = src => {
+    if (scriptLoads.has(src)) return scriptLoads.get(src);
+    const promise = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = false;
+      script.onload = () => resolve(script);
+      script.onerror = () => reject(new Error("載入失敗：" + src));
+      document.head.appendChild(script);
+    }).catch(error => {
+      scriptLoads.delete(src);
+      throw error;
+    });
+    scriptLoads.set(src, promise);
+    return promise;
+  };
 
-  const start = async () => {
-    if (global.VCFRapfiDB?.isReady || global.__vcfRapfiDbLoading) return;
+  const withTimeout = (promise, message) => {
+    let timer = 0;
+    return Promise.race([
+      Promise.resolve(promise),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), STARTUP_TIMEOUT_MS); }),
+    ]).finally(() => clearTimeout(timer));
+  };
+
+  const start = () => {
+    if (global.VCFWorkbenchRecord?.isActive?.()) return Promise.resolve(true);
+    if (startPromise) return startPromise;
     global.__vcfRapfiDbLoading = true;
-    try {
+    global.__vcfRapfiDbFailed = false;
+    const startup = (async () => {
       if (typeof global.VCFRapfiDBModule !== "function") {
         await loadScript("rapfi/engine/vcf-rapfi-db.js?v=" + version);
       }
       if (!global.VCFRapfiDB) {
         await loadScript("rapfi/vcf-rapfi-db.js?v=" + version);
       }
-      await global.VCFRapfiDB?.ready;
-      global.__vcfRapfiDbFailed = !global.VCFRapfiDB?.isReady;
-    } catch (error) {
+      if (!global.VCFRapfiDB?.ready) throw new Error("找不到 Rapfi DB 服務");
+      await global.VCFRapfiDB.ready;
+      const active = await global.VCFWorkbenchRecord?.ensureActive?.();
+      if (!active || !global.VCFWorkbenchRecord?.isActive?.()) throw new Error("Rapfi 棋盤狀態無法啟用");
+      return true;
+    })();
+    startPromise = withTimeout(startup, "Rapfi 棋盤啟用逾時").then(() => {
+      global.__vcfRapfiDbFailed = false;
+      return true;
+    }).catch(error => {
       global.__vcfRapfiDbFailed = true;
       console.error("Rapfi 棋譜 DB 延遲初始化失敗", error);
-    } finally {
+      return false;
+    }).finally(() => {
       global.__vcfRapfiDbLoading = false;
-    }
+      startPromise = null;
+    });
+    global.__vcfRapfiDbReady = startPromise;
+    return startPromise;
   };
+
+  global.addEventListener("vcf-rapfi-db-active", () => { global.__vcfRapfiDbFailed = false; });
 
   // Rapfi Board 是棋盤資料層，與 Bitboard 計算引擎獨立初始化。
   if (typeof global.requestIdleCallback === "function") {

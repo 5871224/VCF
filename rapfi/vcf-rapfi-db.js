@@ -154,7 +154,9 @@
       locateFile: file => new URL(`engine/${file}`, scriptURL).href,
     });
     api = bind(module);
-    api.init(Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2));
+    if (!api.init(Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2))) {
+      throw new Error("Rapfi DB Wasm 初始化回傳失敗");
+    }
     global.dispatchEvent(new CustomEvent("vcf-rapfi-db-ready"));
     return facade;
   })().catch(error => {

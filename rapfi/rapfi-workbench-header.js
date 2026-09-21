@@ -866,38 +866,9 @@
       service.ensureCurrent();
       return applyCurrentBoard(true, options.source || "replace-history");
     };
-    const restoreSavedState = async () => {
-      const service = db();
-      if (!service?.isReady) return false;
-      let saved = null;
-      try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch (_) {}
-      if (saved?.version === 1 && typeof saved.db === "string" && saved.db.length) {
-        const savedRule = normalizeRule(saved.rule);
-        if (savedRule !== activeRule()) {
-          restoringRule = true;
-          const radio = ruleBox?.querySelector('input[name="rules"][value="' + savedRule + '"]');
-          if (radio) radio.checked = true;
-          if (ruleBox) ruleBox.dataset.activeRules = String(savedRule);
-          Promise.resolve(global.vcfSetRules?.(savedRule)).catch(error => console.warn("同步計算引擎規則失敗", error)).finally(() => { restoringRule = false; });
-        }
-        currentRule = savedRule;
-        if (service.restoreYXDB(base64ToBytes(saved.db), currentRule)) {
-          persistedDbBase64 = saved.db;
-          service.resetBoard(currentRule);
-          let historyOk = true;
-          for (const move of Array.isArray(saved.history) ? saved.history : []) {
-            if (!service.replayMove(Number(move), false)) { historyOk = false; break; }
-          }
-          if (historyOk) {
-            basePly = Math.max(0, Math.min(service.ply(), Number(saved.basePly || 0)));
-            rapfiDbActive = true;
-            exact = true;
-            service.ensureCurrent();
-            return applyCurrentBoard(false, "restore");
-          }
-        }
-      }
+    const resetToEmptyBoard = () => {
       currentRule = normalizeRule(activeRule());
+      const service = db();
       service.clear(currentRule);
       service.ensureCurrent();
       rapfiDbActive = true;
@@ -907,12 +878,68 @@
       persistedDbBase64 = "";
       return applyCurrentBoard(true, "init");
     };
-    const activateRapfiDatabase = async () => {
-      if (rapfiDbActive) return true;
-      if (!global.VCFRapfiDB?.isReady) return false;
-      const ok = await restoreSavedState();
-      if (ok) global.dispatchEvent(new CustomEvent("vcf-rapfi-db-active"));
-      return ok;
+    const restoreSavedState = async () => {
+      const service = db();
+      if (!service?.isReady) return false;
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
+      catch (error) {
+        console.warn("Rapfi 工作台狀態格式損壞，已改用空白棋盤", error);
+        try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      }
+      if (saved?.version === 1 && typeof saved.db === "string" && saved.db.length) {
+        try {
+          const savedRule = normalizeRule(saved.rule);
+          if (savedRule !== activeRule()) {
+            restoringRule = true;
+            const radio = ruleBox?.querySelector('input[name="rules"][value="' + savedRule + '"]');
+            if (radio) radio.checked = true;
+            if (ruleBox) ruleBox.dataset.activeRules = String(savedRule);
+            Promise.resolve(global.vcfSetRules?.(savedRule)).catch(error => console.warn("同步計算引擎規則失敗", error)).finally(() => { restoringRule = false; });
+          }
+          currentRule = savedRule;
+          if (service.restoreYXDB(base64ToBytes(saved.db), currentRule)) {
+            persistedDbBase64 = saved.db;
+            service.resetBoard(currentRule);
+            let historyOk = true;
+            for (const move of Array.isArray(saved.history) ? saved.history : []) {
+              if (!service.replayMove(Number(move), false)) { historyOk = false; break; }
+            }
+            if (historyOk) {
+              basePly = Math.max(0, Math.min(service.ply(), Number(saved.basePly || 0)));
+              rapfiDbActive = true;
+              exact = true;
+              service.ensureCurrent();
+              return applyCurrentBoard(false, "restore");
+            }
+            console.warn("Rapfi 工作台手順損壞，已保留棋譜資料並回到起始點");
+            service.resetBoard(currentRule);
+            service.ensureCurrent();
+            basePly = 0;
+            rapfiDbActive = true;
+            exact = true;
+            selectedNextByRoute.clear();
+            return applyCurrentBoard(false, "restore-recovered");
+          }
+          throw new Error("Rapfi YXDB snapshot 無法讀取");
+        } catch (error) {
+          console.warn("Rapfi 工作台快照損壞，已改用空白棋盤", error);
+          try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+        }
+      }
+      return resetToEmptyBoard();
+    };
+    let activationPromise = null;
+    const activateRapfiDatabase = () => {
+      if (rapfiDbActive) return Promise.resolve(true);
+      if (!global.VCFRapfiDB?.isReady) return Promise.resolve(false);
+      if (activationPromise) return activationPromise;
+      activationPromise = restoreSavedState().then(ok => {
+        if (!ok) throw new Error("Rapfi 棋盤狀態無法啟用");
+        global.dispatchEvent(new CustomEvent("vcf-rapfi-db-active"));
+        return true;
+      }).finally(() => { activationPromise = null; });
+      return activationPromise;
     };
     global.addEventListener("vcf-rapfi-db-ready", () => {
       queueMicrotask(() => activateRapfiDatabase().catch(error => console.error("Rapfi DB 啟用失敗", error)));
@@ -1027,6 +1054,7 @@
         const bytes = service.snapshotYXDB();
         return bytes?.length ? { bytes, recordCount: service.recordCount() } : null;
       },
+      ensureActive() { return activateRapfiDatabase(); },
       isActive() { return Boolean(rapfiDbActive && exact && db()?.isReady); },
       playAt(move, source = "manual") {
         const service = db();
