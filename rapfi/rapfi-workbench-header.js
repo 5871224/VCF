@@ -841,15 +841,16 @@
             }
           }
           basePly = Math.max(0, Math.min(service.ply(), Number(saved.basePly || 0)));
-          exact = Boolean(saved.exact !== false && historyOk);
+          const savedBoard = normalizeBoard(saved.board || []);
+          const restoredBoard = new Uint8Array(service.board());
+          exact = Boolean(historyOk && boardsEqual(restoredBoard, savedBoard));
           rapfiDbActive = true;
           if (exact) {
             service.ensureCurrent();
             applyCurrentBoard(false);
           } else {
-            const board = normalizeBoard(saved.board || []);
-            lastBoard = board;
-            setMainBoard(board, normalSideToMove(board) || BLACK);
+            lastBoard = savedBoard;
+            setMainBoard(savedBoard, normalSideToMove(savedBoard) || BLACK);
             saveState(false);
             notify();
           }
@@ -1102,8 +1103,19 @@
       playAt(move) {
         const service = db();
         const index = Number(move);
-        if (!rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(index)
+        if (!rapfiDbActive || !service?.isReady || !Number.isInteger(index)
             || index < 0 || index >= BOARD_CELLS) return false;
+        if (!exact) {
+          const liveBoard = readBoard();
+          if (liveBoard.some(Boolean)) return false;
+          service.resetBoard(currentRule);
+          service.ensureCurrent();
+          basePly = 0;
+          exact = true;
+          lastBoard = liveBoard;
+          selectedNextByRoute.clear();
+          persistedDbBase64 = "";
+        }
         const board = service.board();
         if (Number(board[index])) return false;
         const parentKey = routeKey();
