@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -362,28 +361,111 @@ bool importStorageBytes(const uint8_t *bytes, int length, Rule rule)
     if (!bytes || length <= 0)
         return false;
 
-    g_client.reset();
-    g_storage.reset();
-
-    {
-        std::ofstream file(STORAGE_PATH, std::ios::binary | std::ios::trunc);
-        if (!file)
+    const uint8_t *cursor = bytes;
+    const uint8_t *end = bytes + length;
+    auto takeU16 = [&cursor, end](uint16_t &value) {
+        if (end - cursor < 2)
             return false;
-        file.write(reinterpret_cast<const char *>(bytes), length);
-        if (!file)
-            return false;
-    }
-
-    try {
-        openStorage(rule);
-        g_blobResult.clear();
+        value = uint16_t(cursor[0]) | (uint16_t(cursor[1]) << 8);
+        cursor += 2;
         return true;
-    }
-    catch (...) {
-        g_client.reset();
-        g_storage.reset();
+    };
+    auto takeU32 = [&cursor, end](uint32_t &value) {
+        if (end - cursor < 4)
+            return false;
+        value = uint32_t(cursor[0]) | (uint32_t(cursor[1]) << 8)
+            | (uint32_t(cursor[2]) << 16) | (uint32_t(cursor[3]) << 24);
+        cursor += 4;
+        return true;
+    };
+
+    uint32_t recordCount = 0;
+    if (!takeU32(recordCount) || recordCount == 0
+        || recordCount > 10000000 || recordCount > static_cast<uint32_t>(length / 4 + 1))
         return false;
+
+    std::vector<std::pair<DBKey, DBRecord>> records;
+    for (uint32_t recordIndex = 0; recordIndex < recordCount; recordIndex++) {
+        uint16_t keyLength = 0;
+        if (!takeU16(keyLength) || end - cursor < keyLength)
+            return false;
+        const uint8_t *keyBytes = cursor;
+        cursor += keyLength;
+
+        uint16_t valueLength = 0;
+        if (!takeU16(valueLength) || end - cursor < valueLength)
+            return false;
+        const uint8_t *valueBytes = cursor;
+        cursor += valueLength;
+
+        if (keyLength < 3)
+            return false;
+        const Rule sourceRule = static_cast<Rule>(keyBytes[0]);
+        const int width = keyBytes[1];
+        const int height = keyBytes[2];
+        if (width == 0 && height == 0)
+            continue;
+        if (sourceRule >= RULE_NB || width != BOARD_SIZE || height != BOARD_SIZE
+            || (keyLength - 3) % 2 != 0)
+            return false;
+
+        const size_t slotCount = (keyLength - 3) / 2;
+        if (slotCount > BOARD_CELLS)
+            return false;
+        const size_t blackSlots = (slotCount + 1) / 2;
+        const size_t whiteSlots = slotCount / 2;
+        std::vector<Pos> blackMoves;
+        std::vector<Pos> whiteMoves;
+        std::vector<uint8_t> occupied(BOARD_CELLS, 0);
+        bool sawPass = false;
+        for (size_t slot = 0; slot < slotCount; slot++) {
+            const int x = static_cast<int8_t>(keyBytes[3 + slot * 2]);
+            const int y = static_cast<int8_t>(keyBytes[4 + slot * 2]);
+            if (x == -1 && y == -1) {
+                const size_t colorEnd = slot < blackSlots ? blackSlots : slotCount;
+                if (sawPass || slot + 1 != colorEnd)
+                    return false;
+                sawPass = true;
+                continue;
+            }
+            if (x < 0 || y < 0 || x >= BOARD_SIZE || y >= BOARD_SIZE)
+                return false;
+            const int move = y * BOARD_SIZE + x;
+            if (occupied[move])
+                return false;
+            occupied[move] = 1;
+            (slot < blackSlots ? blackMoves : whiteMoves).emplace_back(x, y);
+        }
+
+        const Color sideToMove = slotCount % 2 == 0 ? BLACK : WHITE;
+        DBKey key {sourceRule,
+                   BOARD_SIZE,
+                   BOARD_SIZE,
+                   sideToMove,
+                   blackMoves,
+                   whiteMoves};
+        DBRecord record {Database::LABEL_NULL};
+        if (valueLength) {
+            record.label = static_cast<Database::DBLabel>(static_cast<int8_t>(valueBytes[0]));
+            record.value = valueLength > 2
+                ? static_cast<int16_t>(uint16_t(valueBytes[1]) | (uint16_t(valueBytes[2]) << 8))
+                : 0;
+            record.depthbound = valueLength > 4
+                ? static_cast<int16_t>(uint16_t(valueBytes[3]) | (uint16_t(valueBytes[4]) << 8))
+                : 0;
+            if (valueLength > 5)
+                record.text.assign(reinterpret_cast<const char *>(valueBytes + 5), valueLength - 5);
+        }
+        records.emplace_back(std::move(key), std::move(record));
     }
+
+    if (records.empty())
+        return false;
+    clearAll(rule);
+    for (const auto &[key, record] : records)
+        g_storage->set(key, record, Database::RECORD_MASK_ALL);
+    g_blobResult.clear();
+    return true;
 }
 
 }  // namespace

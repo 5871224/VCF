@@ -740,6 +740,7 @@
     return {
       format: "YXDB",
       compressed,
+      storageBytes: bytes,
       root: synthetic,
       current: roots[0],
       rule: roots[0].rule,
@@ -919,7 +920,7 @@
     const parsed = parseYXDB(bytes);
     const target = options?.openAtEnd ? deepestParsedNode(parsed) : parsed.current;
     const state = parsedImportState(target);
-    const loaded = await window.VCFWorkbenchRecord?.importYXDB?.(bytes, parsed.rule, state.history, state.basePly);
+    const loaded = await window.VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, state.history, state.basePly);
     if (!loaded) throw new Error("YXDB 無法載入 Rapfi YXDBStorage");
     const currentPly = Math.max(0, state.history.length - state.basePly);
     reportRecordImport("YXDB", fileName || "棋譜.db", parsed.nodeCount, currentPly);

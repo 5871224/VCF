@@ -112,7 +112,7 @@ for (const token of [
   "parseYXDB",
   "parseRenLib",
   'button.id = "bb-import-record"',
-  'window.VCFWorkbenchRecord?.importYXDB?.(bytes, parsed.rule, state.history, state.basePly)',
+  'window.VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, state.history, state.basePly)',
   'window.VCFWorkbenchRecord?.importRoutes?.(routes, rule, openHistory)',
   'recordNavigation.id = "vcf-record-navigation"',
   'recordCommentInput.id = "vcf-record-comment-input"',
@@ -504,7 +504,7 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("makevcf.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260920-rollback1')
+if (!calculationEntry.includes('makevcf-layout.js?v=20260921-rapfi-restore1')
     || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
@@ -595,7 +595,8 @@ for (const token of [
   'window.VCFRecordImportAPI = {',
   'loadRecordBytes(rawBytes',
   'options?.openAtEnd ? deepestParsedNode(parsed) : parsed.current',
-  'VCFWorkbenchRecord?.importYXDB?.(bytes, parsed.rule, state.history, state.basePly)',
+  'VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, state.history, state.basePly)',
+  'storageBytes: bytes',
   'VCFWorkbenchRecord?.importRoutes?.(routes, rule, openHistory)',
 ]) if (!layout.includes(token)) throw new Error(`record byte importer contract missing: ${token}`);
 for (const token of [
@@ -643,6 +644,9 @@ if (rapfiDbBridge.includes("g_storage->flush()")) {
 }
 for (const token of ['const std::string metadata = "charset=\\\"UTF-8\\\""', "g_storage->scan(0, total, records)"]) {
   if (!rapfiDbBridge.includes(token)) throw new Error("Rapfi DB bridge must serialize the YXDB snapshot from native records: " + token);
+}
+if (rapfiDbBridge.includes("std::ofstream file(STORAGE_PATH")) {
+  throw new Error("Rapfi DB Wasm restore must not use the crashing Emscripten filesystem stream");
 }
 const pagesBuilderCloud = read("tools/prepare-pages-site.py");
 if (pagesBuilderCloud.includes('"vcf-lz4-cloud.js"')
