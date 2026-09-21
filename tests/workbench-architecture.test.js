@@ -484,6 +484,8 @@ for (const token of [
   'async importYXDB(bytes, rule, history = [], importedBasePly = 0)',
   'async importRoutes(routes, rule, openHistory = [])',
   'basePly',
+  'setupHistoryForBoard',
+  'adoptBoardAsSetup(lastBoard, after)',
 ]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
 for (const forbiddenToken of [
   'vcf_board_record_tree_v3',
@@ -501,7 +503,7 @@ for (const forbiddenToken of [
 }
 const entry = read("makevcf.html");
 if (!entry.includes('makevcf-layout.js?v=20260920-rollback1')
-    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260920-rollback1')
+    || !entry.includes('rapfi/rapfi-workbench-header.js?v=20260921-record-base1')
     || !entry.includes('rapfi/vcf-record-tools.js?v=20260920-rollback1')) {
   throw new Error("record UI scripts must be cache-busted and load the record tools module");
 }
