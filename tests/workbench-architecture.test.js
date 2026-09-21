@@ -509,8 +509,8 @@ for (const forbiddenToken of [
 const entry = read("makevcf.html");
 for (const token of [
   'window.vcfRootEngineReady = engine._initP;',
-  'rapfi/rapfi-workbench-header.js?v=20260921-record-db3',
-  'rapfi/vcf-record-tools.js?v=20260921-record-db3',
+  'rapfi/rapfi-workbench-header.js?v=20260921-record-db4',
+  'rapfi/vcf-record-tools.js?v=20260921-record-db4',
   'scheduleRapfiRecordDatabase',
   'rapfi/engine/vcf-rapfi-db.js?v=',
   'rapfi/vcf-rapfi-db.js?v=',
