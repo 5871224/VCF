@@ -579,6 +579,13 @@ for (const token of [
   'importer.loadBytes(result.bytes',
   'loadButton.textContent = "載入棋譜";',
 ]) if (!cloudYXDB.includes(token)) throw new Error(`cloud record load contract missing: ${token}`);
+for (const token of [
+  'global.VCFWorkbenchRecord?.exportYXDB?.()',
+  'const exported = global.VCFWorkbenchRecord?.exportYXDB?.();',
+]) if (!cloudYXDB.includes(token)) throw new Error("cloud save must use Rapfi YXDB snapshot: " + token);
+if (cloudYXDB.includes("vcf_board_record_tree_v3") || cloudYXDB.includes("readStoredTree()")) {
+  throw new Error("cloud save still depends on the obsolete JavaScript record tree");
+}
 const rapfiDbAdapter = read("rapfi/vcf-rapfi-db.js");
 for (const token of [
   'global.VCFRapfiDB = facade;',
@@ -608,7 +615,7 @@ for (const token of [
   'vcfRapfiDbCloneRule',
 ]) if (!rapfiDbBridge.includes(token)) throw new Error(`Rapfi DB bridge contract missing: ${token}`);
 const pagesBuilderCloud = read("tools/prepare-pages-site.py");
-if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260913-cloud-load-board')) {
+if (!pagesBuilderCloud.includes('rapfi/vcf-lz4-cloud.js?v=20260921-single-board1')) {
   throw new Error("cloud record script must be cache-busted in Pages artifact");
 }
 if (!pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
