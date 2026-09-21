@@ -190,11 +190,13 @@
     window._clearAnalysis();
     if (!result) return;
 
-    const applyBoard = () => window._setBoardArr(result.board, result.attacker);
-    if (typeof window.vcfWithBoardChangeSource === "function") {
-      window.vcfWithBoardChangeSource("generator", applyBoard);
-    } else {
-      applyBoard();
+    const applied = window.VCFWorkbenchRecord?.replacePosition?.(result.board, {
+      sideToMove: result.attacker,
+      source: "generator",
+    });
+    if (!applied) {
+      genSetStatus("Rapfi 棋盤引擎尚未就緒，無法套用產生題目");
+      return;
     }
     resetMainAnalysisState(result);
     if (genShowNPoints) showNPoints(result.nMask);
