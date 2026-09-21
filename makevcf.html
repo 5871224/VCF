@@ -518,7 +518,6 @@ class WorkerPool {
 
 const engine = new VCFEngine();
 const pool = new WorkerPool();
-window.vcfRootEngineReady = engine._initP;
 engine._initP
   .then(() => setStatus("就緒，點擊棋盤交替落子，再點計算"))
   .catch(e => setStatus("⚠ " + e.message));
@@ -591,53 +590,32 @@ engine._initP
   }
 
   svg.addEventListener("contextmenu", e => e.preventDefault());
-  function saveBoard() {
-    try { localStorage.setItem("vcf_board", JSON.stringify({b: Array.from(board), nc: nextColor})); } catch(e) {}
-  }
-
-  svg.addEventListener("click", e => {
-    const idx = svgXY(e);
-    if (idx < 0) return;
-    if (board[idx]) { nextColor = board[idx]; board[idx] = 0; }
-    else { board[idx] = nextColor; nextColor = nextColor === 1 ? 2 : 1; }
-    drawStone(idx);
-    saveBoard();
-  });
-
-  // 還原上次盤面
-  try {
-    const saved = JSON.parse(localStorage.getItem("vcf_board") || "null");
-    if (saved && Array.isArray(saved.b) && saved.b.length === 225) {
-      for (let i = 0; i < 225; i++) board[i] = saved.b[i] || 0;
-      nextColor = saved.nc === 2 ? 2 : 1;
-      for (let i = 0; i < 225; i++) drawStone(i);
-    }
-  } catch(e) {}
-
-  window._getArr = () => {
-    const a = new Array(226).fill(0); a[225] = -1;
-    for (let i = 0; i < 225; i++) a[i] = board[i];
-    return a;
-  };
-
-  window._setBoardArr = (arr, next = 1) => {
+  function renderBoard(arr, next = 1) {
+    const source = arr && typeof arr.length === "number" ? arr : [];
     for (let i = 0; i < 225; i++) {
-      board[i] = arr[i] || 0;
+      board[i] = Number(source[i]) === 1 ? 1 : Number(source[i]) === 2 ? 2 : 0;
       drawStone(i);
     }
     nextColor = next === 2 ? 2 : 1;
-    saveBoard();
+  }
+
+  // 棋盤 SVG 只負責顯示；正式盤面由 VCFWorkbenchRecord / Rapfi Board 持有。
+  window._renderBoardArr = renderBoard;
+  window._getArr = () => {
+    const rapfiBoard = window.VCFWorkbenchRecord?.currentBoard?.();
+    const source = rapfiBoard && typeof rapfiBoard.length === "number" ? rapfiBoard : board;
+    const a = new Array(226).fill(0);
+    a[225] = -1;
+    for (let i = 0; i < 225; i++) a[i] = Number(source[i]) || 0;
+    return a;
   };
 
+  // 僅保留給棋盤 renderer / 相容層；功能模組不得直接呼叫。
+  window._setBoardArr = renderBoard;
   window._clearBoard = () => {
-    for (let i = 0; i < 225; i++) {
-      board[i] = 0;
-      if (stoneEls[i]) { stoneEls[i].remove(); stoneEls[i] = null; }
-    }
-    nextColor = 1;
-    window._clearVCF();
-    window._clearAnalysis();
-    try { localStorage.removeItem("vcf_board"); } catch(e) {}
+    renderBoard([], 1);
+    window._clearVCF?.();
+    window._clearAnalysis?.();
   };
 
   // ---- Analysis dots overlay ----
@@ -937,7 +915,10 @@ document.getElementById("btn-clear-vcf").addEventListener("click", () => {
 });
 
 document.getElementById("btn-clear").addEventListener("click", () => {
-  window._clearBoard();
+  if (!window.VCFWorkbenchRecord?.clearPosition?.("clear")) {
+    setStatus("棋譜引擎尚未就緒，無法清空盤面");
+    return;
+  }
   lastParam = null;
   lastVCFMoves = null;
   resetVcfGroups();
@@ -3124,9 +3105,17 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 
   function applyRecognizedBoard() {
     if (importState.mode === "notationOrder") return;
-    window._setBoardArr(importState.recognizedBoard, detectNextColor(importState.recognizedBoard));
-    setStatus("已將圖片辨識結果套用到主棋盤，可直接繼續 VCF 分析。");
-    setImportStatus("辨識結果已套用到主棋盤。若有少數誤差，可直接在棋盤上手動修正。");
+    const applied = window.VCFWorkbenchRecord?.replacePosition?.(importState.recognizedBoard, {
+      sideToMove: detectNextColor(importState.recognizedBoard),
+      source: "image-import",
+    });
+    if (!applied) {
+      setStatus("棋譜引擎尚未就緒，無法套用圖片盤面。");
+      setImportStatus("棋譜引擎尚未就緒，請稍後再套用辨識結果。");
+      return;
+    }
+    setStatus("已將圖片辨識結果套用到 Rapfi 棋盤，可直接繼續 VCF 分析。");
+    setImportStatus("辨識結果已套用到 Rapfi 棋盤。若有少數誤差，可直接在棋盤上手動修正。");
   }
 
   function stopCameraPreview() {
@@ -3317,11 +3306,11 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-forbidden-overlay.js"></script>
-<script src="rapfi/rapfi-workbench-header.js?v=20260921-record-db4"></script>
-<script src="rapfi/vcf-record-tools.js?v=20260921-record-db4"></script>
+<script src="rapfi/rapfi-workbench-header.js?v=20260921-single-board1"></script>
+<script src="rapfi/vcf-record-tools.js?v=20260921-single-board1"></script>
 <script>
 (function scheduleRapfiRecordDatabase(global) {
-  const version = "20260921-record-db4";
+  const version = "20260921-single-board1";
   global.__vcfRapfiDbScheduled = true;
   global.__vcfRapfiDbLoading = false;
   global.__vcfRapfiDbFailed = false;
@@ -3355,13 +3344,11 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     }
   };
 
-  const mainReady = global.vcfRootEngineReady;
-  if (mainReady && typeof mainReady.then === "function") {
-    mainReady.then(start).catch(error => {
-      console.warn("主引擎未就緒，略過 Rapfi 棋譜 DB 初始化", error);
-    });
+  // Rapfi Board 是棋盤資料層，與 Bitboard 計算引擎獨立初始化。
+  if (typeof global.requestIdleCallback === "function") {
+    global.requestIdleCallback(() => start(), { timeout: 400 });
   } else {
-    queueMicrotask(start);
+    setTimeout(() => start(), 0);
   }
 })(window);
 </script>
