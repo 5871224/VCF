@@ -62,7 +62,7 @@ def inject_pages_scripts() -> None:
 
     tags = "\n".join([
         '<script src="rapfi/engine/vcf-yxdb-index.js"></script>',
-        '<script src="rapfi/vcf-lz4-cloud.js?v=20260913-cloud-load-board"></script>',
+        '<script src="rapfi/vcf-lz4-cloud.js?v=20260921-single-board1"></script>',
         '<script src="rapfi/vcf-google-popup-auth.js?v=20260913"></script>',
     ])
     if "vcf-yxdb-index.js" not in html:
