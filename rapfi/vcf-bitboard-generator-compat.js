@@ -71,35 +71,15 @@
   };
 
   const emitBoardChanged = (source, detail = {}) => {
-    const board = typeof global._getArr === "function"
-      ? Array.from(global._getArr()).slice(0, 225)
-      : null;
+    const recordBoard = global.VCFWorkbenchRecord?.currentBoard?.();
+    const board = recordBoard && typeof recordBoard.length === "number"
+      ? Array.from(recordBoard).slice(0, 225)
+      : (typeof global._getArr === "function" ? Array.from(global._getArr()).slice(0, 225) : null);
     global.dispatchEvent(new CustomEvent("vcf-board-changed", {
-      detail: { source: String(source || "unknown"), board, ...detail },
+      detail: { source: String(source || boardChangeSource || "unknown"), board, ...detail },
     }));
   };
   global.vcfNotifyBoardChanged = (source, detail) => emitBoardChanged(source, detail);
-
-  const wrapBoardMutation = (name, sourceName) => {
-    const original = global[name];
-    if (typeof original !== "function" || original.__vcfBoardRuntimeWrapped) return;
-    const wrapped = function wrappedBoardMutation(...args) {
-      const source = boardChangeSource || sourceName;
-      const result = original.apply(this, args);
-      queueMicrotask(() => emitBoardChanged(source, {
-        attacker: Number(args[1]) === 2 ? 2 : Number(args[1]) === 1 ? 1 : undefined,
-      }));
-      return result;
-    };
-    wrapped.__vcfBoardRuntimeWrapped = true;
-    wrapped.__vcfOriginal = original;
-    global[name] = wrapped;
-  };
-  wrapBoardMutation("_setBoardArr", "set-board");
-  wrapBoardMutation("_clearBoard", "clear-board");
-  document.getElementById("board-svg")?.addEventListener("click", () => {
-    queueMicrotask(() => emitBoardChanged("manual"));
-  });
 
   global.vcfInvalidateAnalysis = (reason = "") => {
     global._clearVCF?.();
