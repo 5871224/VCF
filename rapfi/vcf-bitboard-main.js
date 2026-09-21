@@ -7,7 +7,16 @@
   const LEGACY_DEFAULT_MAX_NODES = 5_000_000;
   const ENGINE_MAX_NODES = 0xffffffff;
   const DEFAULT_NODE_MILLIONS = 20;
+  const ENGINE_INIT_TIMEOUT_MS = 15000;
   const DIRECTION_X = [1, 0, 1, 1];
+
+  const withTimeout = (promise, timeoutMs, message) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+    Promise.resolve(promise).then(
+      value => { clearTimeout(timer); resolve(value); },
+      error => { clearTimeout(timer); reject(error); },
+    );
+  });
   const DIRECTION_Y = [0, 1, 1, -1];
 
   const normalizeRules = rules => {
@@ -96,13 +105,32 @@
         for (const pending of this.pending.values()) pending.reject(error);
         this.pending.clear();
       };
-      return this.callRaw("init", { moduleURL, runSmokeCheck: this.runSmokeCheck });
+      return this.callRaw("init", { moduleURL, runSmokeCheck: this.runSmokeCheck }, ENGINE_INIT_TIMEOUT_MS);
     }
 
-    callRaw(type, data) {
+    callRaw(type, data, timeoutMs = 0) {
       return new Promise((resolve, reject) => {
         const id = this.nextId++;
-        this.pending.set(id, { resolve, reject });
+        let timer = null;
+        const finish = callback => value => {
+          if (timer) clearTimeout(timer);
+          this.pending.delete(id);
+          callback(value);
+        };
+        const pending = {
+          resolve: finish(resolve),
+          reject: finish(reject),
+        };
+        this.pending.set(id, pending);
+        if (timeoutMs > 0) {
+          timer = setTimeout(() => {
+            if (!this.pending.has(id)) return;
+            this.pending.delete(id);
+            reject(new Error(type === "init"
+              ? "Bitboard Worker 初始化逾時"
+              : "Bitboard Worker 回應逾時"));
+          }, timeoutMs);
+        }
         this.worker.postMessage({ id, type, data });
       });
     }
@@ -152,9 +180,13 @@
         throw new Error("找不到 VCFBitboardModule 工廠");
       }
       const base = new URL("./", moduleURL).href;
-      this.syncModule = await global.VCFBitboardModule({
-        locateFile: file => new URL(file, base).href,
-      });
+      this.syncModule = await withTimeout(
+        global.VCFBitboardModule({
+          locateFile: file => new URL(file, base).href,
+        }),
+        ENGINE_INIT_TIMEOUT_MS,
+        "主執行緒 Bitboard Wasm 初始化逾時",
+      );
       this.syncApi = {
         levelPoint: this.syncModule.cwrap(
           this.syncModule._vcfBbLegacyGetLevelPointCompat
