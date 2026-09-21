@@ -644,18 +644,17 @@
 
   function installWorkbenchRecordState() {
     const STORAGE_KEY = "vcf_rapfi_workbench_v1";
-    const readBoard = () => normalizeBoard(global._getArr?.());
     const activeRule = () => Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
     const normalizeRule = rule => [0, 1, 2].includes(Number(rule)) ? Number(rule) : 2;
     const ruleBox = document.getElementById("rule-box");
 
-    let exact = false;
-    let lastBoard = readBoard();
     let rapfiDbActive = false;
+    let exact = false;
     let currentRule = normalizeRule(activeRule());
     let persistedDbBase64 = "";
     let restoringRule = false;
     let basePly = 0;
+    let lastBoard = new Uint8Array(BOARD_CELLS);
     const selectedNextByRoute = new Map();
 
     const bytesToBase64 = bytes => {
@@ -675,30 +674,57 @@
     const db = () => global.VCFRapfiDB;
     const routeKey = () => {
       const service = db();
-      if (!rapfiDbActive || !service?.isReady) return `${currentRule}:`;
-      return `${currentRule}:${service.history().join(",")}`;
+      return rapfiDbActive && service?.isReady
+        ? String(currentRule) + ":" + service.history().join(",")
+        : String(currentRule) + ":";
     };
+    const oppositeStone = stone => stone === BLACK ? WHITE : BLACK;
     const replayBoard = history => {
       const board = new Uint8Array(BOARD_CELLS);
       let stone = BLACK;
-      for (const move of history || []) {
-        const index = Number(move?.index ?? move?.move ?? move);
+      for (const raw of history || []) {
+        const index = Number(raw?.index ?? raw?.move ?? raw);
         if (!Number.isInteger(index) || (index !== PASS && (index < 0 || index >= BOARD_CELLS))) return null;
         if (index !== PASS) {
           if (board[index] !== EMPTY) return null;
           board[index] = stone;
         }
-        stone = stone === BLACK ? WHITE : BLACK;
+        stone = oppositeStone(stone);
       }
       return board;
     };
-    const setMainBoard = (board, sideToMove) => {
-      const apply = () => global._setBoardArr?.(Array.from(board), sideToMove);
-      if (typeof global.vcfWithBoardChangeSource === "function") {
-        global.vcfWithBoardChangeSource("record-navigation", apply);
-      } else {
-        apply();
+    const setupMovesForBoard = (value, desiredSide = 0) => {
+      const board = normalizeBoard(value);
+      const black = [];
+      const white = [];
+      for (let index = 0; index < BOARD_CELLS; index++) {
+        if (board[index] === BLACK) black.push(index);
+        else if (board[index] === WHITE) white.push(index);
       }
+      const moves = [];
+      let blackIndex = 0;
+      let whiteIndex = 0;
+      let side = BLACK;
+      while (blackIndex < black.length || whiteIndex < white.length) {
+        if (side === BLACK && blackIndex < black.length) moves.push(black[blackIndex++]);
+        else if (side === WHITE && whiteIndex < white.length) moves.push(white[whiteIndex++]);
+        else moves.push(PASS);
+        side = oppositeStone(side);
+      }
+      const targetSide = desiredSide === WHITE || desiredSide === BLACK
+        ? desiredSide
+        : (normalSideToMove(board) || side);
+      if (side !== targetSide) moves.push(PASS);
+      return moves;
+    };
+    const setMainBoard = (board, sideToMove) => {
+      const render = global._renderBoardArr || global._setBoardArr;
+      render?.(Array.from(board), sideToMove);
+    };
+    const emitBoardChanged = source => {
+      global.vcfNotifyBoardChanged?.(source || "record", {
+        attacker: rapfiDbActive && db()?.isReady ? db().sideToMove() : undefined,
+      });
     };
     const saveState = (databaseChanged = false) => {
       const service = db();
@@ -715,9 +741,9 @@
           db: persistedDbBase64,
           history: service.history(),
           basePly,
-          exact,
-          board: Array.from(lastBoard),
+          exact: true,
         }));
+        try { localStorage.removeItem("vcf_board"); } catch (_) {}
         return true;
       } catch (error) {
         console.warn("保存 Rapfi 工作台狀態失敗", error);
@@ -727,12 +753,8 @@
     const queryChildren = () => {
       const service = db();
       if (!rapfiDbActive || !exact || !service?.isReady) return [];
-      try {
-        return service.children().map(Number).filter(Number.isInteger).sort((a, b) => a - b);
-      } catch (error) {
-        console.warn("Rapfi queryChildren 失敗", error);
-        return [];
-      }
+      try { return service.children().map(Number).filter(Number.isInteger).sort((a, b) => a - b); }
+      catch (error) { console.warn("Rapfi queryChildren 失敗", error); return []; }
     };
     const selectedNextMove = knownMoves => {
       const moves = Array.isArray(knownMoves) ? knownMoves : queryChildren();
@@ -746,8 +768,7 @@
     const currentRecordText = () => {
       const service = db();
       if (!rapfiDbActive || !exact || !service?.isReady) return "";
-      try { return String(service.getDisplayText() || ""); }
-      catch (_) { return ""; }
+      try { return String(service.getDisplayText() || ""); } catch (_) { return ""; }
     };
     const notify = () => {
       const service = db();
@@ -758,10 +779,10 @@
       global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
         detail: {
           recordText: currentRecordText(),
-          exact,
+          exact: Boolean(rapfiDbActive && exact),
           ply,
-          canPrev: Boolean(exact && absolutePly > basePly),
-          canNext: Boolean(exact && nextMove != null),
+          canPrev: Boolean(rapfiDbActive && exact && absolutePly > basePly),
+          canNext: Boolean(rapfiDbActive && exact && nextMove != null),
           selectedNextMove: nextMove,
           nextMoves,
           nextBranchCount: nextMoves.length,
@@ -771,14 +792,15 @@
         },
       }));
     };
-    const applyCurrentBoard = (databaseChanged = false) => {
+    const applyCurrentBoard = (databaseChanged = false, source = "record-navigation") => {
       const service = db();
       if (!rapfiDbActive || !exact || !service?.isReady) return false;
       const board = new Uint8Array(service.board());
-      setMainBoard(board, service.sideToMove());
       lastBoard = board;
+      setMainBoard(board, service.sideToMove());
       saveState(databaseChanged);
       notify();
+      emitBoardChanged(source);
       return true;
     };
     const restoreDbHistory = moves => {
@@ -786,7 +808,7 @@
       if (!service?.isReady) return false;
       service.resetBoard(currentRule);
       for (const raw of moves || []) {
-        if (!service.replayMove(Number(raw), false)) return false;
+        if (!service.replayMove(Number(raw?.index ?? raw?.move ?? raw), false)) return false;
       }
       return true;
     };
@@ -801,33 +823,62 @@
         rootRecordText = String(service.getDisplayText() || "");
         for (let i = 0; i < moves.length; i++) {
           if (!service.replayMove(moves[i], false)) throw new Error("Rapfi history replay failed");
-          result.push({
-            index: moves[i],
-            stone: i % 2 === 0 ? BLACK : WHITE,
-            recordText: String(service.getDisplayText() || ""),
-          });
+          result.push({ index: moves[i], stone: i % 2 === 0 ? BLACK : WHITE, recordText: String(service.getDisplayText() || "") });
         }
-      } finally {
-        restoreDbHistory(moves);
-      }
+      } finally { restoreDbHistory(moves); }
       return { history: result, rootRecordText };
+    };
+    const replacePositionInternal = (boardValue, options = {}) => {
+      const service = db();
+      if (!rapfiDbActive || !service?.isReady) return false;
+      const board = normalizeBoard(boardValue || []);
+      const setup = setupMovesForBoard(board, Number(options.sideToMove));
+      service.clear(currentRule);
+      for (const move of setup) if (!service.replayMove(move, false)) return false;
+      service.ensureCurrent();
+      basePly = service.ply();
+      exact = true;
+      selectedNextByRoute.clear();
+      persistedDbBase64 = "";
+      return applyCurrentBoard(true, options.source || "replace-position");
+    };
+    const replaceHistoryInternal = (nextHistory, options = {}) => {
+      const service = db();
+      if (!rapfiDbActive || !service?.isReady) return false;
+      const normalized = Array.isArray(nextHistory) ? nextHistory.map((item, index) => ({
+        index: Number(item?.index ?? item?.move ?? item),
+        stone: Number(item?.stone ?? item?.color ?? (index % 2 === 0 ? BLACK : WHITE)),
+        recordText: typeof item?.recordText === "string" ? item.recordText : "",
+      })) : [];
+      if (!replayBoard(normalized)) return false;
+      for (let i = 0; i < normalized.length; i++) if (normalized[i].stone !== (i % 2 === 0 ? BLACK : WHITE)) return false;
+      service.clear(currentRule);
+      service.ensureCurrent();
+      if (options.rootRecordText) service.setDisplayText(String(options.rootRecordText));
+      for (const item of normalized) {
+        if (!service.replayMove(item.index, true)) return false;
+        if (item.recordText) service.setDisplayText(item.recordText);
+      }
+      basePly = Math.max(0, Math.min(service.ply(), Number(options.basePly || 0)));
+      exact = true;
+      selectedNextByRoute.clear();
+      persistedDbBase64 = "";
+      service.ensureCurrent();
+      return applyCurrentBoard(true, options.source || "replace-history");
     };
     const restoreSavedState = async () => {
       const service = db();
       if (!service?.isReady) return false;
-
       let saved = null;
-      try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
-      catch (_) {}
-
+      try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch (_) {}
       if (saved?.version === 1 && typeof saved.db === "string" && saved.db.length) {
         const savedRule = normalizeRule(saved.rule);
         if (savedRule !== activeRule()) {
           restoringRule = true;
-          const radio = ruleBox?.querySelector(`input[name="rules"][value="${savedRule}"]`);
+          const radio = ruleBox?.querySelector('input[name="rules"][value="' + savedRule + '"]');
           if (radio) radio.checked = true;
           if (ruleBox) ruleBox.dataset.activeRules = String(savedRule);
-          try { await global.vcfSetRules?.(savedRule); } finally { restoringRule = false; }
+          Promise.resolve(global.vcfSetRules?.(savedRule)).catch(error => console.warn("同步計算引擎規則失敗", error)).finally(() => { restoringRule = false; });
         }
         currentRule = savedRule;
         if (service.restoreYXDB(base64ToBytes(saved.db), currentRule)) {
@@ -835,42 +886,26 @@
           service.resetBoard(currentRule);
           let historyOk = true;
           for (const move of Array.isArray(saved.history) ? saved.history : []) {
-            if (!service.replayMove(Number(move), false)) {
-              historyOk = false;
-              break;
-            }
+            if (!service.replayMove(Number(move), false)) { historyOk = false; break; }
           }
-          basePly = Math.max(0, Math.min(service.ply(), Number(saved.basePly || 0)));
-          const savedBoard = normalizeBoard(saved.board || []);
-          const restoredBoard = new Uint8Array(service.board());
-          exact = Boolean(historyOk && boardsEqual(restoredBoard, savedBoard));
-          rapfiDbActive = true;
-          if (exact) {
+          if (historyOk) {
+            basePly = Math.max(0, Math.min(service.ply(), Number(saved.basePly || 0)));
+            rapfiDbActive = true;
+            exact = true;
             service.ensureCurrent();
-            applyCurrentBoard(false);
-          } else {
-            lastBoard = savedBoard;
-            setMainBoard(savedBoard, normalSideToMove(savedBoard) || BLACK);
-            saveState(false);
-            notify();
+            return applyCurrentBoard(false, "restore");
           }
-          return true;
         }
       }
-
       currentRule = normalizeRule(activeRule());
       service.clear(currentRule);
       service.ensureCurrent();
       rapfiDbActive = true;
-      exact = !lastBoard.some(Boolean);
-      selectedNextByRoute.clear();
+      exact = true;
       basePly = 0;
-      if (exact) applyCurrentBoard(true);
-      else {
-        saveState(true);
-        notify();
-      }
-      return true;
+      selectedNextByRoute.clear();
+      persistedDbBase64 = "";
+      return applyCurrentBoard(true, "init");
     };
     const activateRapfiDatabase = async () => {
       if (rapfiDbActive) return true;
@@ -879,117 +914,34 @@
       if (ok) global.dispatchEvent(new CustomEvent("vcf-rapfi-db-active"));
       return ok;
     };
-
     global.addEventListener("vcf-rapfi-db-ready", () => {
-      queueMicrotask(() => activateRapfiDatabase().catch(error => {
-        console.error("Rapfi DB 啟用失敗", error);
-      }));
+      queueMicrotask(() => activateRapfiDatabase().catch(error => console.error("Rapfi DB 啟用失敗", error)));
     });
     if (global.VCFRapfiDB?.isReady) {
       queueMicrotask(() => activateRapfiDatabase().catch(error => console.error("Rapfi DB 啟用失敗", error)));
     } else {
-      global.VCFRapfiDB?.ready?.then(() => activateRapfiDatabase()).catch(error => {
-        console.error("Rapfi DB bridge 初始化失敗", error);
-      });
+      global.VCFRapfiDB?.ready?.then(() => activateRapfiDatabase()).catch(error => console.error("Rapfi DB bridge 初始化失敗", error));
     }
-
-    const syncAfterManualEdit = () => {
-      const service = db();
-      const board = readBoard();
-      const changed = [];
-      for (let i = 0; i < BOARD_CELLS; i++) if (board[i] !== lastBoard[i]) changed.push(i);
-
-      let databaseChanged = false;
-      if (!rapfiDbActive || !service?.isReady) {
-        exact = false;
-      } else if (changed.length === 1 && exact) {
-        const index = changed[0];
-        const before = lastBoard[index];
-        const after = board[index];
-
-        if (before === EMPTY && after === service.sideToMove()) {
-          const parentKey = routeKey();
-          if (service.play(index, true)) {
-            selectedNextByRoute.set(parentKey, index);
-            databaseChanged = true;
-          } else {
-            exact = false;
-          }
-        } else if (before !== EMPTY && after === EMPTY) {
-          const history = service.history();
-          if (history.length && history[history.length - 1] === index) {
-            if (service.undo()) rememberSelectedNext(index);
-            else exact = false;
-          } else {
-            exact = false;
-          }
-        } else {
-          exact = false;
-        }
-      } else if (changed.length) {
-        exact = false;
-      }
-
-      lastBoard = board;
-      saveState(databaseChanged);
-      notify();
-    };
-
-    const boardSvg = document.getElementById("board-svg");
-    boardSvg?.addEventListener("click", () => queueMicrotask(syncAfterManualEdit));
-
-    document.getElementById("btn-clear")?.addEventListener("click", () => {
-      queueMicrotask(() => {
-        const service = db();
-        lastBoard = readBoard();
-        selectedNextByRoute.clear();
-        basePly = 0;
-        exact = true;
-        if (rapfiDbActive && service?.isReady) {
-          service.clear(currentRule);
-          service.ensureCurrent();
-          persistedDbBase64 = "";
-          saveState(true);
-        } else {
-          try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
-        }
-        notify();
-      });
-    });
-    document.getElementById("btn-import-apply")?.addEventListener("click", () => {
-      queueMicrotask(() => {
-        const service = db();
-        lastBoard = readBoard();
-        selectedNextByRoute.clear();
-        basePly = 0;
-        exact = false;
-        if (rapfiDbActive && service?.isReady) {
-          service.clear(currentRule);
-          service.ensureCurrent();
-          persistedDbBase64 = "";
-          saveState(true);
-        }
-        notify();
-      });
-    });
 
     const transformMove = (move, transform) => {
       if (!Number.isInteger(Number(move)) || Number(move) === PASS) return Number(move);
       const index = Number(move);
-      const [x, y] = transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), transform);
-      return y * BOARD_SIZE + x;
+      const xy = transformXY(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE), transform);
+      return xy[1] * BOARD_SIZE + xy[0];
     };
 
     global.VCFWorkbenchRecord = {
       snapshot() {
-        const captured = exact ? captureHistoryWithTexts() : { history: [], rootRecordText: "" };
-        return {
-          history: captured.history,
-          exact,
-          board: Array.from(lastBoard),
-          rootRecordText: captured.rootRecordText,
-          basePly,
-        };
+        const captured = rapfiDbActive && exact ? captureHistoryWithTexts() : { history: [], rootRecordText: "" };
+        return { history: captured.history, exact: Boolean(rapfiDbActive && exact), board: this.currentBoard(), rootRecordText: captured.rootRecordText, basePly };
+      },
+      currentBoard() {
+        const service = db();
+        return rapfiDbActive && service?.isReady ? Array.from(service.board()) : Array.from(lastBoard);
+      },
+      currentSideToMove() {
+        const service = db();
+        return rapfiDbActive && service?.isReady ? service.sideToMove() : BLACK;
       },
       currentRecordText,
       setCurrentRecordText(text) {
@@ -1001,45 +953,22 @@
         notify();
         return true;
       },
-      setHistory(nextHistory, nextExact = true, nextRootRecordText = "") {
+      replacePosition(board, options = {}) { return replacePositionInternal(board, options); },
+      replaceHistory(history, options = {}) { return replaceHistoryInternal(history, options); },
+      clearPosition(source = "clear") {
         const service = db();
         if (!rapfiDbActive || !service?.isReady) return false;
-        const normalized = Array.isArray(nextHistory) ? nextHistory.map((item, index) => ({
-          index: Number(item?.index ?? item?.move),
-          stone: Number(item?.stone ?? item?.color ?? (index % 2 === 0 ? BLACK : WHITE)),
-          recordText: typeof item?.recordText === "string" ? item.recordText : "",
-        })) : [];
-        const rebuilt = replayBoard(normalized);
-        const board = readBoard();
-        const valid = Boolean(rebuilt && boardsEqual(rebuilt, board)
-          && normalized.every((item, i) => item.stone === (i % 2 === 0 ? BLACK : WHITE)));
-
         service.clear(currentRule);
         service.ensureCurrent();
-        if (nextRootRecordText) service.setDisplayText(String(nextRootRecordText));
-
-        exact = true;
-        if (valid) {
-          for (const item of normalized) {
-            if (!service.replayMove(item.index, true)) {
-              exact = false;
-              break;
-            }
-            if (item.recordText) service.setDisplayText(item.recordText);
-          }
-          if (exact) exact = Boolean(nextExact);
-        } else {
-          exact = false;
-        }
-        if (!normalized.length && !board.some(Boolean)) exact = true;
-
-        lastBoard = board;
         basePly = 0;
+        exact = true;
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
-        saveState(true);
-        notify();
-        return exact;
+        return applyCurrentBoard(true, source);
+      },
+      setHistory(nextHistory, nextExact = true, nextRootRecordText = "") {
+        if (nextExact === false) return false;
+        return replaceHistoryInternal(nextHistory, { source: "set-history", rootRecordText: nextRootRecordText, basePly: 0 });
       },
       async importYXDB(bytes, rule, history = [], importedBasePly = 0) {
         const service = db();
@@ -1047,23 +976,21 @@
         const nextRule = normalizeRule(rule);
         restoringRule = true;
         try {
-          const radio = ruleBox?.querySelector(`input[name="rules"][value="${nextRule}"]`);
+          const radio = ruleBox?.querySelector('input[name="rules"][value="' + nextRule + '"]');
           if (radio) radio.checked = true;
           if (ruleBox) ruleBox.dataset.activeRules = String(nextRule);
           await global.vcfSetRules?.(nextRule);
-        } finally {
-          restoringRule = false;
-        }
+        } finally { restoringRule = false; }
         currentRule = nextRule;
         if (!service.restoreYXDB(bytes, currentRule)) return false;
         rapfiDbActive = true;
+        exact = true;
         if (!restoreDbHistory(history)) return false;
         basePly = Math.max(0, Math.min(service.ply(), Number(importedBasePly || 0)));
-        exact = true;
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
         service.ensureCurrent();
-        return applyCurrentBoard(true);
+        return applyCurrentBoard(true, "record-import");
       },
       async importRoutes(routes, rule, openHistory = []) {
         const service = db();
@@ -1071,22 +998,18 @@
         const nextRule = normalizeRule(rule);
         restoringRule = true;
         try {
-          const radio = ruleBox?.querySelector(`input[name="rules"][value="${nextRule}"]`);
+          const radio = ruleBox?.querySelector('input[name="rules"][value="' + nextRule + '"]');
           if (radio) radio.checked = true;
           if (ruleBox) ruleBox.dataset.activeRules = String(nextRule);
           await global.vcfSetRules?.(nextRule);
-        } finally {
-          restoringRule = false;
-        }
+        } finally { restoringRule = false; }
         currentRule = nextRule;
         service.clear(currentRule);
         service.ensureCurrent();
         for (const rawRoute of Array.isArray(routes) ? routes : []) {
           service.resetBoard(currentRule);
           service.ensureCurrent();
-          for (const rawMove of rawRoute || []) {
-            if (!service.replayMove(Number(rawMove), true)) return false;
-          }
+          for (const rawMove of rawRoute || []) if (!service.replayMove(Number(rawMove), true)) return false;
         }
         if (!restoreDbHistory(openHistory)) return false;
         basePly = 0;
@@ -1095,34 +1018,25 @@
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
         service.ensureCurrent();
-        return applyCurrentBoard(true);
+        return applyCurrentBoard(true, "record-import");
       },
-      isActive() {
-        return Boolean(rapfiDbActive && db()?.isReady);
+      exportYXDB() {
+        const service = db();
+        if (!rapfiDbActive || !exact || !service?.isReady) return null;
+        service.ensureCurrent();
+        const bytes = service.snapshotYXDB();
+        return bytes?.length ? { bytes, recordCount: service.recordCount() } : null;
       },
-      playAt(move) {
+      isActive() { return Boolean(rapfiDbActive && exact && db()?.isReady); },
+      playAt(move, source = "manual") {
         const service = db();
         const index = Number(move);
-        if (!rapfiDbActive || !service?.isReady || !Number.isInteger(index)
-            || index < 0 || index >= BOARD_CELLS) return false;
-        if (!exact) {
-          const liveBoard = readBoard();
-          if (liveBoard.some(Boolean)) return false;
-          service.resetBoard(currentRule);
-          service.ensureCurrent();
-          basePly = 0;
-          exact = true;
-          lastBoard = liveBoard;
-          selectedNextByRoute.clear();
-          persistedDbBase64 = "";
-        }
-        const board = service.board();
-        if (Number(board[index])) return false;
+        if (!rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(index) || index < 0 || index >= BOARD_CELLS || Number(service.board()[index])) return false;
         const parentKey = routeKey();
         if (!service.play(index, true)) return false;
         selectedNextByRoute.set(parentKey, index);
         persistedDbBase64 = "";
-        return applyCurrentBoard(true);
+        return applyCurrentBoard(true, source);
       },
       navigateStep(direction) {
         const service = db();
@@ -1133,19 +1047,18 @@
           const move = history[history.length - 1];
           if (!service.undo()) return false;
           rememberSelectedNext(move);
-          return applyCurrentBoard(false);
+          return applyCurrentBoard(false, "record-navigation");
         }
         const moves = queryChildren();
         const move = selectedNextMove(moves);
         if (move == null) return false;
         rememberSelectedNext(move);
         if (!service.play(move, false)) return false;
-        return applyCurrentBoard(false);
+        return applyCurrentBoard(false, "record-navigation");
       },
       navigateBranch(direction) {
         const service = db();
         if (!rapfiDbActive || !exact || !service?.isReady) return false;
-
         if (direction < 0) {
           if (service.ply() <= basePly) return false;
           do {
@@ -1155,9 +1068,8 @@
             rememberSelectedNext(move);
             if (queryChildren().length > 1 || service.ply() <= basePly) break;
           } while (service.ply() > basePly);
-          return applyCurrentBoard(false);
+          return applyCurrentBoard(false, "record-navigation");
         }
-
         let moves = queryChildren();
         if (!moves.length) return false;
         do {
@@ -1167,7 +1079,7 @@
           if (!service.play(move, false)) break;
           moves = queryChildren();
         } while (moves.length === 1);
-        return applyCurrentBoard(false);
+        return applyCurrentBoard(false, "record-navigation");
       },
       appendPass() {
         const service = db();
@@ -1176,58 +1088,42 @@
         if (!service.play(PASS, true)) return false;
         selectedNextByRoute.set(parentKey, PASS);
         persistedDbBase64 = "";
-        return applyCurrentBoard(true);
+        return applyCurrentBoard(true, "manual");
       },
       deleteCurrentAndFollowing() {
         const service = db();
         if (!rapfiDbActive || !exact || !service?.isReady || service.ply() <= basePly) return false;
-        if (!service.deleteCurrentAndChildren()) return false;
-        if (!service.undo()) return false;
+        if (!service.deleteCurrentAndChildren() || !service.undo()) return false;
         selectedNextByRoute.delete(routeKey());
         persistedDbBase64 = "";
-        return applyCurrentBoard(true);
+        return applyCurrentBoard(true, "record-edit");
       },
       transform(transform) {
         const service = db();
         const normalized = Number(transform);
-        if (!rapfiDbActive || !exact || !service?.isReady
-            || !Number.isInteger(normalized) || normalized < 0 || normalized > 7) return false;
+        if (!rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(normalized) || normalized < 0 || normalized > 7) return false;
         const original = service.history();
         const transformed = original.map(move => transformMove(move, normalized));
-        if (!restoreDbHistory(transformed)) {
-          restoreDbHistory(original);
-          return false;
-        }
+        if (!restoreDbHistory(transformed)) { restoreDbHistory(original); return false; }
         selectedNextByRoute.clear();
-        return applyCurrentBoard(false);
+        return applyCurrentBoard(false, "record-transform");
       },
-      invalidate() {
-        exact = false;
-        lastBoard = readBoard();
-        saveState(false);
-        notify();
-      },
+      invalidate() { notify(); return true; },
     };
 
     global.addEventListener("vcf-rules-changed", () => {
       if (restoringRule || !rapfiDbActive || !db()?.isReady) return;
       const service = db();
       const nextRule = normalizeRule(activeRule());
-      if (nextRule === currentRule) {
-        notify();
-        return;
-      }
+      if (nextRule === currentRule) { notify(); return; }
       const moves = service.history();
       service.cloneRule(currentRule, nextRule);
       currentRule = nextRule;
-      if (!restoreDbHistory(moves)) exact = false;
+      if (!restoreDbHistory(moves)) return;
       selectedNextByRoute.clear();
       persistedDbBase64 = "";
-      if (exact) applyCurrentBoard(true);
-      else {
-        saveState(true);
-        notify();
-      }
+      exact = true;
+      applyCurrentBoard(true, "rule-change");
     });
 
     notify();
@@ -1236,26 +1132,19 @@
   installWorkbenchRecordState();
 
   function activeExportData() {
-    const board = normalizeBoard(global._getArr?.());
-    let routes = [];
-    let attacker = 0;
-    if (typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length) {
-      routes = vcfGroups.map(route => Array.from(route));
-      attacker = Number(typeof vcfGroupColor !== "undefined" ? vcfGroupColor : 0);
-    } else if (typeof lastVCFMoves !== "undefined" && lastVCFMoves && lastVCFMoves.length) {
-      routes = [Array.from(lastVCFMoves)];
-      attacker = Number(typeof lastVCFColor !== "undefined" ? lastVCFColor : 0);
-    }
+    const recordState = global.VCFWorkbenchRecord?.snapshot?.() || {
+      history: [], exact: false, board: [], rootRecordText: "", basePly: 0,
+    };
     const rule = Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
-    const recordState = global.VCFWorkbenchRecord?.snapshot?.() || { history: [], exact: !board.some(Boolean), rootRecordText: "" };
     return {
-      board,
-      routes,
-      attacker,
+      board: normalizeBoard(recordState.board || []),
+      routes: [],
+      attacker: 0,
       rule,
       history: recordState.history,
       historyExact: recordState.exact,
       rootRecordText: recordState.rootRecordText || "",
+      basePly: Number(recordState.basePly || 0),
     };
   }
 
@@ -1290,7 +1179,7 @@
         <option value="yxdb">Rapfi YXDB (.db)</option>
         <option value="lib">RenLib (.lib)</option>
       </select>
-      <button id="bb-export-file" type="button">匯出盤面／VCF</button>
+      <button id="bb-export-file" type="button">匯出棋譜</button>
       <button id="bb-hard-refresh" type="button">強制重新整理</button>
       <span id="bb-export-status" aria-live="polite"></span>
     `;
@@ -1309,9 +1198,10 @@
           downloadBytes(result.bytes, `vcf-${stamp}.lib`);
           exportStatus.textContent = `已匯出 RenLib（${result.bytes.length.toLocaleString()} bytes）`;
         } else {
-          const result = createYXDB(data);
+          const result = global.VCFWorkbenchRecord?.exportYXDB?.();
+          if (!result?.bytes?.length) throw new Error("Rapfi 棋譜尚未就緒");
           downloadBytes(result.bytes, `vcf-${stamp}.db`);
-          exportStatus.textContent = `已匯出 YXDB（${result.recordCount} 個盤面，標準 LZ4 frame）`;
+          exportStatus.textContent = `已匯出 Rapfi YXDB（${Number(result.recordCount || 0).toLocaleString()} 個盤面）`;
         }
       } catch (error) {
         console.error("Rapfi 格式匯出失敗", error);
