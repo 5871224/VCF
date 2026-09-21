@@ -56,6 +56,9 @@ makevcf-generator-core.js
 
 - 優先修改正式來源，不以額外修補層長期保留兩套互相覆蓋的邏輯。
 - 工作台跨模組行為統一使用 `rapfi/vcf-bitboard-generator-compat.js` 提供的具名 Registry／事件：`vcfSetRules`、`vcf-board-changed`、`vcfRegisterBusyHook`、`vcfRegisterStatusFormatter`、`vcfRegisterTrimGroupsProvider`、`vcfRegisterSearchHandler`。
+- Rapfi `Board`／`VCFWorkbenchRecord` 是唯一正式棋盤與棋譜資料來源；`makevcf.html` 的 SVG board 只是 renderer，不得再保存或推導第二份可修改盤面。
+- `_renderBoardArr` 與相容 `_setBoardArr` 只允許 Rapfi record 層用來重畫；題目產生器、圖片匯入、題庫、搜尋 UI 等功能模組必須用 `VCFWorkbenchRecord.playAt/replacePosition/replaceHistory/clearPosition`。
+- Bitboard Engine 是唯讀計算服務；搜尋前由目前 Rapfi Board 轉成 225 格／Bitboard，搜尋結果只能進計算展示 overlay，不得自動寫入 Rapfi DB 分支。
 - 功能模組不得重新指派 `setBusy`、`setStatus`、`doSearch`、`doAddVCF`、`engine.findVCF`、`engine.trimVCFGroups`、`pool.getLevelPoints`、`_setBoardArr` 或 `_clearBoard`；只有工作台 runtime 可建立一次正式 dispatcher。
 - 題目產生器一次執行共用單一 `GenerationContext`；新增設定或控制項鎖定行為應使用具名提供者／Hook，不得覆寫 `genOptions` 或核心 `genSetBusy`。
 - 題目產生器回放只可訂閱核心具名事件；不得覆寫驗證、搜尋、結果或忙碌函式，也不得操作舊回放按鈕、讀取已渲染盤面或用延遲排程合併時間軸。
