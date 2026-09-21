@@ -431,12 +431,12 @@
         return;
       }
       if (!global.VCFWorkbenchRecord?.isActive?.()) {
-        if (global.__vcfRapfiDbScheduled) {
+        if (global.__vcfRapfiDbLoading) {
           event.preventDefault();
           event.stopImmediatePropagation();
-          status(global.__vcfRapfiDbFailed
-            ? "棋譜引擎載入失敗，請重新整理"
-            : "棋譜引擎初始化中，請稍候");
+          status("棋譜引擎初始化中，請稍候");
+        } else if (global.__vcfRapfiDbFailed) {
+          status("棋譜引擎未啟用，已暫時恢復一般盤面落子");
         }
         return;
       }
