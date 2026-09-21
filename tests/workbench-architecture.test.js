@@ -190,7 +190,7 @@ for (const icon of [
 }
 
 const questionBank = read("rapfi/rapfi-question-bank.js");
-for (const token of ["vcf-board-changed", "vcfRegisterBusyHook", "vcfWithBoardChangeSource"]) {
+for (const token of ["vcf-board-changed", "vcfRegisterBusyHook", "VCFWorkbenchRecord?.replacePosition"]) {
   if (!questionBank.includes(token)) throw new Error(`question bank event contract missing: ${token}`);
 }
 const forbidden = read("rapfi/vcf-forbidden-overlay.js");
@@ -362,6 +362,36 @@ if ((image.match(/cv\.HoughLinesP\s*=/g) || []).length !== 1) {
   throw new Error("Hough adapter must be installed exactly once");
 }
 
+const generatorIntegration = read("makevcf-generator-integrated.js");
+for (const [file, source] of [
+  ["makevcf-generator-integrated.js", generatorIntegration],
+  ["makevcf-generator-image-import-fix.js", image],
+  ["rapfi/rapfi-question-bank.js", questionBank],
+]) {
+  if (source.includes("_setBoardArr")) {
+    throw new Error(file + " must write positions through VCFWorkbenchRecord, not the renderer");
+  }
+}
+for (const token of [
+  'VCFWorkbenchRecord?.replacePosition?.(result.board',
+  'source: "generator"',
+]) if (!generatorIntegration.includes(token)) throw new Error("generator Rapfi board contract missing: " + token);
+for (const token of [
+  'VCFWorkbenchRecord?.replaceHistory?.(history',
+  'source: "image-import"',
+]) if (!image.includes(token)) throw new Error("image import Rapfi board contract missing: " + token);
+if (runtime.includes("wrapBoardMutation(") || runtime.includes('emitBoardChanged("manual")')) {
+  throw new Error("board-change runtime must not infer Rapfi state from renderer mutations");
+}
+if (header.includes("routes = vcfGroups.map") || header.includes("lastVCFMoves")) {
+  throw new Error("VCF calculation routes must not be exported into the Rapfi record DB");
+}
+for (const token of [
+  'global.VCFWorkbenchRecord?.exportYXDB?.()',
+  '<button id="bb-export-file" type="button">匯出棋譜</button>',
+]) if (!header.includes(token)) throw new Error("Rapfi DB direct export contract missing: " + token);
+
+
 const legacy = read("makevcf-optimized-search-v2.js");
 if (!legacy.includes("__vcfLegacyBenchmarkRemoved") || /new Worker|MutationObserver|setBusy\s*=/.test(legacy)) {
   throw new Error("legacy optimized search is not a passive compatibility stub");
@@ -484,10 +514,15 @@ for (const token of [
   'async importYXDB(bytes, rule, history = [], importedBasePly = 0)',
   'async importRoutes(routes, rule, openHistory = [])',
   'basePly',
-  'playAt(move)',
+  'setupMovesForBoard',
+  'replacePosition(board, options = {})',
+  'replaceHistory(history, options = {})',
+  'currentBoard()',
+  'clearPosition(source = "clear")',
+  'exportYXDB()',
+  'playAt(move, source = "manual")',
   'service.play(index, true)',
-  'boardsEqual(restoredBoard, savedBoard)',
-  'if (liveBoard.some(Boolean)) return false;',
+  'global._renderBoardArr || global._setBoardArr',
 ]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
 if (header.includes('\\${currentRule}') || header.includes('\\${savedRule}')) {
   throw new Error("escaped template literal regression remains in Rapfi workbench record state");
@@ -508,19 +543,27 @@ for (const forbiddenToken of [
 }
 const entry = read("makevcf.html");
 for (const token of [
-  'window.vcfRootEngineReady = engine._initP;',
-  'rapfi/rapfi-workbench-header.js?v=20260921-record-db4',
-  'rapfi/vcf-record-tools.js?v=20260921-record-db4',
+  'rapfi/rapfi-workbench-header.js?v=20260921-single-board1',
+  'rapfi/vcf-record-tools.js?v=20260921-single-board1',
   'scheduleRapfiRecordDatabase',
   'rapfi/engine/vcf-rapfi-db.js?v=',
   'rapfi/vcf-rapfi-db.js?v=',
-  'mainReady.then(start)',
+  'requestIdleCallback',
+  'window._renderBoardArr = renderBoard',
+  'window.VCFWorkbenchRecord?.currentBoard?.()',
+  'window.VCFWorkbenchRecord?.clearPosition?.("clear")',
+  'window.VCFWorkbenchRecord?.replacePosition?.(importState.recognizedBoard',
 ]) {
-  if (!entry.includes(token)) throw new Error("Rapfi lazy record runtime contract missing: " + token);
+  if (!entry.includes(token)) throw new Error("single Rapfi board runtime contract missing: " + token);
 }
-if (entry.includes('<script src="rapfi/engine/vcf-rapfi-db.js')
-    || entry.includes('<script src="rapfi/vcf-rapfi-db.js')) {
-  throw new Error("Rapfi record DB must not start in parallel with the root Bitboard engine");
+for (const forbidden of [
+  'window.vcfRootEngineReady = engine._initP;',
+  'mainReady.then(start)',
+  'localStorage.setItem("vcf_board"',
+  'localStorage.getItem("vcf_board"',
+  'if (board[idx]) { nextColor = board[idx]; board[idx] = 0; }',
+]) {
+  if (entry.includes(forbidden)) throw new Error("legacy dual-board runtime remains: " + forbidden);
 }
 
 const cloudYXDB = read("rapfi/vcf-lz4-cloud.js");
@@ -588,9 +631,10 @@ for (const token of [
   'if (point.index >= 0) addOrReplaceMarker(point.index)',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);
 for (const token of [
-  'global.__vcfRapfiDbLoading',
-  '"棋譜引擎初始化中，請稍候"',
-  '"棋譜引擎未啟用，已暫時恢復一般盤面落子"',
+  'VCFWorkbenchRecord?.currentBoard?.()',
+  'VCFWorkbenchRecord?.playAt?.(point.index, "manual")',
+  '"Rapfi 棋盤引擎初始化中，請稍候"',
+  '"Rapfi 棋盤引擎載入失敗，請重新整理"',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error("record DB readiness guard missing: " + token);
 
 const pagesBuild = read("tools/prepare-pages-site.py");
