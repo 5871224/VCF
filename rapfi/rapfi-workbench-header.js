@@ -700,49 +700,6 @@
         apply();
       }
     };
-    const setupHistoryForBoard = (board, desiredSide = BLACK) => {
-      const remaining = {
-        [BLACK]: [],
-        [WHITE]: [],
-      };
-      for (let index = 0; index < BOARD_CELLS; index++) {
-        if (board[index] === BLACK) remaining[BLACK].push(index);
-        else if (board[index] === WHITE) remaining[WHITE].push(index);
-      }
-      const history = [];
-      let side = BLACK;
-      let blackIndex = 0;
-      let whiteIndex = 0;
-      while (blackIndex < remaining[BLACK].length || whiteIndex < remaining[WHITE].length) {
-        if (side === BLACK) {
-          if (blackIndex < remaining[BLACK].length) history.push(remaining[BLACK][blackIndex++]);
-          else history.push(PASS);
-        } else {
-          if (whiteIndex < remaining[WHITE].length) history.push(remaining[WHITE][whiteIndex++]);
-          else history.push(PASS);
-        }
-        side = side === BLACK ? WHITE : BLACK;
-      }
-      const targetSide = desiredSide === WHITE ? WHITE : BLACK;
-      if (side !== targetSide) history.push(PASS);
-      return history;
-    };
-    const adoptBoardAsSetup = (board, desiredSide) => {
-      const service = db();
-      if (!rapfiDbActive || !service?.isReady) return false;
-      const setup = setupHistoryForBoard(board, desiredSide);
-      service.resetBoard(currentRule);
-      for (const move of setup) {
-        if (!service.replayMove(move, true)) return false;
-      }
-      service.ensureCurrent();
-      basePly = service.ply();
-      exact = true;
-      lastBoard = new Uint8Array(board);
-      selectedNextByRoute.clear();
-      persistedDbBase64 = "";
-      return true;
-    };
     const saveState = (databaseChanged = false) => {
       const service = db();
       if (!rapfiDbActive || !service?.isReady) return false;
@@ -944,16 +901,12 @@
       let databaseChanged = false;
       if (!rapfiDbActive || !service?.isReady) {
         exact = false;
-      } else if (changed.length === 1) {
+      } else if (changed.length === 1 && exact) {
         const index = changed[0];
         const before = lastBoard[index];
         const after = board[index];
 
-        if (!exact && before === EMPTY && (after === BLACK || after === WHITE)) {
-          adoptBoardAsSetup(lastBoard, after);
-        }
-
-        if (exact && before === EMPTY && after === service.sideToMove()) {
+        if (before === EMPTY && after === service.sideToMove()) {
           const parentKey = routeKey();
           if (service.play(index, true)) {
             selectedNextByRoute.set(parentKey, index);
@@ -961,7 +914,7 @@
           } else {
             exact = false;
           }
-        } else if (exact && before !== EMPTY && after === EMPTY) {
+        } else if (before !== EMPTY && after === EMPTY) {
           const history = service.history();
           if (history.length && history[history.length - 1] === index) {
             if (service.undo()) rememberSelectedNext(index);
@@ -1141,6 +1094,22 @@
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
         service.ensureCurrent();
+        return applyCurrentBoard(true);
+      },
+      isActive() {
+        return Boolean(rapfiDbActive && db()?.isReady);
+      },
+      playAt(move) {
+        const service = db();
+        const index = Number(move);
+        if (!rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(index)
+            || index < 0 || index >= BOARD_CELLS) return false;
+        const board = service.board();
+        if (Number(board[index])) return false;
+        const parentKey = routeKey();
+        if (!service.play(index, true)) return false;
+        selectedNextByRoute.set(parentKey, index);
+        persistedDbBase64 = "";
         return applyCurrentBoard(true);
       },
       navigateStep(direction) {
