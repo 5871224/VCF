@@ -6,7 +6,7 @@
   const BLACK = 1;
   const WHITE = 2;
   const PASS = -1;
-  const API_URL = "api/yxdb.php";
+  const API_URL = String(global.VCF_CLOUD_API_URL || "api/yxdb.php");
   const AUTH_TOKEN_KEY = "vcf_google_auth_token_v1";
   const MAX_BLOCK = 64 * 1024;
   const FLG = 0x64;
@@ -311,6 +311,7 @@
 
   async function saveCurrent(title = "") {
     if (!authUser) throw new Error("請先使用 Google 登入");
+    if (global.VCFWorkbenchRecord?.workspace?.()?.mode !== "record") throw new Error("雲端 YXDB 只能儲存打譜模式");
     const result = createCurrentYXDB();
     const params = new URLSearchParams({ action: "save", title: String(title || ""), record_count: String(result.recordCount), raw_size: String(result.rawSize) });
     const response = await fetch(`${API_URL}?${params}`, {
@@ -466,10 +467,14 @@
   function refreshAuthUI() {
     const login = document.getElementById("vcf-google-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
     const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open");
+    const recordMode = global.VCFWorkbenchRecord?.workspace?.()?.mode === "record";
     if (user) user.textContent = authUser ? `${authUser.name || authUser.email}｜只顯示此帳號棋譜` : "未登入";
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
-    if (saveButton) saveButton.disabled = !authUser;
+    if (saveButton) {
+      saveButton.disabled = !authUser || !recordMode;
+      saveButton.title = recordMode ? "" : "題目模式使用 .vcf.json，不儲存為 YXDB";
+    }
     if (openButton) openButton.disabled = !authUser;
     refreshQueryButton();
   }
@@ -523,6 +528,7 @@
   if (typeof document === "undefined") return;
 
   installUI();
+  global.addEventListener("vcf-workspace-mode-changed", refreshAuthUI);
   Promise.all([publicConfig(), authMe()]).then(() => { refreshAuthUI(); renderGoogleButton(); }).catch(e => status(e.message || String(e)));
   global.addEventListener("load", () => { renderGoogleButton(); }, { once: true });
 })(typeof window !== "undefined" ? window : globalThis);

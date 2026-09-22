@@ -616,6 +616,11 @@ for (const forbidden of [
 
 const cloudYXDB = read("rapfi/vcf-lz4-cloud.js");
 for (const token of [
+  'global.VCF_CLOUD_API_URL || "api/yxdb.php"',
+  'global.VCFWorkbenchRecord?.workspace?.()?.mode !== "record"',
+  'global.addEventListener("vcf-workspace-mode-changed", refreshAuthUI)',
+]) if (!cloudYXDB.includes(token)) throw new Error(`server cloud mode contract missing: ${token}`);
+for (const token of [
   'window.VCFRecordImportAPI = {',
   'loadRecordBytes(rawBytes',
   'options?.openAtEnd ? deepestParsedNode(parsed) : parsed.current',
