@@ -112,6 +112,6 @@ for (const token of [
   'panel.appendChild(bank)',
 ]) if (!generatorLayout.includes(token)) throw new Error(`question-bank mount contract missing: ${token}`);
 
-if (!scripts.includes("makevcf-layout.js?v=20260922-workspace-mode1")) throw new Error("canonical UI owner is not loaded");
+if (!scripts.includes("makevcf-layout.js?v=20260922-bd-layout1")) throw new Error("canonical UI owner is not loaded");
 
 console.log("Generator final architecture checks passed");
