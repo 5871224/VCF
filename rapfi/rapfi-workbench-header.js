@@ -589,7 +589,7 @@
       #bitboard-architecture-panel.bb-quick-actions #bb-hard-refresh:disabled,
       #bitboard-architecture-panel.bb-quick-actions #bb-export-file:disabled{opacity:.65;cursor:wait}
       #bitboard-architecture-panel.bb-quick-actions #bb-export-status{font-size:12px;color:#58645b}
-      #vcf-workspace-mode{display:grid;gap:8px;margin:0 0 10px;padding:10px;border:1px solid #d5c496;border-radius:10px;background:#fff9e8}
+      #vcf-workspace-mode-slot:empty{display:none}\n      #vcf-workspace-mode-slot{width:100%}\n      #vcf-workspace-mode{display:grid;gap:8px;margin:0 0 10px;padding:10px;border:1px solid #d5c496;border-radius:10px;background:#fff9e8}
       #vcf-workspace-mode .vcf-workspace-mode-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
       #vcf-workspace-mode .vcf-workspace-mode-title{font-weight:800;color:#4d432c}
       #vcf-workspace-mode .vcf-workspace-mode-badge{padding:4px 8px;border-radius:999px;background:#ede4ca;color:#5d5135;font-size:12px;font-weight:700}
@@ -1552,9 +1552,8 @@
   installWorkbenchRecordState();
 
   function installWorkspaceModeUI() {
-    const boardCard = document.querySelector(".vcf-board-card");
-    const boardWrap = boardCard?.querySelector(".vcf-board-wrap");
-    if (!boardCard || document.getElementById("vcf-workspace-mode")) return false;
+    const workspaceModeSlot = document.getElementById("vcf-workspace-mode-slot");
+    if (!workspaceModeSlot || document.getElementById("vcf-workspace-mode")) return false;
     const panel = document.createElement("section");
     panel.id = "vcf-workspace-mode";
     panel.setAttribute("aria-label", "工作模式");
@@ -1582,8 +1581,7 @@
         <button type="button" data-edit-puzzle hidden>重編初始盤面</button>
       </div>
     `;
-    if (boardWrap) boardCard.insertBefore(panel, boardWrap);
-    else boardCard.prepend(panel);
+    workspaceModeSlot.appendChild(panel);
 
     const badge = panel.querySelector("[data-mode-badge]");
     const format = panel.querySelector("[data-format]");
