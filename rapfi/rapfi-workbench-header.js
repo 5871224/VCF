@@ -589,6 +589,15 @@
       #bitboard-architecture-panel.bb-quick-actions #bb-hard-refresh:disabled,
       #bitboard-architecture-panel.bb-quick-actions #bb-export-file:disabled{opacity:.65;cursor:wait}
       #bitboard-architecture-panel.bb-quick-actions #bb-export-status{font-size:12px;color:#58645b}
+      #vcf-workspace-mode{display:grid;gap:8px;margin:0 0 10px;padding:10px;border:1px solid #d5c496;border-radius:10px;background:#fff9e8}
+      #vcf-workspace-mode .vcf-workspace-mode-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+      #vcf-workspace-mode .vcf-workspace-mode-title{font-weight:800;color:#4d432c}
+      #vcf-workspace-mode .vcf-workspace-mode-badge{padding:4px 8px;border-radius:999px;background:#ede4ca;color:#5d5135;font-size:12px;font-weight:700}
+      #vcf-workspace-mode button,#vcf-workspace-mode select{min-height:34px;padding:6px 10px;border:1px solid #bbaa7d;border-radius:7px;background:#fff;font:inherit;font-size:13px}
+      #vcf-workspace-mode button.is-active{border-color:#477aa8;background:#d9e9f7;color:#214d72;font-weight:800}
+      #vcf-workspace-mode .vcf-puzzle-controls[hidden]{display:none!important}
+      #vcf-workspace-mode .vcf-workspace-format{margin-left:auto;color:#6c624c;font-size:12px}
+      @media(max-width:600px){#vcf-workspace-mode .vcf-workspace-format{width:100%;margin-left:0}}
     `;
   }
 
@@ -644,6 +653,12 @@
 
   function installWorkbenchRecordState() {
     const STORAGE_KEY = "vcf_rapfi_workbench_v1";
+    const PUZZLE_FORMAT = "vcf-puzzle-v1";
+    const WORKSPACE_RECORD = "record";
+    const WORKSPACE_PUZZLE = "puzzle";
+    const PUZZLE_SETUP = "setup";
+    const PUZZLE_TREE = "tree";
+    const MAX_PUZZLE_NODES = 10000;
     const activeRule = () => Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
     const normalizeRule = rule => [0, 1, 2].includes(Number(rule)) ? Number(rule) : 2;
     const ruleBox = document.getElementById("rule-box");
@@ -655,6 +670,12 @@
     let restoringRule = false;
     let basePly = 0;
     let lastBoard = new Uint8Array(BOARD_CELLS);
+    let workspaceMode = null;
+    let puzzlePhase = PUZZLE_SETUP;
+    let puzzleAttacker = BLACK;
+    let puzzleSetupTool = BLACK;
+    let puzzleRootBoard = new Uint8Array(BOARD_CELLS);
+    let suspendPersistence = false;
     const selectedNextByRoute = new Map();
 
     const bytesToBase64 = bytes => {
@@ -672,6 +693,21 @@
       return bytes;
     };
     const db = () => global.VCFRapfiDB;
+    const boardText = value => Array.from(value || [], stone => Number(stone) === BLACK ? "1" : Number(stone) === WHITE ? "2" : "0").join("");
+    const parseBoardText = value => {
+      if (typeof value !== "string" || !/^[012]{225}$/.test(value)) return null;
+      return Uint8Array.from(value, Number);
+    };
+    const emitWorkspaceChanged = () => {
+      global.dispatchEvent(new CustomEvent("vcf-workspace-mode-changed", {
+        detail: {
+          mode: workspaceMode,
+          puzzlePhase,
+          attacker: puzzleAttacker,
+          setupTool: puzzleSetupTool,
+        },
+      }));
+    };
     const routeKey = () => {
       const service = db();
       return rapfiDbActive && service?.isReady
@@ -726,17 +762,76 @@
         attacker: rapfiDbActive && db()?.isReady ? db().sideToMove() : undefined,
       });
     };
+    const positionKey = service => `${service.sideToMove()}:${boardText(service.board())}`;
+    const serializePuzzle = () => {
+      const service = db();
+      if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE || !rapfiDbActive || !service?.isReady) return null;
+      const originalHistory = service.history();
+      if (!restoreDbHistory(originalHistory.slice(0, basePly))) return null;
+      const nodes = Object.create(null);
+      let nodeCount = 0;
+      const visit = () => {
+        const key = positionKey(service);
+        if (nodes[key]) return key;
+        if (nodeCount >= MAX_PUZZLE_NODES) throw new Error(`題目分支超過 ${MAX_PUZZLE_NODES.toLocaleString()} 個盤面`);
+        const node = { text: String(service.getDisplayText() || ""), children: [] };
+        nodes[key] = node;
+        nodeCount++;
+        const children = service.children().map(Number).filter(Number.isInteger).sort((a, b) => a - b);
+        for (const move of children) {
+          if (!service.play(move, false)) continue;
+          const childKey = visit();
+          service.undo();
+          node.children.push({ move, to: childKey });
+        }
+        return key;
+      };
+      try {
+        const root = visit();
+        return {
+          format: PUZZLE_FORMAT,
+          rule: currentRule,
+          attacker: puzzleAttacker,
+          board: boardText(puzzleRootBoard),
+          root,
+          currentRoute: originalHistory.slice(basePly),
+          nodes,
+        };
+      } finally {
+        restoreDbHistory(originalHistory);
+      }
+    };
     const saveState = (databaseChanged = false) => {
       const service = db();
-      if (!rapfiDbActive || !service?.isReady) return false;
+      if (suspendPersistence || !workspaceMode || !rapfiDbActive || !service?.isReady) return false;
       try {
+        if (workspaceMode === WORKSPACE_PUZZLE) {
+          if (puzzlePhase === PUZZLE_SETUP) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+              version: 2,
+              mode: WORKSPACE_PUZZLE,
+              phase: PUZZLE_SETUP,
+              rule: currentRule,
+              attacker: puzzleAttacker,
+              board: boardText(puzzleRootBoard),
+            }));
+            try { localStorage.removeItem("vcf_board"); } catch (_) {}
+            return true;
+          }
+          const puzzle = serializePuzzle();
+          if (!puzzle) return false;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, mode: WORKSPACE_PUZZLE, puzzle }));
+          try { localStorage.removeItem("vcf_board"); } catch (_) {}
+          return true;
+        }
         if (databaseChanged || !persistedDbBase64) {
           const snapshot = service.snapshotYXDB();
           if (!snapshot.length) return false;
           persistedDbBase64 = bytesToBase64(snapshot);
         }
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
-          version: 1,
+          version: 2,
+          mode: workspaceMode,
           rule: currentRule,
           db: persistedDbBase64,
           history: service.history(),
@@ -788,6 +883,9 @@
           nextBranchCount: nextMoves.length,
           siblingCount: 0,
           siblingIndex: -1,
+          workspaceMode,
+          puzzlePhase,
+          puzzleAttacker,
           positionBackend: rapfiDbActive ? "rapfi-db" : "initializing",
         },
       }));
@@ -811,6 +909,125 @@
         if (!service.replayMove(Number(raw?.index ?? raw?.move ?? raw), false)) return false;
       }
       return true;
+    };
+    const normalizePuzzlePayload = value => {
+      const payload = value && typeof value === "object" ? value : null;
+      if (!payload || payload.format !== PUZZLE_FORMAT) throw new Error("不是 VCF 題目容器");
+      const board = parseBoardText(payload.board);
+      const attacker = Number(payload.attacker);
+      const rule = Number(payload.rule);
+      if (!board) throw new Error("題目初始盤面格式錯誤");
+      if (!board.some(stone => stone !== EMPTY)) throw new Error("題目初始盤面不得為空");
+      if (attacker !== BLACK && attacker !== WHITE) throw new Error("題目攻方格式錯誤");
+      if (![0, 1, 2].includes(rule)) throw new Error("題目規則格式錯誤");
+      if (!payload.nodes || typeof payload.nodes !== "object" || Array.isArray(payload.nodes)) throw new Error("題目分支格式錯誤");
+      const entries = Object.entries(payload.nodes);
+      if (!entries.length || entries.length > MAX_PUZZLE_NODES) throw new Error("題目分支數量不合法");
+      const keyPattern = /^[12]:[012]{225}$/;
+      const nodes = new Map();
+      for (const [key, rawNode] of entries) {
+        if (!keyPattern.test(key) || !rawNode || typeof rawNode !== "object") throw new Error("題目盤面節點格式錯誤");
+        if (typeof rawNode.text !== "string" || !Array.isArray(rawNode.children)) throw new Error("題目盤面節點格式錯誤");
+        const text = rawNode.text;
+        if (text.length > 100000) throw new Error("題目注釋過長");
+        if (rawNode.children.length > BOARD_CELLS + 1) throw new Error("單一題目盤面的分支數量不合法");
+        const childMoves = new Set();
+        const children = rawNode.children.map(child => {
+          const move = Number(child?.move);
+          const to = String(child?.to || "");
+          if (!Number.isInteger(move) || (move !== PASS && (move < 0 || move >= BOARD_CELLS)) || !keyPattern.test(to)) {
+            throw new Error("題目分支落點格式錯誤");
+          }
+          if (childMoves.has(move)) throw new Error("題目盤面含重複分支落點");
+          childMoves.add(move);
+          return { move, to };
+        });
+        nodes.set(key, { text, children });
+      }
+      const root = String(payload.root || "");
+      if (root !== `${attacker}:${boardText(board)}` || !nodes.has(root)) throw new Error("題目根盤面與攻方不一致");
+      for (const [key, node] of nodes) {
+        const side = Number(key[0]);
+        const sourceBoard = parseBoardText(key.slice(2));
+        for (const child of node.children) {
+          if (!nodes.has(child.to)) throw new Error("題目分支指向不存在的盤面");
+          const nextBoard = new Uint8Array(sourceBoard);
+          if (child.move !== PASS) {
+            if (nextBoard[child.move] !== EMPTY) throw new Error("題目分支落在已佔用交點");
+            nextBoard[child.move] = side;
+          }
+          if (child.to !== `${oppositeStone(side)}:${boardText(nextBoard)}`) throw new Error("題目分支盤面與落點不一致");
+        }
+      }
+      const currentRoute = Array.isArray(payload.currentRoute) ? payload.currentRoute.map(Number) : [];
+      if (currentRoute.length > MAX_PUZZLE_NODES) throw new Error("題目目前路線過長");
+      if (currentRoute.some(move => !Number.isInteger(move) || (move !== PASS && (move < 0 || move >= BOARD_CELLS)))) {
+        throw new Error("題目目前路線格式錯誤");
+      }
+      const reachable = new Set();
+      const visit = key => {
+        if (reachable.has(key)) return;
+        reachable.add(key);
+        for (const child of nodes.get(key).children) visit(child.to);
+      };
+      visit(root);
+      if (reachable.size !== nodes.size) throw new Error("題目含有未連到根盤面的節點");
+      let routeKey = root;
+      for (const move of currentRoute) {
+        const child = nodes.get(routeKey).children.find(item => item.move === move);
+        if (!child) throw new Error("題目目前路線不屬於解答分支");
+        routeKey = child.to;
+      }
+      return { board, attacker, rule, root, nodes, currentRoute };
+    };
+    const importPuzzleInternal = async value => {
+      const service = db();
+      if (!service?.isReady) return false;
+      const puzzle = normalizePuzzlePayload(value);
+      restoringRule = true;
+      suspendPersistence = true;
+      try {
+        const radio = ruleBox?.querySelector('input[name="rules"][value="' + puzzle.rule + '"]');
+        if (radio) radio.checked = true;
+        if (ruleBox) ruleBox.dataset.activeRules = String(puzzle.rule);
+        await global.vcfSetRules?.(puzzle.rule);
+        currentRule = puzzle.rule;
+        workspaceMode = WORKSPACE_PUZZLE;
+        puzzlePhase = PUZZLE_TREE;
+        puzzleAttacker = puzzle.attacker;
+        puzzleRootBoard = new Uint8Array(puzzle.board);
+        const setup = setupMovesForBoard(puzzle.board, puzzle.attacker);
+        service.clear(currentRule);
+        for (const move of setup) if (!service.replayMove(move, false)) throw new Error("題目初始盤面無法建立");
+        basePly = service.ply();
+        const hydrated = new Set();
+        const hydrate = key => {
+          if (positionKey(service) !== key) throw new Error("題目分支盤面與落點不一致");
+          const node = puzzle.nodes.get(key);
+          if (!node) throw new Error("題目分支缺少盤面節點");
+          service.ensureCurrent();
+          if (node.text && !service.setDisplayText(node.text)) throw new Error("題目注釋無法載入");
+          if (hydrated.has(key)) return;
+          hydrated.add(key);
+          for (const child of node.children) {
+            if (!service.play(child.move, true)) throw new Error("題目分支落點無法載入");
+            hydrate(child.to);
+            if (!service.undo()) throw new Error("題目分支無法返回父盤面");
+          }
+        };
+        hydrate(puzzle.root);
+        if (!restoreDbHistory(setup.concat(puzzle.currentRoute))) throw new Error("題目目前路線無法載入");
+        rapfiDbActive = true;
+        exact = true;
+        selectedNextByRoute.clear();
+        persistedDbBase64 = "";
+        service.ensureCurrent();
+      } finally {
+        restoringRule = false;
+        suspendPersistence = false;
+      }
+      emitWorkspaceChanged();
+      return applyCurrentBoard(true, "puzzle-import");
     };
     const captureHistoryWithTexts = () => {
       const service = db();
@@ -837,9 +1054,14 @@
       for (const move of setup) if (!service.replayMove(move, false)) return false;
       service.ensureCurrent();
       basePly = service.ply();
+      workspaceMode = WORKSPACE_PUZZLE;
+      puzzlePhase = options.phase === PUZZLE_SETUP ? PUZZLE_SETUP : PUZZLE_TREE;
+      puzzleAttacker = service.sideToMove();
+      puzzleRootBoard = new Uint8Array(board);
       exact = true;
       selectedNextByRoute.clear();
       persistedDbBase64 = "";
+      emitWorkspaceChanged();
       return applyCurrentBoard(true, options.source || "replace-position");
     };
     const replaceHistoryInternal = (nextHistory, options = {}) => {
@@ -860,10 +1082,14 @@
         if (item.recordText) service.setDisplayText(item.recordText);
       }
       basePly = Math.max(0, Math.min(service.ply(), Number(options.basePly || 0)));
+      workspaceMode = WORKSPACE_RECORD;
+      puzzlePhase = PUZZLE_SETUP;
+      puzzleRootBoard = new Uint8Array(BOARD_CELLS);
       exact = true;
       selectedNextByRoute.clear();
       persistedDbBase64 = "";
       service.ensureCurrent();
+      emitWorkspaceChanged();
       return applyCurrentBoard(true, options.source || "replace-history");
     };
     const resetToEmptyBoard = () => {
@@ -874,6 +1100,9 @@
       rapfiDbActive = true;
       exact = true;
       basePly = 0;
+      workspaceMode = null;
+      puzzlePhase = PUZZLE_SETUP;
+      puzzleRootBoard = new Uint8Array(BOARD_CELLS);
       selectedNextByRoute.clear();
       persistedDbBase64 = "";
       return applyCurrentBoard(false, "init", false);
@@ -887,7 +1116,50 @@
         console.warn("Rapfi 工作台狀態格式損壞，已改用空白棋盤", error);
         try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
       }
-      if (saved?.version === 1 && typeof saved.db === "string" && saved.db.length) {
+      if (saved?.version === 2 && saved.mode === WORKSPACE_PUZZLE && saved.phase === PUZZLE_SETUP) {
+        try {
+          const board = parseBoardText(saved.board);
+          const attacker = Number(saved.attacker);
+          const savedRule = Number(saved.rule);
+          if (!board || (attacker !== BLACK && attacker !== WHITE) || ![0, 1, 2].includes(savedRule)) {
+            throw new Error("題目擺盤草稿格式錯誤");
+          }
+          restoringRule = true;
+          const radio = ruleBox?.querySelector('input[name="rules"][value="' + savedRule + '"]');
+          if (radio) radio.checked = true;
+          if (ruleBox) ruleBox.dataset.activeRules = String(savedRule);
+          await global.vcfSetRules?.(savedRule);
+          currentRule = savedRule;
+          workspaceMode = WORKSPACE_PUZZLE;
+          puzzlePhase = PUZZLE_SETUP;
+          puzzleAttacker = attacker;
+          puzzleRootBoard = new Uint8Array(board);
+          const setup = setupMovesForBoard(board, attacker);
+          service.clear(currentRule);
+          for (const move of setup) if (!service.replayMove(move, false)) throw new Error("題目擺盤草稿無法建立");
+          basePly = service.ply();
+          rapfiDbActive = true;
+          exact = true;
+          selectedNextByRoute.clear();
+          persistedDbBase64 = "";
+          service.ensureCurrent();
+          emitWorkspaceChanged();
+          return applyCurrentBoard(false, "restore-puzzle-setup", false);
+        } catch (error) {
+          console.warn("VCF 題目擺盤草稿損壞，已改用空白工作區", error);
+          try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+        } finally {
+          restoringRule = false;
+        }
+      }
+      if (saved?.version === 2 && saved.mode === WORKSPACE_PUZZLE && saved.puzzle) {
+        try { return await importPuzzleInternal(saved.puzzle); }
+        catch (error) {
+          console.warn("VCF 題目工作區損壞，已改用空白工作區", error);
+          try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+        }
+      }
+      if ((saved?.version === 1 || saved?.version === 2) && typeof saved.db === "string" && saved.db.length) {
         try {
           const savedRule = normalizeRule(saved.rule);
           if (savedRule !== activeRule()) {
@@ -907,9 +1179,21 @@
             }
             if (historyOk) {
               basePly = Math.max(0, Math.min(service.ply(), Number(saved.basePly || 0)));
+              workspaceMode = saved.mode === WORKSPACE_RECORD || saved.mode === WORKSPACE_PUZZLE
+                ? saved.mode
+                : (basePly > 0 ? WORKSPACE_PUZZLE : WORKSPACE_RECORD);
+              puzzlePhase = workspaceMode === WORKSPACE_PUZZLE ? PUZZLE_TREE : PUZZLE_SETUP;
+              if (workspaceMode === WORKSPACE_PUZZLE) {
+                const fullHistory = service.history();
+                if (!restoreDbHistory(fullHistory.slice(0, basePly))) throw new Error("舊題目根盤面無法還原");
+                puzzleRootBoard = new Uint8Array(service.board());
+                puzzleAttacker = service.sideToMove();
+                if (!restoreDbHistory(fullHistory)) throw new Error("舊題目目前路線無法還原");
+              }
               rapfiDbActive = true;
               exact = true;
               service.ensureCurrent();
+              emitWorkspaceChanged();
               return applyCurrentBoard(false, "restore");
             }
             console.warn("Rapfi 工作台手順損壞，已保留棋譜資料並回到起始點");
@@ -918,7 +1202,9 @@
             basePly = 0;
             rapfiDbActive = true;
             exact = true;
+            workspaceMode = WORKSPACE_RECORD;
             selectedNextByRoute.clear();
+            emitWorkspaceChanged();
             return applyCurrentBoard(false, "restore-recovered");
           }
           throw new Error("Rapfi YXDB snapshot 無法讀取");
@@ -960,7 +1246,84 @@
     global.VCFWorkbenchRecord = {
       snapshot() {
         const captured = rapfiDbActive && exact ? captureHistoryWithTexts() : { history: [], rootRecordText: "" };
-        return { history: captured.history, exact: Boolean(rapfiDbActive && exact), board: this.currentBoard(), rootRecordText: captured.rootRecordText, basePly };
+        return {
+          history: captured.history,
+          exact: Boolean(rapfiDbActive && exact),
+          board: this.currentBoard(),
+          rootRecordText: captured.rootRecordText,
+          basePly,
+          workspaceMode,
+          puzzlePhase,
+          puzzleAttacker,
+        };
+      },
+      workspace() {
+        return { mode: workspaceMode, puzzlePhase, attacker: puzzleAttacker, setupTool: puzzleSetupTool };
+      },
+      startWorkspace(mode) {
+        const service = db();
+        if (!rapfiDbActive || !service?.isReady || (mode !== WORKSPACE_RECORD && mode !== WORKSPACE_PUZZLE)) return false;
+        service.clear(currentRule);
+        service.ensureCurrent();
+        workspaceMode = mode;
+        puzzlePhase = PUZZLE_SETUP;
+        puzzleAttacker = BLACK;
+        puzzleSetupTool = BLACK;
+        puzzleRootBoard = new Uint8Array(BOARD_CELLS);
+        basePly = 0;
+        exact = true;
+        selectedNextByRoute.clear();
+        persistedDbBase64 = "";
+        emitWorkspaceChanged();
+        return applyCurrentBoard(true, mode === WORKSPACE_RECORD ? "new-record" : "new-puzzle");
+      },
+      setPuzzleSetupTool(stone) {
+        const normalized = Number(stone);
+        if (normalized !== EMPTY && normalized !== BLACK && normalized !== WHITE) return false;
+        puzzleSetupTool = normalized;
+        emitWorkspaceChanged();
+        return true;
+      },
+      setPuzzleAttacker(attacker) {
+        const normalized = Number(attacker);
+        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_SETUP || (normalized !== BLACK && normalized !== WHITE)) return false;
+        return replacePositionInternal(this.currentBoard(), {
+          sideToMove: normalized,
+          source: "puzzle-attacker",
+          phase: PUZZLE_SETUP,
+        });
+      },
+      placePuzzleSetupStone(index, stone = puzzleSetupTool) {
+        const move = Number(index);
+        const normalized = Number(stone);
+        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_SETUP
+          || !Number.isInteger(move) || move < 0 || move >= BOARD_CELLS
+          || (normalized !== EMPTY && normalized !== BLACK && normalized !== WHITE)) return false;
+        const board = this.currentBoard();
+        board[move] = normalized;
+        return replacePositionInternal(board, {
+          sideToMove: puzzleAttacker,
+          source: "puzzle-setup",
+          phase: PUZZLE_SETUP,
+        });
+      },
+      commitPuzzleSetup() {
+        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_SETUP
+          || !this.currentBoard().some(stone => Number(stone) !== EMPTY)) return false;
+        puzzleRootBoard = Uint8Array.from(this.currentBoard());
+        puzzlePhase = PUZZLE_TREE;
+        emitWorkspaceChanged();
+        saveState(true);
+        notify();
+        return true;
+      },
+      editPuzzleSetup() {
+        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE) return false;
+        return replacePositionInternal(puzzleRootBoard, {
+          sideToMove: puzzleAttacker,
+          source: "puzzle-setup-edit",
+          phase: PUZZLE_SETUP,
+        });
       },
       currentBoard() {
         const service = db();
@@ -973,7 +1336,8 @@
       currentRecordText,
       setCurrentRecordText(text) {
         const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        if (!workspaceMode || (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase === PUZZLE_SETUP)
+          || !rapfiDbActive || !exact || !service?.isReady) return false;
         if (!service.setDisplayText(String(text || ""))) return false;
         persistedDbBase64 = "";
         saveState(true);
@@ -988,10 +1352,15 @@
         service.clear(currentRule);
         service.ensureCurrent();
         basePly = 0;
+        if (workspaceMode === WORKSPACE_PUZZLE) {
+          puzzlePhase = PUZZLE_SETUP;
+          puzzleRootBoard = new Uint8Array(BOARD_CELLS);
+        }
         exact = true;
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
-        return applyCurrentBoard(true, source);
+        emitWorkspaceChanged();
+        return applyCurrentBoard(true, source, Boolean(workspaceMode));
       },
       setHistory(nextHistory, nextExact = true, nextRootRecordText = "") {
         if (nextExact === false) return false;
@@ -1014,9 +1383,13 @@
         exact = true;
         if (!restoreDbHistory(history)) return false;
         basePly = Math.max(0, Math.min(service.ply(), Number(importedBasePly || 0)));
+        workspaceMode = WORKSPACE_RECORD;
+        puzzlePhase = PUZZLE_SETUP;
+        puzzleRootBoard = new Uint8Array(BOARD_CELLS);
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
         service.ensureCurrent();
+        emitWorkspaceChanged();
         return applyCurrentBoard(true, "record-import");
       },
       async importRoutes(routes, rule, openHistory = []) {
@@ -1040,16 +1413,26 @@
         }
         if (!restoreDbHistory(openHistory)) return false;
         basePly = 0;
+        workspaceMode = WORKSPACE_RECORD;
+        puzzlePhase = PUZZLE_SETUP;
+        puzzleRootBoard = new Uint8Array(BOARD_CELLS);
         exact = true;
         rapfiDbActive = true;
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
         service.ensureCurrent();
+        emitWorkspaceChanged();
         return applyCurrentBoard(true, "record-import");
       },
+      exportPuzzle() {
+        const puzzle = serializePuzzle();
+        return puzzle ? JSON.parse(JSON.stringify(puzzle)) : null;
+      },
+      importPuzzle(value) { return importPuzzleInternal(value); },
       exportYXDB() {
         const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady) return null;
+        if (workspaceMode !== WORKSPACE_RECORD || !rapfiDbActive || !exact || !service?.isReady) return null;
+        if (service.history().includes(PASS)) throw new Error("打譜模式含 PASS，無法匯出 YXDB");
         service.ensureCurrent();
         const bytes = service.snapshotYXDB();
         return bytes?.length ? { bytes, recordCount: service.recordCount() } : null;
@@ -1059,7 +1442,9 @@
       playAt(move, source = "manual") {
         const service = db();
         const index = Number(move);
-        if (!rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(index) || index < 0 || index >= BOARD_CELLS || Number(service.board()[index])) return false;
+        if (!workspaceMode || (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase !== PUZZLE_TREE)
+          || !rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(index)
+          || index < 0 || index >= BOARD_CELLS || Number(service.board()[index])) return false;
         const parentKey = routeKey();
         if (!service.play(index, true)) return false;
         selectedNextByRoute.set(parentKey, index);
@@ -1111,7 +1496,7 @@
       },
       appendPass() {
         const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE || !rapfiDbActive || !exact || !service?.isReady) return false;
         const parentKey = routeKey();
         if (!service.play(PASS, true)) return false;
         selectedNextByRoute.set(parentKey, PASS);
@@ -1133,6 +1518,13 @@
         const original = service.history();
         const transformed = original.map(move => transformMove(move, normalized));
         if (!restoreDbHistory(transformed)) { restoreDbHistory(original); return false; }
+        if (workspaceMode === WORKSPACE_PUZZLE) {
+          const nextRoot = new Uint8Array(BOARD_CELLS);
+          for (let index = 0; index < BOARD_CELLS; index++) {
+            if (puzzleRootBoard[index]) nextRoot[transformMove(index, normalized)] = puzzleRootBoard[index];
+          }
+          puzzleRootBoard = nextRoot;
+        }
         selectedNextByRoute.clear();
         return applyCurrentBoard(false, "record-transform");
       },
@@ -1159,6 +1551,112 @@
 
   installWorkbenchRecordState();
 
+  function installWorkspaceModeUI() {
+    const boardCard = document.querySelector(".vcf-board-card");
+    const boardWrap = boardCard?.querySelector(".vcf-board-wrap");
+    if (!boardCard || document.getElementById("vcf-workspace-mode")) return false;
+    const panel = document.createElement("section");
+    panel.id = "vcf-workspace-mode";
+    panel.setAttribute("aria-label", "工作模式");
+    panel.innerHTML = `
+      <div class="vcf-workspace-mode-row">
+        <span class="vcf-workspace-mode-title">工作模式</span>
+        <span class="vcf-workspace-mode-badge" data-mode-badge>尚未選擇</span>
+        <button type="button" data-new-mode="record">新增打譜</button>
+        <button type="button" data-new-mode="puzzle">新增題目</button>
+        <span class="vcf-workspace-format" data-format>請先選擇模式</span>
+      </div>
+      <div class="vcf-workspace-mode-row vcf-puzzle-controls" data-puzzle-controls hidden>
+        <label>攻方
+          <select data-puzzle-attacker aria-label="題目攻方">
+            <option value="1">黑方</option>
+            <option value="2">白方</option>
+          </select>
+        </label>
+        <span data-setup-tools>
+          <button type="button" data-setup-tool="1">放黑子</button>
+          <button type="button" data-setup-tool="2">放白子</button>
+          <button type="button" data-setup-tool="0">橡皮擦</button>
+        </span>
+        <button type="button" data-commit-puzzle>開始編輯解答</button>
+        <button type="button" data-edit-puzzle hidden>重編初始盤面</button>
+      </div>
+    `;
+    if (boardWrap) boardCard.insertBefore(panel, boardWrap);
+    else boardCard.prepend(panel);
+
+    const badge = panel.querySelector("[data-mode-badge]");
+    const format = panel.querySelector("[data-format]");
+    const puzzleControls = panel.querySelector("[data-puzzle-controls]");
+    const setupTools = panel.querySelector("[data-setup-tools]");
+    const attacker = panel.querySelector("[data-puzzle-attacker]");
+    const commit = panel.querySelector("[data-commit-puzzle]");
+    const edit = panel.querySelector("[data-edit-puzzle]");
+    const status = message => {
+      if (typeof global.setStatus === "function") global.setStatus(message);
+      else {
+        const node = document.getElementById("status");
+        if (node) node.textContent = message;
+      }
+    };
+    const sync = () => {
+      const state = global.VCFWorkbenchRecord?.workspace?.() || {};
+      const isPuzzle = state.mode === "puzzle";
+      const isSetup = isPuzzle && state.puzzlePhase === "setup";
+      badge.textContent = state.mode === "record" ? "打譜模式" : isPuzzle ? (isSetup ? "題目模式・擺題" : "題目模式・解答") : "尚未選擇";
+      format.textContent = state.mode === "record" ? "儲存格式：Rapfi YXDB" : isPuzzle ? "儲存格式：VCF 題目容器" : "請先選擇模式";
+      puzzleControls.hidden = !isPuzzle;
+      setupTools.hidden = !isSetup;
+      attacker.disabled = !isSetup;
+      attacker.value = String(state.attacker === WHITE ? WHITE : BLACK);
+      commit.hidden = !isSetup;
+      edit.hidden = !isPuzzle || isSetup;
+      for (const button of panel.querySelectorAll("[data-new-mode]")) {
+        button.classList.toggle("is-active", button.dataset.newMode === state.mode);
+      }
+      for (const button of panel.querySelectorAll("[data-setup-tool]")) {
+        button.classList.toggle("is-active", Number(button.dataset.setupTool) === Number(state.setupTool));
+      }
+    };
+
+    panel.addEventListener("click", event => {
+      const modeButton = event.target.closest("[data-new-mode]");
+      if (modeButton) {
+        const nextMode = modeButton.dataset.newMode;
+        const current = global.VCFWorkbenchRecord?.workspace?.()?.mode;
+        const hasContent = global.VCFWorkbenchRecord?.currentBoard?.().some(stone => Number(stone) !== EMPTY);
+        if ((current || hasContent) && !global.confirm("建立新工作區會清除目前盤面、注釋與分支，確定繼續？")) return;
+        if (!global.VCFWorkbenchRecord?.startWorkspace?.(nextMode)) {
+          status("Rapfi 棋盤尚未就緒，請稍候再選擇模式");
+          return;
+        }
+        status(nextMode === "record" ? "打譜模式：從空盤依序落子，可儲存為 YXDB" : "題目模式：先自由擺放黑白棋，再選擇攻方並開始編輯解答");
+        return;
+      }
+      const toolButton = event.target.closest("[data-setup-tool]");
+      if (toolButton) global.VCFWorkbenchRecord?.setPuzzleSetupTool?.(Number(toolButton.dataset.setupTool));
+      if (event.target.closest("[data-commit-puzzle]")) {
+        if (global.VCFWorkbenchRecord?.commitPuzzleSetup?.()) status("題目根盤面已建立；後續落子會記錄為解答分支");
+        else status("請先在題目盤面放入至少一顆棋子");
+      }
+      if (event.target.closest("[data-edit-puzzle]")) {
+        if (!global.confirm("重新編輯初始盤面會清除目前解答分支，確定繼續？")) return;
+        if (global.VCFWorkbenchRecord?.editPuzzleSetup?.()) status("已返回題目擺盤；原解答分支已清除");
+      }
+    });
+    attacker.addEventListener("change", () => {
+      if (global.VCFWorkbenchRecord?.setPuzzleAttacker?.(Number(attacker.value))) {
+        status(attacker.value === "2" ? "題目攻方已設為白方" : "題目攻方已設為黑方");
+      }
+    });
+    global.addEventListener("vcf-workspace-mode-changed", sync);
+    global.addEventListener("vcf-rapfi-db-active", sync);
+    sync();
+    return true;
+  }
+
+  installWorkspaceModeUI();
+
   function activeExportData() {
     const recordState = global.VCFWorkbenchRecord?.snapshot?.() || {
       history: [], exact: false, board: [], rootRecordText: "", basePly: 0,
@@ -1182,8 +1680,8 @@
     return `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
   }
 
-  function downloadBytes(bytes, filename) {
-    const blob = new Blob([bytes], { type: "application/octet-stream" });
+  function downloadBytes(bytes, filename, type = "application/octet-stream") {
+    const blob = new Blob([bytes], { type });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -1215,13 +1713,30 @@
     const formatSelect = panel.querySelector("#bb-export-format");
     const exportButton = panel.querySelector("#bb-export-file");
     const exportStatus = panel.querySelector("#bb-export-status");
+    const syncExportMode = () => {
+      const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
+      const mode = workspace.mode;
+      const puzzle = mode === "puzzle";
+      formatSelect.hidden = puzzle;
+      exportButton.textContent = puzzle ? "匯出題目" : "匯出棋譜";
+      exportButton.disabled = !mode || (puzzle && workspace.puzzlePhase !== "tree");
+    };
     exportButton.addEventListener("click", () => {
       exportButton.disabled = true;
       exportStatus.textContent = "正在建立檔案……";
       try {
-        const data = activeExportData();
         const stamp = timestampName();
-        if (formatSelect.value === "lib") {
+        const mode = global.VCFWorkbenchRecord?.workspace?.()?.mode;
+        if (mode === "puzzle") {
+          const puzzle = global.VCFWorkbenchRecord?.exportPuzzle?.();
+          if (!puzzle) throw new Error("VCF 題目尚未就緒");
+          const bytes = new TextEncoder().encode(JSON.stringify(puzzle, null, 2));
+          downloadBytes(bytes, `vcf-${stamp}.vcf.json`, "application/json");
+          exportStatus.textContent = `已匯出 VCF 題目（${Object.keys(puzzle.nodes || {}).length.toLocaleString()} 個盤面）`;
+        } else if (mode !== "record") {
+          throw new Error("請先選擇打譜模式或題目模式");
+        } else if (formatSelect.value === "lib") {
+          const data = activeExportData();
           const result = createRenLib(data);
           downloadBytes(result.bytes, `vcf-${stamp}.lib`);
           exportStatus.textContent = `已匯出 RenLib（${result.bytes.length.toLocaleString()} bytes）`;
@@ -1235,9 +1750,11 @@
         console.error("Rapfi 格式匯出失敗", error);
         exportStatus.textContent = error?.message || String(error);
       } finally {
-        exportButton.disabled = false;
+        syncExportMode();
       }
     });
+    global.addEventListener("vcf-workspace-mode-changed", syncExportMode);
+    syncExportMode();
 
     const refreshButton = panel.querySelector("#bb-hard-refresh");
     refreshButton.addEventListener("click", async () => {

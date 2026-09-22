@@ -322,8 +322,17 @@
   }
 
   function syncUI() {
+    const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
+    const puzzleSetup = workspace.mode === "puzzle" && workspace.puzzlePhase === "setup";
+    if (puzzleSetup) {
+      state.editMode = true;
+      state.markerMode = false;
+    }
     editButton.classList.toggle("is-active", state.editMode);
+    editButton.disabled = !workspace.mode || puzzleSetup;
     markerButton.classList.toggle("is-active", state.markerMode);
+    markerButton.disabled = !workspace.mode || puzzleSetup;
+    deleteBranchButton.disabled = !workspace.mode || puzzleSetup;
     numbersButton.classList.toggle("is-active", state.showNumbers);
     titleToggleButton.classList.toggle("is-active", state.showTitle);
     commentToggleButton.classList.toggle("is-active", state.showComment);
@@ -404,6 +413,21 @@
 
   board.addEventListener("click", event => {
     const point = pointFromEvent(event);
+    const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
+    if (!workspace.mode) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      status("請先選擇新增打譜或新增題目");
+      return;
+    }
+    if (workspace.mode === "puzzle" && workspace.puzzlePhase === "setup") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (point.index >= 0 && !global.VCFWorkbenchRecord?.placePuzzleSetupStone?.(point.index, workspace.setupTool)) {
+        status("題目初始盤面無法修改");
+      }
+      return;
+    }
     if (!state.editMode) {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -420,6 +444,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       if (appendPass()) status("已加入 PASS 一手");
+      else status("打譜模式固定使用可匯出 YXDB 的交替落子，不加入 PASS");
       return;
     }
     if (point.index >= 0) {
@@ -450,6 +475,11 @@
     event.preventDefault();
     event.stopImmediatePropagation();
     const point = pointFromEvent(event);
+    const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
+    if (workspace.mode === "puzzle" && workspace.puzzlePhase === "setup") {
+      if (point.index >= 0) global.VCFWorkbenchRecord?.placePuzzleSetupStone?.(point.index, 0);
+      return;
+    }
     if (state.editMode && state.markerMode && point.index >= 0) {
       removeMarker(point.index);
       return;
@@ -648,6 +678,7 @@
     renderHandNumbers();
   });
   global.addEventListener("vcf-board-changed", () => queueMicrotask(renderHandNumbers));
+  global.addEventListener("vcf-workspace-mode-changed", syncUI);
   document.getElementById("show-forbidden")?.addEventListener("change", syncUI);
 
   const observerTarget = document.getElementById("show-forbidden-label");

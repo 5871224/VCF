@@ -633,14 +633,26 @@
   function syncCommentEditorFromRecordText(recordText) {
     const meta = parseRapfiRecordText(recordText || "");
     setCommentEditorValue(meta.comment || "");
-    recordCommentMeta.textContent = "目前盤面注釋；修改後會自動保存，匯出 DB 時一併寫入。";
+    const workspace = window.VCFWorkbenchRecord?.workspace?.() || {};
+    const puzzleSetup = workspace.mode === "puzzle" && workspace.puzzlePhase === "setup";
+    recordCommentInput.disabled = !workspace.mode || puzzleSetup;
+    recordCommentMeta.textContent = !workspace.mode
+      ? "請先選擇打譜模式或題目模式。"
+      : puzzleSetup
+        ? "完成題目初始盤面後即可加入注釋與盤面標記。"
+        : workspace.mode === "puzzle"
+          ? "目前盤面注釋；修改後保存於 VCF 題目容器。"
+          : "目前盤面注釋；修改後保存於 Rapfi position DB。";
   }
 
   function saveCommentEditorValue() {
+    if (recordCommentInput.disabled) return;
     const comment = recordCommentInput.value;
     const currentText = window.VCFWorkbenchRecord?.currentRecordText?.() || "";
     window.VCFWorkbenchRecord?.setCurrentRecordText?.(replaceRapfiComment(currentText, comment));
-    recordCommentMeta.textContent = "已保存於目前盤面；匯出 DB 時會寫入 DBRecord.text。";
+    recordCommentMeta.textContent = window.VCFWorkbenchRecord?.workspace?.()?.mode === "puzzle"
+      ? "已保存於目前題目盤面。"
+      : "已保存於目前 Rapfi position。";
   }
 
   recordCommentInput.addEventListener("input", saveCommentEditorValue);
@@ -650,6 +662,7 @@
     }
     renderRecordNextMoveMarkers(event.detail?.nextMoves || []);
   });
+  window.addEventListener("vcf-workspace-mode-changed", () => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
 
   function parseYXDB(rawBytes) {
     const compressed = rawBytes.length >= 4 && readU32At(rawBytes, 0) === LZ4_FRAME_MAGIC;
@@ -895,9 +908,23 @@
   async function loadRecordBytes(rawBytes, fileName = "棋譜.db", options = {}) {
     const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes || 0);
     const lowerName = String(fileName || "").toLowerCase();
+    const looksPuzzle = lowerName.endsWith(".vcf.json") || lowerName.endsWith(".vcfp");
     const looksRenLib = lowerName.endsWith(".lib")
       || (bytes.length >= 8 && bytes[0] === 0xff && bytes[1] === 0x52 && bytes[2] === 0x65 && bytes[3] === 0x6e);
     document.getElementById("btn-clear-vcf")?.click();
+
+    if (looksPuzzle) {
+      if (bytes.length > 16 * 1024 * 1024) throw new Error("VCF 題目容器超過 16 MB 上限");
+      let payload;
+      try { payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+      catch (_) { throw new Error("VCF 題目容器不是有效的 UTF-8 JSON"); }
+      const loaded = await window.VCFWorkbenchRecord?.importPuzzle?.(payload);
+      if (!loaded) throw new Error("VCF 題目容器無法載入 Rapfi 工作台");
+      const nodeCount = Object.keys(payload?.nodes || {}).length;
+      const currentPly = Array.isArray(payload?.currentRoute) ? payload.currentRoute.length : 0;
+      reportRecordImport("VCF 題目", fileName || "題目.vcf.json", nodeCount, currentPly);
+      return { format: "VCF Puzzle", nodeCount, rootCount: 1, currentPly };
+    }
 
     if (looksRenLib) {
       const parsed = parseRenLib(bytes);
@@ -949,13 +976,13 @@
     const input = document.createElement("input");
     input.id = "bb-import-record-input";
     input.type = "file";
-    input.accept = ".db,.lib,application/octet-stream";
+    input.accept = ".db,.lib,.vcf.json,.vcfp,application/json,application/octet-stream";
     input.hidden = true;
     const button = document.createElement("button");
     button.id = "bb-import-record";
     button.className = "bb-lab-link";
     button.type = "button";
-    button.textContent = "讀取 DB／LIB";
+    button.textContent = "讀取棋譜／題目";
     const refresh = document.getElementById("bb-hard-refresh");
     panel.insertBefore(button, refresh || null);
     panel.appendChild(input);

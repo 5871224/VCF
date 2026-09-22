@@ -504,7 +504,7 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("index.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260922-ui1')
+if (!calculationEntry.includes('makevcf-layout.js?v=20260922-workspace-mode1')
     || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
@@ -536,6 +536,18 @@ for (const token of [
   'setupMovesForBoard',
   'replacePosition(board, options = {})',
   'replaceHistory(history, options = {})',
+  'workspace() {',
+  'startWorkspace(mode)',
+  'placePuzzleSetupStone(index, stone = puzzleSetupTool)',
+  'commitPuzzleSetup()',
+  'exportPuzzle()',
+  'importPuzzle(value)',
+  'const PUZZLE_FORMAT = "vcf-puzzle-v1"',
+  'workspaceMode !== WORKSPACE_RECORD',
+  'phase: PUZZLE_SETUP',
+  'puzzlePhase !== PUZZLE_TREE',
+  '題目分支盤面與落點不一致',
+  '題目目前路線不屬於解答分支',
   'currentBoard()',
   'clearPosition(source = "clear")',
   'exportYXDB()',
@@ -545,6 +557,18 @@ for (const token of [
   'service.play(index, true)',
   'global._renderBoardArr || global._setBoardArr',
 ]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
+for (const token of [
+  'id = "vcf-workspace-mode"',
+  'data-new-mode="record"',
+  'data-new-mode="puzzle"',
+  'data-commit-puzzle',
+  '儲存格式：VCF 題目容器',
+]) if (!header.includes(token)) throw new Error(`workspace mode UI contract missing: ${token}`);
+for (const token of [
+  'lowerName.endsWith(".vcf.json")',
+  'VCFWorkbenchRecord?.importPuzzle?.(payload)',
+  'input.accept = ".db,.lib,.vcf.json,.vcfp,application/json,application/octet-stream"',
+]) if (!layout.includes(token)) throw new Error(`VCF puzzle import contract missing: ${token}`);
 if (header.includes('\\${currentRule}') || header.includes('\\${savedRule}')) {
   throw new Error("escaped template literal regression remains in Rapfi workbench record state");
 }
@@ -564,8 +588,8 @@ for (const forbiddenToken of [
 }
 const entry = read("index.html");
 for (const token of [
-  'rapfi/rapfi-workbench-header.js?v=20260921-rapfi-export1',
-  'rapfi/vcf-record-tools.js?v=20260921-rapfi-export1',
+  'rapfi/rapfi-workbench-header.js?v=20260922-workspace-mode1',
+  'rapfi/vcf-record-tools.js?v=20260922-workspace-mode1',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
   'global.VCFWorkbenchRecord?.ensureActive?.()',
