@@ -99,6 +99,13 @@ new Function(layout); // parse the actual browser layout script, not only string
 for (const token of [
   'document.title = "五子棋工作台"',
   '<h1>五子棋工作台</h1>',
+  'workspaceModeSlot.id = "vcf-workspace-mode-slot"',
+  'const analysisSection = section("分析")',
+  'const calcSection = section("VCF 搜尋")',
+  'const multiSection = section("多組 VCF")',
+  'const defenseSection = section("防守")',
+  'const extensionSection = section("延伸搜尋")',
+  'const boardSection = section("棋盤操作")',
   'prevStepButton.id = "btn-vcf-step-prev"',
   'nextStepButton.id = "btn-vcf-step-next"',
   '"btn-vcf-prev": "上一組"',
@@ -559,11 +566,16 @@ for (const token of [
 ]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
 for (const token of [
   'id = "vcf-workspace-mode"',
+  'document.getElementById("vcf-workspace-mode-slot")',
+  'workspaceModeSlot.appendChild(panel)',
   'data-new-mode="record"',
   'data-new-mode="puzzle"',
   'data-commit-puzzle',
   '儲存格式：VCF 題目容器',
 ]) if (!header.includes(token)) throw new Error(`workspace mode UI contract missing: ${token}`);
+if (header.includes("boardCard.insertBefore(panel, boardWrap)") || header.includes("boardCard.prepend(panel)")) {
+  throw new Error("workspace mode controls must stay outside the BD calculation/board layout");
+}
 for (const token of [
   'lowerName.endsWith(".vcf.json")',
   'VCFWorkbenchRecord?.importPuzzle?.(payload)',
@@ -588,7 +600,8 @@ for (const forbiddenToken of [
 }
 const entry = read("index.html");
 for (const token of [
-  'rapfi/rapfi-workbench-header.js?v=20260922-workspace-mode1',
+  'makevcf-layout.js?v=20260922-bd-layout1',
+  'rapfi/rapfi-workbench-header.js?v=20260922-bd-layout1',
   'rapfi/vcf-record-tools.js?v=20260922-workspace-mode1',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
