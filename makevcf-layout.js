@@ -59,6 +59,12 @@
   `;
   app.appendChild(pageHeader);
 
+  // 工作模式是整個工作台共用控制，不屬於任何功能頁籤；固定掛在頁籤／棋盤版面之外。
+  const workspaceModeSlot = document.createElement("div");
+  workspaceModeSlot.id = "vcf-workspace-mode-slot";
+  workspaceModeSlot.className = "vcf-workspace-mode-slot";
+  app.appendChild(workspaceModeSlot);
+
   const topGrid = document.createElement("div");
   topGrid.className = "vcf-top-grid";
 
