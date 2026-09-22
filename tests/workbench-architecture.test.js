@@ -511,7 +511,7 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("index.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260922-workspace-mode1')
+if (!calculationEntry.includes('makevcf-layout.js?v=20260922-bd-layout1')
     || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
