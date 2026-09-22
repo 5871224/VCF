@@ -4,7 +4,7 @@
 
 唯一正式網站：<https://5871224.github.io/VCF/>
 
-Pages 只建立根工作台入口；`makevcf.html` 僅是版本庫內的建置來源，不部署成公開頁面。`/rapfi/` 只保存引擎、Worker、介面模組與明確命名的實驗室資源，不提供 `index.html` 入口。專案只維護瀏覽器版，不再包含 Electron、WebView2 或 Native 桌面包裝。
+根目錄 `index.html` 是唯一工作台來源與 Pages 入口。`/rapfi/` 只保存引擎、Worker、介面模組與明確命名的實驗室資源，不提供 `index.html` 入口。專案只維護瀏覽器版，不再包含 Electron、WebView2 或 Native 桌面包裝。
 
 ## 主要功能
 
@@ -20,7 +20,7 @@ Pages 只建立根工作台入口；`makevcf.html` 僅是版本庫內的建置�
 ## 正式架構
 
 ```text
-/VCF/（部署產物 index.html，由 makevcf.html 建置）
+/VCF/（正式來源與部署入口皆為 index.html）
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js

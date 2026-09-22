@@ -3,13 +3,13 @@
 const fs = require("fs");
 const vm = require("vm");
 
-const layoutSource = fs.readFileSync("makevcf-generator-layout-fix.js", "utf8");
+const layoutSource = fs.readFileSync("makevcf-layout.js", "utf8");
 for (const token of [
   "#btn-fast-vcf",
   "#btn-shortest-vcf",
-  "color: #000 !important",
+  "color:#000;-webkit-text-fill-color:#000",
   "VCF 題目產生器",
-  "panel.insertBefore(actions, panel.firstElementChild)",
+  "panel.prepend(actions)",
   "panel.appendChild(bank)",
 ]) {
   if (!layoutSource.includes(token)) {

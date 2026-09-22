@@ -57,7 +57,7 @@ def main() -> None:
     shutil.rmtree(SITE, ignore_errors=True)
     SITE.mkdir(parents=True)
 
-    copy_file(ROOT / "makevcf.html", SITE / "index.html")
+    copy_file(ROOT / "index.html", SITE / "index.html")
     for source in sorted(ROOT.glob("makevcf-generator-*.js")):
         copy_file(source, SITE / source.name)
     for name in ROOT_FILES:

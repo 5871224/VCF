@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'makevcf.html'
+      - 'index.html'
       - 'makevcf-*.js'
       - 'rapfi/*.js'
       - 'eval/**'
@@ -37,7 +37,7 @@ jobs:
           for file in \
             makevcf-generator-integrated.js \
             makevcf-generator-image-import-fix.js \
-            makevcf-generator-ui-compact.js \
+            makevcf-layout.js \
             makevcf-optimized-search-v2.js \
             rapfi/vcf-bitboard-main.js \
             rapfi/vcf-bitboard-worker.js \

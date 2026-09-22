@@ -6,7 +6,7 @@
   global.__vcfLegacyBenchmarkRemoved = true;
 })(window);
 
-// 辨識預覽仍由 makevcf.html 負責繪製；這裡只統一 source-canvas 上辨識標記的顯示色彩，
+// 辨識預覽仍由 index.html 負責繪製；這裡只統一 source-canvas 上辨識標記的顯示色彩，
 // 不碰辨識結果、盤面資料或操作流程。辨識預覽第一次繪製會早於 preview-mode class 切換，
 // 因此不能以 preview-mode 作為套色條件，否則首屏仍會短暫保留舊的藍色半透明遮罩。
 (function installRecognitionPreviewPalette(global) {

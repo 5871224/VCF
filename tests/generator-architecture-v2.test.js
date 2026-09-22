@@ -5,7 +5,8 @@ const path = require("path");
 
 const root = path.resolve(__dirname, "..");
 const read = file => fs.readFileSync(path.join(root, file), "utf8");
-const html = read("makevcf.html");
+const html = read("index.html");
+if (fs.existsSync(path.join(root, "makevcf.html"))) throw new Error("legacy HTML entry remains");
 const scripts = Array.from(html.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*><\/script>/g), match => match[1]);
 const generatorOrder = [
   "makevcf-generator-core.js",
@@ -21,8 +22,6 @@ const generatorOrder = [
   "makevcf-generator-progress.js",
   "makevcf-generator-status-detail.js",
   "makevcf-generator-open-four-stop.js",
-  "makevcf-generator-ui-compact.js",
-  "makevcf-generator-layout-fix.js",
   "makevcf-generator-settings-persistence.js",
   "makevcf-generator-image-import-fix.js",
 ];
@@ -46,6 +45,8 @@ const removed = [
   "makevcf-generator-defense-points.js",
   "makevcf-generator-extension-other-vcf-fix.js",
   "makevcf-generator-protected-defenders.js",
+  "makevcf-generator-ui-compact.js",
+  "makevcf-generator-layout-fix.js",
 ];
 for (const file of removed) {
   if (fs.existsSync(path.join(root, file))) throw new Error(`obsolete module remains: ${file}`);
@@ -87,8 +88,7 @@ for (const forbidden of ["genSetBusy =", "genValidateCandidate =", "genEngine.fi
 }
 
 for (const file of [
-  "makevcf-generator-layout-fix.js",
-  "makevcf-generator-ui-compact.js",
+  "makevcf-layout.js",
   "makevcf-generator-open-four-stop.js",
   "makevcf-generator-settings-persistence.js",
   "rapfi/vcf-bitboard-main.js",
@@ -100,15 +100,18 @@ for (const file of [
 }
 
 const questionBank = read("rapfi/rapfi-question-bank.js");
-const generatorLayout = read("makevcf-generator-layout-fix.js");
+const generatorLayout = read("makevcf-layout.js");
 for (const token of [
   'window.dispatchEvent(new CustomEvent("vcf-question-bank-ready"',
   'if (!install()) {',
 ]) if (!questionBank.includes(token)) throw new Error(`question-bank readiness contract missing: ${token}`);
 for (const token of [
-  'global.addEventListener("vcf-question-bank-ready", applyLayout, { once: true })',
-  'if (!bank) return false;',
-  'panel.lastElementChild === bank',
+  'window.addEventListener("vcf-question-bank-ready", () => arrangeGeneratorPanel(generatorPanel), { once: true })',
+  'function arrangeGeneratorPanel(panel)',
+  'panel.lastElementChild !== bank',
+  'panel.appendChild(bank)',
 ]) if (!generatorLayout.includes(token)) throw new Error(`question-bank mount contract missing: ${token}`);
+
+if (!scripts.includes("makevcf-layout.js?v=20260922-ui1")) throw new Error("canonical UI owner is not loaded");
 
 console.log("Generator final architecture checks passed");

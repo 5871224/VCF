@@ -164,9 +164,7 @@ JavaScript 只負責：
 
 GitHub Actions 部署時：
 
-- 將原本 `rapfi/index.html` 保存為 `/rapfi/lab.html`。
-- 以原主頁 `makevcf.html` 生成新的 `/rapfi/index.html`，保留原主頁的全部操作、圖片匯入及題目產生器。
-- 在原主頁 JavaScript 建立舊引擎前，先載入 `vcf-bitboard-engine.js` 與 `vcf-bitboard-main.js`。
-- 載入 `vcf-bitboard-generator-compat.js`，再載入原題目產生器腳本。
-- 先載入 `rapfi-bitboard-dashboard.js` 安裝搜尋模式及介面，再載入 `vcf-bitboard-speed.js` 包裝同一搜尋入口。
-- `/rapfi/` 不載入 `eval/EvaluatorCore.js`、`eval/Evaluator.js`、`makevcf-optimized-search-v2.js` 或舊搜尋 Worker。
+- 根目錄 `index.html` 原樣作為唯一正式工作台入口。
+- 原始 `rapfi/index.html` 只部署為 `/rapfi/lab.html`，不建立 `/rapfi/index.html`。
+- Pages 以 allowlist 組裝工作台、Evaluator、Worker、UI 模組與編譯完成的 Wasm，不改寫 Git 追蹤來源。
+- `index.html` 依固定順序載入 `vcf-bitboard-generator-compat.js`、題目產生器、`makevcf-layout.js`、dashboard、棋譜與題庫模組。

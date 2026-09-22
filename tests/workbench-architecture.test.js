@@ -135,7 +135,7 @@ if (!layout.includes("function renderCalculationDisplay({ updateStatus = true } 
     || !layout.includes('if (updateStatus && typeof setStatus === "function")')) {
   throw new Error("calculation result sync must preserve completed search statistics");
 }
-const workbenchHtml = read("makevcf.html");
+const workbenchHtml = read("index.html");
 if (workbenchHtml.includes('pathname.endsWith("/VCF")')
     || workbenchHtml.includes('pathname.endsWith("/VCF/index.html")')) {
   throw new Error("Bitboard deployment entry must not be hard-coded to /VCF");
@@ -431,7 +431,7 @@ if (!pagesBuilder.includes('"vcf-record-tools.js"') || !pagesBuilder.includes('"
   throw new Error("Pages allowlist is missing record tools or SVG assets");
 }
 
-const pureStatsHtml = read("makevcf.html");
+const pureStatsHtml = read("index.html");
 const pureStatsDashboard = read("rapfi/rapfi-bitboard-dashboard.js");
 const pureStatsShortest = read("rapfi/vcf-shortest-vcf-ui.js");
 const pureStatsMain = read("rapfi/vcf-bitboard-main.js");
@@ -503,8 +503,8 @@ for (const token of [
   'new CustomEvent("vcf-result-changed"',
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
-const calculationEntry = read("makevcf.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260921-rapfi-restore1')
+const calculationEntry = read("index.html");
+if (!calculationEntry.includes('makevcf-layout.js?v=20260922-ui1')
     || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
@@ -562,7 +562,7 @@ for (const forbiddenToken of [
     throw new Error(`obsolete JavaScript record-state fallback remains: ${forbiddenToken}`);
   }
 }
-const entry = read("makevcf.html");
+const entry = read("index.html");
 for (const token of [
   'rapfi/rapfi-workbench-header.js?v=20260921-rapfi-export1',
   'rapfi/vcf-record-tools.js?v=20260921-rapfi-export1',

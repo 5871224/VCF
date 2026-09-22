@@ -64,7 +64,7 @@
   }), 10);
 })();
 
-// 題目產生器政策由 makevcf.html 依固定順序載入。
+// 題目產生器政策由 index.html 依固定順序載入。
 
 
 // ---- makevcf-generator-concentration.js ----
