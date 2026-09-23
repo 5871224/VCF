@@ -511,9 +511,33 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("index.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260922-bd-layout1')
+if (!calculationEntry.includes('makevcf-layout.js?v=20260923-calculation-layout1')
     || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats')) {
   throw new Error("calculation display scripts must be cache-busted");
+}
+const calculationControlOrder = [
+  "rapfi/rapfi-bitboard-dashboard.js",
+  "rapfi/vcf-shortest-vcf-ui.js",
+  "rapfi/vcf-forbidden-overlay.js",
+  "makevcf-generator-open-four-stop.js",
+  "makevcf-layout.js",
+].map(name => calculationEntry.indexOf(`<script src="${name}`));
+if (calculationControlOrder.some(index => index < 0)
+    || calculationControlOrder.some((index, position) => position && index <= calculationControlOrder[position - 1])) {
+  throw new Error("calculation controls must exist before the canonical layout mounts them");
+}
+for (const section of ["分析", "VCF 搜尋", "多組 VCF", "防守", "延伸搜尋", "棋盤操作"]) {
+  if (!layout.includes(`section("${section}")`)) throw new Error(`calculation section missing: ${section}`);
+}
+if (!layout.includes('move(document.getElementById("btn-shortest-vcf"), calcRow)')
+    || !layout.includes('move(document.getElementById("btn-multi-vcf"), multiRow)')
+    || !layout.includes('Array.from(searchOptions?.children || []).forEach(element => move(element, calcSettingsGrid))')
+    || layout.includes('move(document.getElementById("btn-vcf-prev"), multiRow)')
+    || layout.includes('move(document.getElementById("btn-vcf-next"), multiRow)')) {
+  throw new Error("calculation controls or result navigation are in the wrong section");
+}
+if (layout.includes("vcf-search-card") || layout.includes("oldStack.replaceWith")) {
+  throw new Error("the workbench still builds and replaces a legacy control layout");
 }
 
 for (const token of [
@@ -600,7 +624,7 @@ for (const forbiddenToken of [
 }
 const entry = read("index.html");
 for (const token of [
-  'makevcf-layout.js?v=20260922-bd-layout1',
+  'makevcf-layout.js?v=20260923-calculation-layout1',
   'rapfi/rapfi-workbench-header.js?v=20260922-bd-layout1',
   'rapfi/vcf-record-tools.js?v=20260922-workspace-mode1',
   'scheduleRapfiRecordDatabase',

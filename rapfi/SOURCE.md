@@ -167,4 +167,4 @@ GitHub Actions 部署時：
 - 根目錄 `index.html` 原樣作為唯一正式工作台入口。
 - 原始 `rapfi/index.html` 只部署為 `/rapfi/lab.html`，不建立 `/rapfi/index.html`。
 - Pages 以 allowlist 組裝工作台、Evaluator、Worker、UI 模組與編譯完成的 Wasm，不改寫 Git 追蹤來源。
-- `index.html` 依固定順序載入 `vcf-bitboard-generator-compat.js`、題目產生器、`makevcf-layout.js`、dashboard、棋譜與題庫模組。
+- `index.html` 依固定順序載入 `vcf-bitboard-generator-compat.js`、題目產生器、dashboard／最短 VCF／禁手／活四控制項、`makevcf-layout.js`、棋譜與題庫模組。

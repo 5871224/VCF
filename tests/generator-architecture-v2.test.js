@@ -27,7 +27,7 @@ const generatorOrder = [
 ];
 let previous = -1;
 for (const file of generatorOrder) {
-  const index = scripts.indexOf(file);
+  const index = scripts.findIndex(src => src.split("?")[0] === file);
   if (index < 0) throw new Error(`missing generator module: ${file}`);
   if (index <= previous) throw new Error(`invalid generator order near ${file}`);
   previous = index;
@@ -112,6 +112,6 @@ for (const token of [
   'panel.appendChild(bank)',
 ]) if (!generatorLayout.includes(token)) throw new Error(`question-bank mount contract missing: ${token}`);
 
-if (!scripts.includes("makevcf-layout.js?v=20260922-bd-layout1")) throw new Error("canonical UI owner is not loaded");
+if (!scripts.includes("makevcf-layout.js?v=20260923-calculation-layout1")) throw new Error("canonical UI owner is not loaded");
 
 console.log("Generator final architecture checks passed");

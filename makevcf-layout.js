@@ -1,11 +1,10 @@
 "use strict";
 
-// Reorganize the analysis page into clear, responsive cards without changing feature IDs.
+// Build the workbench once from controls loaded before this script, preserving feature IDs.
 (function initVCFCardLayout() {
   if (document.getElementById("vcf-app-shell")) return;
 
-  // rapfi-bitboard-dashboard.js 會在稍後載入時設定舊標題；DOMContentLoaded 再統一
-  // 覆寫一次，確保瀏覽器頁籤最後固定顯示正式產品名稱。
+  // 計算控制項先載入；此處統一設定正式產品名稱。
   document.title = "五子棋工作台";
 
   const BOARD_SIZE = 15;
@@ -101,8 +100,8 @@
   `;
   boardCard.appendChild(calculationNavigation);
 
-  const controlStack = document.createElement("div");
-  controlStack.className = "vcf-control-stack";
+  const workspace = document.createElement("div");
+  workspace.className = "vcf-workspace";
 
   const annotationCard = makeCard("注釋", "每個盤面各自保存 Rapfi DBRecord 注釋；切換棋譜時同步顯示。", "vcf-annotation-card");
   const recordCommentInput = document.createElement("textarea");
@@ -116,19 +115,8 @@
   recordCommentMeta.textContent = "注釋會保存到目前盤面的 DBRecord.text。";
   annotationCard.append(recordCommentInput, recordCommentMeta);
 
-  const searchCard = makeCard("基本搜尋", "選擇規則後，直接尋找黑方或白方 VCF。", "vcf-search-card");
-  ruleBox.classList.add("vcf-option-row");
-  mainActions.classList.add("vcf-action-grid");
-  searchCard.append(ruleBox, mainActions);
-
-  const analysisCard = makeCard("進階分析", "針對目前盤面查看防點、多組路線、分支回放與延伸選點。", "vcf-analysis-card");
-  analysisBox.classList.add("vcf-option-row");
-  analysisActions.classList.add("vcf-action-grid");
-  analysisCard.append(analysisBox, analysisActions);
-
   boardCard.appendChild(annotationCard);
-  controlStack.append(searchCard, analysisCard);
-  topGrid.append(boardCard, controlStack);
+  topGrid.append(boardCard, workspace);
   app.appendChild(topGrid);
 
   if (generatorPanel) {
@@ -1141,11 +1129,6 @@
       align-items: start;
     }
 
-    .vcf-control-stack {
-      display: grid;
-      gap: 14px;
-    }
-
     .vcf-board-card > .vcf-annotation-card {
       margin-top: 12px;
       padding: 11px;
@@ -1344,7 +1327,6 @@
       line-height: 1.4;
     }
 
-    .vcf-option-row,
     #generator-panel .gen-controls {
       display: flex;
       align-items: center;
@@ -1355,7 +1337,6 @@
       font-size: 14px;
     }
 
-    .vcf-option-row label,
     #generator-panel .gen-controls label,
     #generator-panel .gen-controls fieldset {
       display: inline-flex;
@@ -1369,11 +1350,6 @@
       white-space: nowrap;
     }
 
-    #analysis-box {
-      justify-content: flex-start;
-    }
-
-    .vcf-action-grid,
     #generator-panel .gen-actions,
     #import-toolbar,
     #import-actions {
@@ -1461,7 +1437,6 @@
       body { padding: 8px; }
       #vcf-app-shell { gap: 10px; }
       .vcf-top-grid { grid-template-columns: 1fr; gap: 10px; }
-      .vcf-control-stack { grid-template-columns: 1fr 1fr; gap: 10px; }
       .vcf-card,
       #vcf-app-shell #generator-panel,
       #vcf-app-shell #import-panel { padding: 11px; border-radius: 10px; }
@@ -1471,14 +1446,10 @@
     @media (max-width: 600px) {
       .vcf-app-header { padding: 2px 2px 0; }
       .vcf-app-header p { font-size: 12px; }
-      .vcf-control-stack { grid-template-columns: 1fr; }
       .vcf-card-heading { margin-bottom: 9px; padding-bottom: 8px; }
-      .vcf-option-row,
       #generator-panel .gen-controls { gap: 6px; margin-bottom: 9px; }
-      .vcf-option-row label,
       #generator-panel .gen-controls label,
       #generator-panel .gen-controls fieldset { min-height: 34px; padding: 5px 8px; font-size: 13px; }
-      .vcf-action-grid,
       #generator-panel .gen-actions,
       #import-toolbar,
       #import-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
@@ -1491,7 +1462,6 @@
     }
 
     @media (max-width: 380px) {
-      .vcf-action-grid,
       #generator-panel .gen-actions,
       #import-toolbar,
       #import-actions { grid-template-columns: 1fr; }
@@ -1529,7 +1499,6 @@
       #vcf-app-shell{width:min(100%,1180px)}
       #vcf-app-shell>.vcf-app-header p,.vcf-card-heading p{display:none}
       .vcf-top-grid{grid-template-columns:minmax(0,570px) minmax(430px,1fr)}
-      .vcf-control-stack{display:block!important;min-width:0}
       .vcf-workspace{min-width:0}
       .vcf-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;padding:5px;border:1px solid var(--vcf-border,#d6c89f);border-radius:11px;background:#e8dfc9}
       #vcf-app-shell .vcf-tab{min-height:42px;padding:8px 6px;border:1px solid transparent;border-radius:8px;background:transparent;color:#65583d;font-weight:700}
@@ -1547,24 +1516,17 @@
       .vcf-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
       .vcf-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
       .vcf-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
-      #btn-fast-vcf{order:1}
-      #btn-shortest-vcf{order:2}
-      .vcf-setting-toggle.vcf-calculation-toggle{order:3}
-      #btn-multi-vcf{order:1}
-      #btn-vcf-prev{order:2}
-      #btn-vcf-next{order:3}
-      .vcf-setting-toggle.vcf-multi-toggle{order:4}
       #vcf-app-shell button{min-width:0}
-      #${FAST_BUTTON_ID},#btn-shortest-vcf{color:#000;-webkit-text-fill-color:#000;background:var(--vcf-accent,#355f8d);border-color:var(--vcf-accent,#355f8d);font-weight:700}
-      #${FAST_BUTTON_ID}:hover:not(:disabled),#btn-shortest-vcf:hover:not(:disabled){color:#000;-webkit-text-fill-color:#000;background:#294f78}
+      #${FAST_BUTTON_ID},#btn-shortest-vcf{color:#000;-webkit-text-fill-color:#000;background:#fff;border-color:#c9bea0;font-weight:700}
+      #${FAST_BUTTON_ID}:hover:not(:disabled),#btn-shortest-vcf:hover:not(:disabled){color:#000;-webkit-text-fill-color:#000;background:#faf6e9}
       .vcf-setting-toggle{display:flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:7px 9px;border:1px solid #c9bea0;border-radius:8px;background:#fff;color:#4f4634;font-size:13px;font-weight:700;cursor:pointer;user-select:none}
       .vcf-setting-toggle.vcf-setting-toggle-active{border-color:#7798b9;background:#e8f0f8;color:#294f78}
       .vcf-settings-card[hidden]{display:none!important}
       .vcf-settings-card{padding:10px;border:1px dashed #cdbf9d;border-radius:9px;background:#fbf7ec}
       .vcf-settings-card h3{margin:0 0 8px;color:#5d5138;font-size:14px}
       .vcf-settings-grid{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
-      #${RULE_SELECT_ID},#vcf-search-options select,#vcf-search-options input[type="number"]{min-width:0;padding:6px 8px;border:1px solid #bdb397;border-radius:6px;background:#fff;color:inherit;font:inherit}
-      #vcf-search-options input[type="number"]{width:72px;text-align:right}
+      #${RULE_SELECT_ID},.vcf-settings-grid select,.vcf-settings-grid input[type="number"]{min-width:0;padding:6px 8px;border:1px solid #bdb397;border-radius:6px;background:#fff;color:inherit;font:inherit}
+      .vcf-settings-grid input[type="number"]{width:72px;text-align:right}
       #vcf-multi-pruning{min-width:108px}
       #vcf-add-search-mode{min-width:78px}
       .vcf-compat-host,.vcf-rule-radio-compat,#btns>[hidden]{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap!important}
@@ -1584,7 +1546,7 @@
       #import-panel #import-status{margin:0 0 10px!important}
       #import-panel .canvas-card{width:100%;max-width:none;min-width:0;margin:0;padding:10px;border-radius:9px;box-shadow:none}
       #import-panel #import-actions{display:block!important;margin:9px 0 0!important;padding:8px 10px;border-radius:8px;background:#faf7ef;text-align:left;line-height:1.5}
-      @media(max-width:920px){.vcf-top-grid{grid-template-columns:1fr}.vcf-control-stack{width:100%}}
+      @media(max-width:920px){.vcf-top-grid{grid-template-columns:1fr}.vcf-workspace{width:100%}}
       @media(max-width:700px){.vcf-cols-4,#generator-panel .gen-actions,#import-panel #import-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}#generator-panel .gen-controls{grid-template-columns:1fr}}
       @media(max-width:520px){.vcf-tabs{gap:4px;padding:4px}#vcf-app-shell .vcf-tab{min-height:40px;padding:7px 4px;font-size:12px}.vcf-cols-3{grid-template-columns:1fr}.vcf-inline,.vcf-settings-grid{align-items:stretch}.vcf-inline>label,.vcf-settings-grid>label{flex:1 1 150px}}
       @media(max-width:360px){.vcf-tabs,.vcf-actions,.vcf-cols-2,.vcf-cols-4,#generator-panel .gen-actions,#import-panel #import-toolbar{grid-template-columns:1fr}}
@@ -1817,15 +1779,14 @@
   function install() {
     const app = document.getElementById("vcf-app-shell");
     const topGrid = app?.querySelector(".vcf-top-grid");
-    const oldStack = app?.querySelector(".vcf-control-stack");
-    const searchCard = app?.querySelector(".vcf-search-card");
+    const workspace = app?.querySelector(".vcf-workspace");
     const ruleBox = document.getElementById("rule-box");
     const mainActions = document.getElementById("btns");
     const analysisBox = document.getElementById("analysis-box");
     const analysisActions = document.getElementById("btns2");
     const generatorPanel = document.getElementById("generator-panel");
     const importPanel = document.getElementById("import-panel");
-    if (!app || !topGrid || !oldStack || !searchCard || !ruleBox || !mainActions || !analysisBox || !analysisActions || !generatorPanel || !importPanel) return false;
+    if (!app || !topGrid || !workspace || !ruleBox || !mainActions || !analysisBox || !analysisActions || !generatorPanel || !importPanel) return false;
     if (app.dataset.unifiedInterfaceReady === "1") return true;
 
     simplifyPruningOptions();
@@ -1833,10 +1794,7 @@
     const fastButton = installFastButton(mainActions);
     if (!ruleSelect || !fastButton) return false;
 
-    const existingSearchOptions = document.getElementById("vcf-search-options");
-    const workspace = document.createElement("div");
-    workspace.className = "vcf-workspace";
-
+    const searchOptions = document.getElementById("vcf-search-options");
     const calcPanel = document.createElement("section");
     calcPanel.className = "vcf-calc-panel";
 
@@ -1894,13 +1852,10 @@
 
     installTabs(workspace, { calculation: calcPanel, generator: generatorTab, import: importTab });
 
-    const searchOptions = existingSearchOptions || document.createElement("div");
-    searchOptions.classList.add("vcf-compat-host");
     mainActions.classList.add("vcf-compat-host");
     analysisActions.classList.add("vcf-compat-host");
     ruleBox.classList.add("vcf-compat-host");
-    calcPanel.append(searchOptions, ruleBox, mainActions, analysisActions);
-    oldStack.replaceWith(workspace);
+    calcPanel.append(ruleBox, mainActions, analysisActions);
 
     const labels = {
       "btn-stop": "停止",
@@ -1922,37 +1877,31 @@
       if (button) button.textContent = text;
     });
 
-    const reconcile = () => {
-      simplifyPruningOptions();
-      const dynamicSearchOptions = document.getElementById("vcf-search-options");
-      if (dynamicSearchOptions) {
-        dynamicSearchOptions.classList.add("vcf-compat-host");
-        move(dynamicSearchOptions, calcPanel);
-      }
-      move(document.getElementById("show-forbidden")?.closest("label"), analysisRow);
-      move(document.getElementById("btn-shortest-vcf"), calcRow);
-      move(calcToggle, calcRow);
-      [
-        document.getElementById("vcf-multi-time-seconds")?.closest("label"),
-        document.getElementById("vcf-multi-node-millions")?.closest("label"),
-        document.getElementById("vcf-simplify-route")?.closest("label"),
-        document.getElementById(RULE_SELECT_ID)?.closest("label"),
-      ].forEach(element => move(element, calcSettingsGrid));
-      ["btn-multi-vcf", "btn-vcf-prev", "btn-vcf-next"].forEach(id => move(document.getElementById(id), multiRow));
-      move(multiToggle, multiRow);
-      [
-        document.getElementById("vcf-multi-pruning")?.closest("label"),
-        document.getElementById("vcf-stop-after-open-four")?.closest("label"),
-        document.getElementById("vcf-same-type-trim-live-four")?.closest("label"),
-      ].forEach(element => move(element, multiSettingsGrid));
-      ["btn-block-vcf", "btn-block-vcf-all"].forEach(id => move(document.getElementById(id), defenseRow));
-      ["btn-level3", "btn-add-black", "btn-add-white"].forEach(id => move(document.getElementById(id), extensionRow));
-      move(document.getElementById("vcf-add-search-mode")?.closest("label"), extensionRow);
-      ["btn-stop", "btn-continue", "btn-clear-vcf", "btn-clear"].forEach(id => move(document.getElementById(id), boardRow));
-      document.getElementById("btn-black-optimized")?.setAttribute("hidden", "");
-      document.getElementById("btn-white-optimized")?.setAttribute("hidden", "");
-    };
-    reconcile();
+    move(document.getElementById("btn-shortest-vcf"), calcRow);
+    move(calcToggle, calcRow);
+    [
+      document.getElementById("vcf-multi-time-seconds")?.closest("label"),
+      document.getElementById("vcf-multi-node-millions")?.closest("label"),
+      document.getElementById("vcf-simplify-route")?.closest("label"),
+      document.getElementById(RULE_SELECT_ID)?.closest("label"),
+      document.getElementById("show-forbidden")?.closest("label"),
+    ].forEach(element => move(element, calcSettingsGrid));
+    move(document.getElementById("btn-multi-vcf"), multiRow);
+    move(multiToggle, multiRow);
+    [
+      document.getElementById("vcf-multi-pruning")?.closest("label"),
+      document.getElementById("vcf-stop-after-open-four")?.closest("label"),
+      document.getElementById("vcf-same-type-trim-live-four")?.closest("label"),
+    ].forEach(element => move(element, multiSettingsGrid));
+    ["btn-block-vcf", "btn-block-vcf-all"].forEach(id => move(document.getElementById(id), defenseRow));
+    ["btn-level3", "btn-add-black", "btn-add-white"].forEach(id => move(document.getElementById(id), extensionRow));
+    move(document.getElementById("vcf-add-search-mode")?.closest("label"), extensionRow);
+    ["btn-stop", "btn-continue", "btn-clear-vcf", "btn-clear"].forEach(id => move(document.getElementById(id), boardRow));
+    document.getElementById("btn-black-optimized")?.setAttribute("hidden", "");
+    document.getElementById("btn-white-optimized")?.setAttribute("hidden", "");
+    // ponytail: 新增而尚未分組的 dashboard 選項至少留在計算設定，不讓它隨舊容器消失。
+    Array.from(searchOptions?.children || []).forEach(element => move(element, calcSettingsGrid));
+    searchOptions?.remove();
 
     if (typeof window.vcfRegisterBusyHook === "function") {
       window.vcfRegisterBusyHook("unified-interface", value => {

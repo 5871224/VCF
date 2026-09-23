@@ -245,9 +245,7 @@ self.onmessage = async event => {
     return true;
   }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", installUI, { once: true });
-  } else {
-    installUI();
-  }
+  // ponytail: 此腳本由頁尾載入，棋盤與規則欄已存在；立即建立選項，
+  // 讓後續唯一的版面擁有者一次掛載，不需 DOMContentLoaded 後補排版。
+  installUI();
 })(window);

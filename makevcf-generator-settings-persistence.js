@@ -10,7 +10,7 @@
   const ROOT_SELECTORS = [
     "#rule-box",
     "#analysis-box",
-    "#vcf-search-options",
+    "#vcf-tab-panel-calculation",
     "#generator-panel",
   ];
   const CONTROL_SELECTOR = [

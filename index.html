@@ -3301,11 +3301,12 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-generator-finalize.js"></script>
 <script src="makevcf-generator-progress.js"></script>
 <script src="makevcf-generator-status-detail.js"></script>
-<!-- 卡片化工作台與產生器介面 -->
-<script src="makevcf-layout.js?v=20260922-bd-layout1"></script>
+<!-- 計算控制項先建立，工作台版面再一次掛載；不做載入後補排版。 -->
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats"></script>
-<script src="rapfi/vcf-forbidden-overlay.js"></script>
+<script src="rapfi/vcf-forbidden-overlay.js?v=20260923-calculation-layout1"></script>
+<script src="makevcf-generator-open-four-stop.js"></script>
+<script src="makevcf-layout.js?v=20260923-calculation-layout1"></script>
 <script src="rapfi/rapfi-workbench-header.js?v=20260922-bd-layout1"></script>
 <script src="rapfi/vcf-record-tools.js?v=20260922-workspace-mode1"></script>
 <script>
@@ -3387,8 +3388,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 })(window);
 </script>
 <script src="rapfi/rapfi-question-bank.js?v=20260921-load-timeout1"></script>
-<script src="makevcf-generator-open-four-stop.js"></script>
-<script src="makevcf-generator-settings-persistence.js"></script>
+<script src="makevcf-generator-settings-persistence.js?v=20260923-calculation-layout1"></script>
 <script src="makevcf-generator-image-import-fix.js"></script>
 <!-- 根工作台不啟動舊的優化搜尋覆寫 -->
 <script src="makevcf-optimized-search-v2.js"></script>

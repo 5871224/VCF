@@ -5,7 +5,7 @@ const vm = require("vm");
 
 const layoutSource = fs.readFileSync("makevcf-layout.js", "utf8");
 for (const token of [
-  "#btn-fast-vcf",
+  "#${FAST_BUTTON_ID}",
   "#btn-shortest-vcf",
   "color:#000;-webkit-text-fill-color:#000",
   "VCF 題目產生器",
