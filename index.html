@@ -137,6 +137,38 @@ button:disabled { opacity: 0.45; cursor: default; }
   object-fit: cover;
   display: block;
 }
+#live-camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+#live-camera-board-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+.live-camera-detection-status {
+  position: absolute;
+  left: 50%;
+  top: max(18px, env(safe-area-inset-top));
+  transform: translateX(-50%);
+  width: min(92vw, 620px);
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.56);
+  backdrop-filter: blur(5px);
+  font-size: 14px;
+  font-weight: 650;
+  text-align: center;
+  text-shadow: 0 1px 4px #000;
+  pointer-events: none;
+}
 .camera-guide {
   position: absolute;
   left: 50%;
@@ -212,6 +244,19 @@ button:disabled { opacity: 0.45; cursor: default; }
 #btn-camera-capture:disabled {
   opacity: 0.42;
 }
+#btn-live-camera-capture {
+  width: 70px;
+  height: 70px;
+  padding: 0;
+  border: 5px solid rgba(255, 255, 255, 0.92);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.24);
+  font-size: 0;
+}
+#btn-live-camera-capture:disabled {
+  opacity: 0.42;
+}
 </style>
 </head>
 <body>
@@ -251,6 +296,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   <div id="import-toolbar">
     <button id="btn-import-image">匯入圖片</button>
     <button id="btn-import-camera">手機拍照</button>
+    <button id="btn-import-camera-live">手機拍照1</button>
     <button id="btn-import-redetect" disabled>重新偵測棋盤</button>
     <button id="btn-import-confirm" disabled>確認棋盤區域</button>
     <button id="btn-import-back" hidden>返回調整棋盤</button>
@@ -284,6 +330,18 @@ button:disabled { opacity: 0.45; cursor: default; }
     <div class="camera-controls">
       <button id="btn-camera-cancel" type="button">取消</button>
       <button id="btn-camera-capture" type="button" aria-label="拍照" disabled></button>
+    </div>
+  </div>
+</div>
+
+<div id="live-camera-overlay" class="camera-overlay" hidden aria-hidden="true">
+  <div class="camera-stage">
+    <video id="live-camera-video" autoplay playsinline muted></video>
+    <canvas id="live-camera-board-overlay" aria-hidden="true"></canvas>
+    <div id="live-camera-detection-status" class="live-camera-detection-status">正在準備棋盤辨識...</div>
+    <div class="camera-controls">
+      <button id="btn-live-camera-cancel" type="button">取消</button>
+      <button id="btn-live-camera-capture" type="button" aria-label="拍照" disabled></button>
     </div>
   </div>
 </div>
@@ -1132,6 +1190,13 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   const previewEditHintEl = document.getElementById("preview-edit-hint");
   const btnImportImage = document.getElementById("btn-import-image");
   const btnImportCamera = document.getElementById("btn-import-camera");
+  const btnImportCameraLive = document.getElementById("btn-import-camera-live");
+  const liveCameraOverlayEl = document.getElementById("live-camera-overlay");
+  const liveCameraVideoEl = document.getElementById("live-camera-video");
+  const liveCameraBoardOverlayEl = document.getElementById("live-camera-board-overlay");
+  const liveCameraDetectionStatusEl = document.getElementById("live-camera-detection-status");
+  const btnLiveCameraCancel = document.getElementById("btn-live-camera-cancel");
+  const btnLiveCameraCapture = document.getElementById("btn-live-camera-capture");
   const btnImportRedetect = document.getElementById("btn-import-redetect");
   const btnImportConfirm = document.getElementById("btn-import-confirm");
   const btnImportBack = document.getElementById("btn-import-back");
@@ -1178,6 +1243,12 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   const btnImportModeOrder = importModeDialog.querySelector("#vcf-import-mode-order");
 
   let cameraStream = null;
+  let liveCameraStream = null;
+  let liveCameraDetectionTimer = 0;
+  let liveCameraDetectionBusy = false;
+  let liveCameraSmoothedQuad = null;
+  let liveCameraMissCount = 0;
+  const liveCameraFrameCanvas = document.createElement("canvas");
 
   const importState = {
     mode: "idle",
@@ -3214,6 +3285,278 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     }
   }
 
+  function stopLiveCameraPreview() {
+    if (liveCameraDetectionTimer) {
+      clearTimeout(liveCameraDetectionTimer);
+      liveCameraDetectionTimer = 0;
+    }
+    if (liveCameraStream) {
+      for (const track of liveCameraStream.getTracks()) track.stop();
+      liveCameraStream = null;
+    }
+    liveCameraDetectionBusy = false;
+    liveCameraSmoothedQuad = null;
+    liveCameraMissCount = 0;
+    liveCameraVideoEl.pause();
+    liveCameraVideoEl.srcObject = null;
+    btnLiveCameraCapture.disabled = true;
+    const overlayCtx = liveCameraBoardOverlayEl.getContext("2d");
+    overlayCtx.clearRect(0, 0, liveCameraBoardOverlayEl.width, liveCameraBoardOverlayEl.height);
+    liveCameraDetectionStatusEl.textContent = "正在準備棋盤辨識...";
+    liveCameraOverlayEl.hidden = true;
+    liveCameraOverlayEl.setAttribute("aria-hidden", "true");
+  }
+
+  function cameraVisibleSourceRect(videoEl) {
+    const displayRect = videoEl.getBoundingClientRect();
+    const sourceWidth = videoEl.videoWidth;
+    const sourceHeight = videoEl.videoHeight;
+    if (!displayRect.width || !displayRect.height || !sourceWidth || !sourceHeight) return null;
+    const coverScale = Math.max(displayRect.width / sourceWidth, displayRect.height / sourceHeight);
+    const renderedWidth = sourceWidth * coverScale;
+    const renderedHeight = sourceHeight * coverScale;
+    const offsetX = (displayRect.width - renderedWidth) * 0.5;
+    const offsetY = (displayRect.height - renderedHeight) * 0.5;
+    const width = Math.min(sourceWidth, displayRect.width / coverScale);
+    const height = Math.min(sourceHeight, displayRect.height / coverScale);
+    const x = clamp(-offsetX / coverScale, 0, sourceWidth - width);
+    const y = clamp(-offsetY / coverScale, 0, sourceHeight - height);
+    return { x, y, width, height, displayWidth: displayRect.width, displayHeight: displayRect.height };
+  }
+
+  function drawLiveCameraFrame(maxDimension = 720) {
+    const sourceRect = cameraVisibleSourceRect(liveCameraVideoEl);
+    if (!sourceRect) return null;
+    const scale = Math.min(1, maxDimension / Math.max(sourceRect.displayWidth, sourceRect.displayHeight));
+    const width = Math.max(1, Math.round(sourceRect.displayWidth * scale));
+    const height = Math.max(1, Math.round(sourceRect.displayHeight * scale));
+    liveCameraFrameCanvas.width = width;
+    liveCameraFrameCanvas.height = height;
+    liveCameraFrameCanvas.getContext("2d", { willReadFrequently: true }).drawImage(
+      liveCameraVideoEl,
+      sourceRect.x,
+      sourceRect.y,
+      sourceRect.width,
+      sourceRect.height,
+      0,
+      0,
+      width,
+      height
+    );
+    if (liveCameraBoardOverlayEl.width !== width) liveCameraBoardOverlayEl.width = width;
+    if (liveCameraBoardOverlayEl.height !== height) liveCameraBoardOverlayEl.height = height;
+    return liveCameraFrameCanvas;
+  }
+
+  function detectLiveBoardCandidate(canvas) {
+    let src = null, gray = null, detectionGray = null;
+    try {
+      src = cv.imread(canvas);
+      gray = new cv.Mat();
+      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+      detectionGray = suppressOuterAnnotations(gray);
+
+      const contourCandidates = detectContourCandidates(detectionGray);
+      let contourBest = evaluateCandidateSet(detectionGray, contourCandidates, "輪廓＋15路驗證", 28);
+      let chosen = contourBest;
+
+      if (!contourBest || contourBest.score < 0.64 || contourBest.coverage < 0.56) {
+        const houghCandidates = detectHoughCandidates(detectionGray);
+        const houghBest = evaluateCandidateSet(detectionGray, houghCandidates, "Hough格線＋15路驗證", 32);
+        if (!chosen || (houghBest && houghBest.score > chosen.score)) chosen = houghBest;
+      }
+
+      if (chosen && chosen.score >= 0.34) chosen = refineBoardCandidate(detectionGray, chosen);
+      if (!chosen || chosen.score < 0.40 || chosen.coverage < 0.38) return null;
+      return {
+        ...chosen,
+        quad: orderCorners(chosen.quad),
+      };
+    } finally {
+      if (src) src.delete();
+      if (gray) gray.delete();
+      if (detectionGray) detectionGray.delete();
+    }
+  }
+
+  function smoothLiveBoardQuad(quad) {
+    const ordered = orderCorners(quad);
+    if (!liveCameraSmoothedQuad) {
+      liveCameraSmoothedQuad = ordered.map(point => ({ ...point }));
+      return liveCameraSmoothedQuad;
+    }
+    const alpha = 0.48;
+    liveCameraSmoothedQuad = ordered.map((point, index) => ({
+      x: liveCameraSmoothedQuad[index].x + (point.x - liveCameraSmoothedQuad[index].x) * alpha,
+      y: liveCameraSmoothedQuad[index].y + (point.y - liveCameraSmoothedQuad[index].y) * alpha,
+    }));
+    return liveCameraSmoothedQuad;
+  }
+
+  function renderLiveBoardDetection(candidate) {
+    const ctx = liveCameraBoardOverlayEl.getContext("2d");
+    ctx.clearRect(0, 0, liveCameraBoardOverlayEl.width, liveCameraBoardOverlayEl.height);
+
+    if (!candidate) {
+      liveCameraMissCount++;
+      if (liveCameraMissCount >= 2) liveCameraSmoothedQuad = null;
+      liveCameraDetectionStatusEl.textContent = "尋找 15×15 棋盤中...";
+      return;
+    }
+
+    liveCameraMissCount = 0;
+    const quad = smoothLiveBoardQuad(candidate.quad);
+    const strong = candidate.score >= 0.58 && candidate.coverage >= 0.52;
+    const stroke = strong ? "rgba(84, 238, 132, 0.98)" : "rgba(255, 205, 72, 0.98)";
+    const gridStroke = strong ? "rgba(84, 238, 132, 0.42)" : "rgba(255, 205, 72, 0.38)";
+    const lineWidth = Math.max(2, Math.min(liveCameraBoardOverlayEl.width, liveCameraBoardOverlayEl.height) / 220);
+
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    ctx.moveTo(quad[0].x, quad[0].y);
+    for (let index = 1; index < 4; index++) ctx.lineTo(quad[index].x, quad[index].y);
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.strokeStyle = gridStroke;
+    ctx.lineWidth = Math.max(1, lineWidth * 0.38);
+    for (let index = 1; index < SIZE - 1; index++) {
+      const t = index / (SIZE - 1);
+      const top = mapUnitSquareToQuad(t, 0, quad);
+      const bottom = mapUnitSquareToQuad(t, 1, quad);
+      const left = mapUnitSquareToQuad(0, t, quad);
+      const right = mapUnitSquareToQuad(1, t, quad);
+      ctx.beginPath();
+      ctx.moveTo(top.x, top.y);
+      ctx.lineTo(bottom.x, bottom.y);
+      ctx.moveTo(left.x, left.y);
+      ctx.lineTo(right.x, right.y);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = stroke;
+    const radius = Math.max(3, lineWidth * 1.7);
+    for (const point of quad) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    const confidence = Math.round(candidate.score * 100);
+    const coverage = Math.round(candidate.coverage * 100);
+    liveCameraDetectionStatusEl.textContent =
+      (strong ? "已辨識棋盤" : "棋盤位置可能不穩") +
+      "｜可信度 " + confidence + "%｜格線覆蓋 " + coverage + "%";
+  }
+
+  async function runLiveCameraDetection() {
+    if (!liveCameraStream || liveCameraOverlayEl.hidden) return;
+    if (liveCameraDetectionBusy) {
+      liveCameraDetectionTimer = window.setTimeout(runLiveCameraDetection, 180);
+      return;
+    }
+    liveCameraDetectionBusy = true;
+    try {
+      const frame = drawLiveCameraFrame(720);
+      if (!frame) return;
+      renderLiveBoardDetection(detectLiveBoardCandidate(frame));
+    } catch (error) {
+      console.warn("手機拍照1即時棋盤辨識失敗", error);
+      renderLiveBoardDetection(null);
+    } finally {
+      liveCameraDetectionBusy = false;
+      if (liveCameraStream && !liveCameraOverlayEl.hidden) {
+        liveCameraDetectionTimer = window.setTimeout(runLiveCameraDetection, 720);
+      }
+    }
+  }
+
+  async function openLiveCameraPreview() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setImportStatus("此瀏覽器不支援「手機拍照1」的即時相機辨識，請使用原本的「手機拍照」。", true);
+      return;
+    }
+    stopLiveCameraPreview();
+    try {
+      setImportStatus("正在開啟「手機拍照1」，相機畫面會即時標示辨識到的棋盤範圍...");
+      liveCameraStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1920 },
+          height: { ideal: 1920 },
+        },
+      });
+      liveCameraOverlayEl.hidden = false;
+      liveCameraOverlayEl.setAttribute("aria-hidden", "false");
+      liveCameraVideoEl.srcObject = liveCameraStream;
+      await new Promise((resolve, reject) => {
+        if (liveCameraVideoEl.readyState >= 1) {
+          resolve();
+          return;
+        }
+        const timeout = setTimeout(() => reject(new Error("手機拍照1相機預覽載入逾時")), 10000);
+        liveCameraVideoEl.addEventListener("loadedmetadata", () => {
+          clearTimeout(timeout);
+          resolve();
+        }, { once: true });
+      });
+      await liveCameraVideoEl.play();
+      btnLiveCameraCapture.disabled = false;
+      liveCameraDetectionStatusEl.textContent = "正在載入棋盤辨識...";
+      const cvAvailable = await ensureCvReady();
+      if (!liveCameraStream || liveCameraOverlayEl.hidden) return;
+      if (!cvAvailable) {
+        liveCameraDetectionStatusEl.textContent = "OpenCV 載入失敗，無法即時辨識棋盤";
+        return;
+      }
+      liveCameraDetectionStatusEl.textContent = "尋找 15×15 棋盤中...";
+      runLiveCameraDetection();
+    } catch (error) {
+      console.error("手機拍照1相機開啟失敗", error);
+      stopLiveCameraPreview();
+      setImportStatus("無法開啟「手機拍照1」相機，請檢查相機權限或改用原本的「手機拍照」。", true);
+    }
+  }
+
+  async function captureLiveCameraPreview() {
+    if (!liveCameraStream || !liveCameraVideoEl.videoWidth || !liveCameraVideoEl.videoHeight) return;
+    btnLiveCameraCapture.disabled = true;
+    try {
+      const sourceRect = cameraVisibleSourceRect(liveCameraVideoEl);
+      if (!sourceRect) throw new Error("無法取得相機畫面範圍");
+      const scale = Math.min(1, 1600 / Math.max(sourceRect.width, sourceRect.height));
+      const outputWidth = Math.max(1, Math.round(sourceRect.width * scale));
+      const outputHeight = Math.max(1, Math.round(sourceRect.height * scale));
+      const captureCanvas = document.createElement("canvas");
+      captureCanvas.width = outputWidth;
+      captureCanvas.height = outputHeight;
+      captureCanvas.getContext("2d").drawImage(
+        liveCameraVideoEl,
+        sourceRect.x,
+        sourceRect.y,
+        sourceRect.width,
+        sourceRect.height,
+        0,
+        0,
+        outputWidth,
+        outputHeight
+      );
+      const blob = await new Promise((resolve, reject) => {
+        captureCanvas.toBlob(result => result ? resolve(result) : reject(new Error("照片轉換失敗")), "image/jpeg", 0.94);
+      });
+      stopLiveCameraPreview();
+      await loadImageFromBlob(blob);
+    } catch (error) {
+      console.error("手機拍照1擷取失敗", error);
+      btnLiveCameraCapture.disabled = false;
+      setImportStatus("「手機拍照1」擷取失敗，請再試一次。", true);
+    }
+  }
+
   async function loadFromFileList(files) {
     if (!files || !files[0]) return;
     await loadImageFromBlob(files[0]);
@@ -3230,16 +3573,29 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 
   btnImportImage.addEventListener("click", () => imageFileInput.click());
   btnImportCamera.addEventListener("click", () => openCameraPreview());
+  btnImportCameraLive.addEventListener("click", () => openLiveCameraPreview());
+  btnLiveCameraCancel.addEventListener("click", () => {
+    stopLiveCameraPreview();
+    setImportStatus("已取消「手機拍照1」。");
+  });
+  btnLiveCameraCapture.addEventListener("click", () => captureLiveCameraPreview());
   btnCameraCancel.addEventListener("click", () => {
     stopCameraPreview();
     setImportStatus("已取消拍照。");
   });
   btnCameraCapture.addEventListener("click", () => captureCameraPreview());
   window.addEventListener("pagehide", () => stopCameraPreview());
+  window.addEventListener("pagehide", () => stopLiveCameraPreview());
   document.addEventListener("keydown", evt => {
     if (evt.key === "Escape" && !cameraOverlayEl.hidden) {
       stopCameraPreview();
       setImportStatus("已取消拍照。");
+    }
+  });
+  document.addEventListener("keydown", evt => {
+    if (evt.key === "Escape" && !liveCameraOverlayEl.hidden) {
+      stopLiveCameraPreview();
+      setImportStatus("已取消「手機拍照1」。");
     }
   });
   btnImportReset.addEventListener("click", () => {
