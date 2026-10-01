@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the GitHub Pages artifact from an explicit browser-runtime allowlist."""
+"""Build the base static browser artifact from an explicit runtime allowlist."""
 
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ def main() -> None:
     ]
     present = [str(path.relative_to(SITE)) for path in forbidden if path.exists()]
     if present:
-        raise RuntimeError(f"forbidden Pages paths: {present}")
+        raise RuntimeError(f"forbidden static bundle paths: {present}")
 
     html = (SITE / "index.html").read_text(encoding="utf-8")
     required_tokens = [
@@ -119,7 +119,7 @@ def main() -> None:
         raise RuntimeError(f"root entry is missing scripts: {missing}")
 
     files = [path for path in SITE.rglob("*") if path.is_file()]
-    print(f"Prepared Pages allowlist: {len(files)} files")
+    print(f"Prepared static allowlist: {len(files)} files")
 
 
 if __name__ == "__main__":
