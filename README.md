@@ -2,9 +2,9 @@
 
 15×15 連珠／五子棋 VCF 局面分析、題庫與題目產生工具。
 
-唯一正式網站：<https://5871224.github.io/VCF/>
+唯一正式網站：<https://587.renju.org.tw/BD1/>
 
-根目錄 `index.html` 是唯一工作台來源與 Pages 入口。`/rapfi/` 只保存引擎、Worker、介面模組與明確命名的實驗室資源，不提供 `index.html` 入口。專案只維護瀏覽器版，不再包含 Electron、WebView2 或 Native 桌面包裝。
+根目錄 `index.html` 是唯一工作台來源；正式部署入口為 `/BD1/`。`/rapfi/` 只保存引擎、Worker、介面模組與明確命名的實驗室資源，不提供 `index.html` 入口。專案只維護瀏覽器版，不再包含 Electron、WebView2 或 Native 桌面包裝。
 
 ## 主要功能
 
@@ -20,7 +20,7 @@
 ## 正式架構
 
 ```text
-/VCF/（正式來源與部署入口皆為 index.html）
+/BD1/（VCF main 的正式部署入口為 index.html）
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
