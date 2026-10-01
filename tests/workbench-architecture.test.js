@@ -430,12 +430,9 @@ for (const file of ["README.md", "AGENTS.md", "檔案用途總覽.MD", "規格�
   }
 }
 
-const pages = read(".github/workflows/pages.yml");
-if (pages.includes("cp -R eval emoji bitboard rapfi")) throw new Error("Pages still deploys whole source directories");
-if (!pages.includes("prepare-pages-site.py")) throw new Error("Pages does not use the deployment allowlist builder");
-const pagesBuilder = read("tools/prepare-pages-site.py");
-if (!pagesBuilder.includes('"vcf-record-tools.js"') || !pagesBuilder.includes('"record-svg"')) {
-  throw new Error("Pages allowlist is missing record tools or SVG assets");
+const staticSiteBuilder = read("tools/prepare-pages-site.py");
+if (!staticSiteBuilder.includes('"vcf-record-tools.js"') || !staticSiteBuilder.includes('"record-svg"')) {
+  throw new Error("Static site allowlist is missing record tools or SVG assets");
 }
 
 const pureStatsHtml = read("index.html");
@@ -714,14 +711,14 @@ for (const token of ['const std::string metadata = "charset=\\\"UTF-8\\\""', "g_
 if (rapfiDbBridge.includes("std::ofstream file(STORAGE_PATH")) {
   throw new Error("Rapfi DB Wasm restore must not use the crashing Emscripten filesystem stream");
 }
-const pagesBuilderCloud = read("tools/prepare-pages-site.py");
-if (pagesBuilderCloud.includes('"vcf-lz4-cloud.js"')
-    || pagesBuilderCloud.includes('"vcf-google-popup-auth.js"')
-    || pagesBuilderCloud.includes('"vcf-yxdb-index.*"')
-    || pagesBuilderCloud.includes('inject_pages_scripts')) {
-  throw new Error("GitHub Pages must not package PHP-backed cloud record controls");
+const staticSiteBuilderCloud = read("tools/prepare-pages-site.py");
+if (staticSiteBuilderCloud.includes('"vcf-lz4-cloud.js"')
+    || staticSiteBuilderCloud.includes('"vcf-google-popup-auth.js"')
+    || staticSiteBuilderCloud.includes('"vcf-yxdb-index.*"')
+    || staticSiteBuilderCloud.includes('inject_pages_scripts')) {
+  throw new Error("Base static bundle must not package server-only cloud record controls");
 }
-if (!pagesBuilderCloud.includes('vcf-rapfi-db.*')) {
+if (!staticSiteBuilderCloud.includes('vcf-rapfi-db.*')) {
   throw new Error("Rapfi DB bridge build output must remain available for later lazy loading");
 }
 
@@ -747,17 +744,10 @@ for (const token of [
   '"Rapfi 棋盤引擎載入失敗，請重新整理"',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error("record DB readiness guard missing: " + token);
 
-const pagesBuild = read("tools/prepare-pages-site.py");
-if (!pagesBuild.includes('vcf-rapfi-db.*')) {
-  throw new Error("GitHub Pages must package the Rapfi DB bridge runtime used by the root workbench");
+const staticBuild = read("tools/prepare-pages-site.py");
+if (!staticBuild.includes('vcf-rapfi-db.*')) {
+  throw new Error("Static site bundle must package the Rapfi DB bridge runtime used by the root workbench");
 }
-const pagesWorkflow = read(".github/workflows/pages.yml");
-for (const token of [
-  'empty Rapfi DB snapshot failed',
-  'played Rapfi DB snapshot failed',
-  'Rapfi DB snapshot restore failed',
-  'Rapfi DB Wasm snapshot smoke test passed',
-]) if (!pagesWorkflow.includes(token)) throw new Error("Pages must smoke-test Rapfi DB Wasm snapshots: " + token);
 
 const startupSource = entry.match(/<script>\s*(\(function scheduleRapfiRecordDatabase[\s\S]*?\)\(window\);)\s*<\/script>/)?.[1];
 if (!startupSource) throw new Error("Rapfi startup runtime not found");
