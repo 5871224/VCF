@@ -16,13 +16,13 @@
 唯一正式網址：
 
 ```text
-https://5871224.github.io/VCF/
+https://587.renju.org.tw/BD1/
 ```
 
 正式路徑：
 
 ```text
-/VCF/（正式來源與部署入口皆為 index.html）
+/BD1/（VCF main 的正式部署入口為 index.html）
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
   → rapfi/vcf-bitboard-main.js
   → rapfi/vcf-bitboard-worker.js
@@ -36,7 +36,7 @@ makevcf-generator-core.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
 
-- Pages 只部署根 `index.html` 作為工作台入口；直接開啟 `/VCF/index.html` 時應將顯示網址正規化為 `/VCF/`。
+- `/BD1/` 只以根 `index.html` 作為工作台入口；VCF repository 不再發布 GitHub Pages。
 - 根目錄 `index.html` 是唯一工作台 HTML 來源，不得建立第二套入口或公開別名。
 - `/rapfi/` 只作為引擎、Worker、UI 模組及明確命名的實驗室資源，不得建立另一份工作台 `index.html`。
 - 題目產生器不得共用或中止主分析 Worker。
@@ -67,8 +67,8 @@ makevcf-generator-core.js
 - 固定載入的介面模組必須一次初始化；除等待 OpenCV 等外部非同步資源外，不得用全頁 `MutationObserver`、輪詢或延遲重試拼裝介面。
 - 建置腳本不得注入已淘汰的舊流程；程式重構後同步更新建置驗證。
 - `index.html` 必須明確列出正式腳本順序；`makevcf-mobile.js`、加成、相容、狀態或回放模組不得動態載入其他正式功能檔。
-- Pages 與 CI 建置驗證不得使用 `writeFileSync`、字串替換或其他方式改寫 Git 追蹤來源。
-- Pages artifact 必須使用明確 allowlist 組裝，不得以 `cp -R` 將整個相容、原型、測試或 C++ 來源目錄部署到公開網站。
+- BD1 與 CI 建置驗證不得使用 `writeFileSync`、字串替換或其他方式改寫 Git 追蹤來源。
+- BD1 基礎靜態 artifact 必須使用明確 allowlist 組裝，不得以 `cp -R` 將整個相容、原型、測試或 C++ 來源目錄部署到公開網站。
 - 搜尋限制、中止與部分結果必須可區分；不得把未完整結果描述為已證明。
 - C++、Wasm、Worker、主執行緒與題目產生器若共用資料格式或 ABI，必須在同一批變更更新並驗證。
 - 介面名稱、按鈕文字、選單值與文件用語必須一致。
@@ -93,9 +93,9 @@ makevcf-generator-core.js
 
 部署變更後：
 
-- 確認 Pages artifact 只有 allowlist 內的正式網頁資源，沒有 `rapfi/index.html`、桌面版、C++ 原始碼、測試原型或已刪除工具頁。
-- 確認 GitHub Pages `build` 與 `deploy` 都成功。
-- 若由 `GITHUB_TOKEN` 產生的提交不會再次觸發 workflow，使用一般 `main` 提交或 `workflow_dispatch` 觸發。
+- 確認 BD1 基礎 artifact 只有 allowlist 內的正式網頁資源，沒有 `rapfi/index.html`、桌面版、C++ 原始碼、測試原型或已刪除工具頁。
+- 確認 `5871224/587-RENJU` 的 `sync-vcf-bd.yml` 完成建置、FTPS 上傳與線上雜湊驗證。
+- 確認 `/BD1/deployment.json` 的 revision 等於 VCF `main` 要部署的 commit。
 
 ## 跨模組介面掛載
 - 題庫等晚於主介面建立的區塊，必須用具名 ready event 與正式掛載函式銜接；不得把「元素尚未出現」誤判為版面完成，也不得以全頁 MutationObserver 或輪詢補救。
