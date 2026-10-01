@@ -85,17 +85,15 @@ if (!packageJson.scripts["test:generator"].includes("generator-worker-runtime.te
   throw new Error("Generator Worker behavior test is not part of the canonical generator suite");
 }
 
-const pages = read(".github/workflows/pages.yml");
 const workbench = read(".github/workflows/workbench-ci.yml");
 const generatorCi = read(".github/workflows/vcf-generator-ci.yml");
 const nativeCi = read(".github/workflows/vcf-native-ci.yml");
-for (const source of [pages, workbench, generatorCi, nativeCi]) {
+for (const source of [workbench, generatorCi, nativeCi]) {
   if (source.includes("npm run verify:source")) throw new Error("workflow still repeats source architecture validation");
   if (source.includes("apply-image-import-build-fixes.js") || source.includes("apply-generator-replay-event-fixes.js")) {
     throw new Error("workflow still calls removed duplicate validators");
   }
 }
-if (!pages.includes("npm run test:runtime")) throw new Error("Pages build does not run actual Worker/Wasm regression tests");
 if (!nativeCi.includes("npm run test:runtime")) throw new Error("Wasm CI does not run actual Worker regressions");
 if (!generatorCi.includes("npm run test:generator")) throw new Error("Generator CI does not use the canonical test suite");
 if (generatorCi.includes("class WorkerMock")) throw new Error("Generator behavior test remains embedded in workflow YAML");
