@@ -1,0 +1,36 @@
+name: Disable GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/disable-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+
+jobs:
+  disable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disable GitHub Pages site
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          status="$(curl -sS -o "$response" -w '%{http_code}' \
+            -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pages")"
+          cat "$response" || true
+          if [ "$status" != "204" ] && [ "$status" != "404" ]; then
+            echo "Unexpected GitHub Pages delete status: $status" >&2
+            exit 1
+          fi
+          echo "GitHub Pages site disabled (HTTP $status)."
