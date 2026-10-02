@@ -1,0 +1,39 @@
+name: Trigger BD1 deployment
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trigger-bd1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger BD1 deployment in 587-RENJU
+        shell: bash
+        env:
+          BD1_DEPLOY_TOKEN: ${{ secrets.BD1_DEPLOY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$BD1_DEPLOY_TOKEN" ]; then
+            echo "::warning::BD1_DEPLOY_TOKEN is not configured; BD1 deployment was not triggered."
+            exit 0
+          fi
+
+          payload="$(jq -cn --arg sha "$GITHUB_SHA" '{ref:"main",inputs:{vcf_sha:$sha}}')"
+          curl -fSsL \
+            -X POST \
+            -H "Authorization: Bearer $BD1_DEPLOY_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/5871224/587-RENJU/actions/workflows/sync-vcf-bd.yml/dispatches \
+            -d "$payload"
+
+          echo "Triggered BD1 deployment for VCF $GITHUB_SHA"
