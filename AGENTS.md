@@ -94,9 +94,8 @@ makevcf-generator-core.js
 部署變更後：
 
 - 確認 BD1 基礎 artifact 只有 allowlist 內的正式網頁資源，沒有 `rapfi/index.html`、桌面版、C++ 原始碼、測試原型或已刪除工具頁。
-- 確認 VCF `.github/workflows/deploy-bd1.yml` 在 `main` push 時立即 dispatch `5871224/587-RENJU` 的 `sync-vcf-bd.yml`，不得改回排程輪詢。
-- 確認 `5871224/587-RENJU` 的 `sync-vcf-bd.yml` 完成建置、FTPS 上傳與線上雜湊驗證。
-- 確認 `/BD1/deployment.json` 的 revision 等於 VCF `main` 要部署的 commit。
+- 確認 VCF `.github/workflows/deploy-bd1.yml` 在 `main` push 時直接於本 repository 建置、FTPS 上傳與線上雜湊驗證，不使用排程輪詢或跨 repository 觸發。
+- 確認 `/BD1/deployment.json` 的 revision 等於該次 VCF `github.sha`。
 
 ## 跨模組介面掛載
 - 題庫等晚於主介面建立的區塊，必須用具名 ready event 與正式掛載函式銜接；不得把「元素尚未出現」誤判為版面完成，也不得以全頁 MutationObserver 或輪詢補救。
