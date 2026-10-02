@@ -1,38 +1,443 @@
-name: Trigger BD1 deployment
+name: Deploy VCF to BD1
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
-  group: trigger-bd1-${{ github.ref }}
+  group: vcf-bd1-deploy
   cancel-in-progress: true
 
+env:
+  RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894
+  RAPFI_NETWORKS_REF: 918b757a129258e9e765f77fe17d507c2bb1a60b
+  EMSDK_VERSION: 3.1.74
+
 jobs:
-  dispatch:
+  deploy:
     runs-on: ubuntu-latest
+    environment: production
     steps:
-      - name: Trigger BD1 deployment in 587-RENJU
+      - name: Check BD1 deployment credentials
         shell: bash
         env:
-          BD1_DEPLOY_TOKEN: ${{ secrets.BD1_DEPLOY_TOKEN }}
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "$BD1_DEPLOY_TOKEN" ]; then
-            echo "::warning::BD1_DEPLOY_TOKEN is not configured; BD1 deployment was not triggered."
-            exit 0
+          missing=0
+          for name in FTP_SERVER FTP_USERNAME FTP_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured in the VCF production environment."
+              missing=1
+            fi
+          done
+          test "$missing" -eq 0
+
+      - name: Check whether BD1 already has this revision
+        id: version
+        shell: bash
+        env:
+          VCF_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          deployed_sha=''
+          remote_status="$(mktemp)"
+          if curl -k -fsSL --retry 2 \
+              -H 'Cache-Control: no-cache' \
+              "https://587.renju.org.tw/BD1/deployment.json?check=$VCF_SHA" \
+              -o "$remote_status"; then
+            deployed_sha="$(jq -r '.revision // empty' "$remote_status" 2>/dev/null || true)"
           fi
 
-          payload="$(jq -cn --arg sha "$GITHUB_SHA" '{ref:"main",inputs:{vcf_sha:$sha}}')"
-          curl -fSsL \
-            -X POST \
-            -H "Authorization: Bearer $BD1_DEPLOY_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            https://api.github.com/repos/5871224/587-RENJU/actions/workflows/sync-vcf-bd.yml/dispatches \
-            -d "$payload"
+          if [ "$deployed_sha" = "$VCF_SHA" ]; then
+            echo "needs_sync=false" >> "$GITHUB_OUTPUT"
+            echo "BD1 already matches VCF $VCF_SHA"
+          else
+            echo "needs_sync=true" >> "$GITHUB_OUTPUT"
+            echo "BD1 needs VCF $VCF_SHA; deployed=${deployed_sha:-none}"
+          fi
 
-          echo "Triggered BD1 deployment for VCF $GITHUB_SHA"
+      - name: Check out exact VCF revision
+        if: steps.version.outputs.needs_sync == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Restore official Rapfi Wasm cache
+        if: steps.version.outputs.needs_sync == 'true'
+        id: rapfi-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/rapfi-wasm
+          key: bd1-rapfi-official-single-simd128-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.RAPFI_NETWORKS_REF }}-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Restore VCF pattern engine cache
+        if: steps.version.outputs.needs_sync == 'true'
+        id: pattern-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcf-pattern-engine
+          key: bd1-vcf-pattern-engine-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp') }}
+
+      - name: Restore Bitboard VCF engine cache
+        if: steps.version.outputs.needs_sync == 'true'
+        id: bitboard-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcf-bitboard-engine
+          key: bd1-vcf-bitboard-engine-v4-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
+
+      - name: Restore Rapfi DB bridge cache
+        if: steps.version.outputs.needs_sync == 'true'
+        id: rapfi-db-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcf-rapfi-db
+          key: bd1-vcf-rapfi-db-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-db-bridge.cpp') }}
+
+      - name: Restore YXDB query engine cache
+        if: steps.version.outputs.needs_sync == 'true'
+        id: yxdb-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcf-yxdb-index
+          key: bd1-vcf-yxdb-index-v1-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-yxdb-index.cpp') }}
+
+      - name: Restore Emscripten SDK cache
+        if: steps.version.outputs.needs_sync == 'true'
+        id: emsdk-cache
+        uses: actions/cache@v4
+        with:
+          path: .emsdk
+          key: bd1-emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Install Emscripten SDK
+        if: steps.version.outputs.needs_sync == 'true' && (steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.rapfi-db-cache.outputs.cache-hit != 'true' || steps.yxdb-cache.outputs.cache-hit != 'true')
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if [ ! -x ".emsdk/upstream/emscripten/em++" ]; then
+            rm -rf .emsdk
+            git clone --depth 1 --branch "$EMSDK_VERSION" https://github.com/emscripten-core/emsdk.git .emsdk
+            .emsdk/emsdk install "$EMSDK_VERSION"
+            .emsdk/emsdk activate "$EMSDK_VERSION"
+          fi
+
+      - name: Build official Rapfi single-thread WebAssembly
+        if: steps.version.outputs.needs_sync == 'true' && steps.rapfi-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .emsdk/emsdk_env.sh
+          rm -rf .build/rapfi .cache/rapfi-wasm
+          mkdir -p .build .cache/rapfi-wasm
+          git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
+          git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
+          git -C .build/rapfi checkout --detach "$RAPFI_REF"
+          rm -rf .build/rapfi/Networks
+          git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi-networks.git .build/rapfi/Networks
+          git -C .build/rapfi/Networks sparse-checkout init --no-cone
+          git -C .build/rapfi/Networks sparse-checkout set --no-cone /wasm_preloads.txt /config-example/ /classical/ /mix9svq/
+          git -C .build/rapfi/Networks fetch --depth 1 origin "$RAPFI_NETWORKS_REF"
+          git -C .build/rapfi/Networks checkout --detach "$RAPFI_NETWORKS_REF"
+          build_dir="$PWD/.build/rapfi/Rapfi/build/wasm-single-simd128"
+          mkdir -p "$build_dir"
+          cd "$build_dir"
+          emcmake cmake ../.. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNO_COMMAND_MODULES=ON \
+            -DNO_MULTI_THREADING=ON \
+            -DUSE_WASM_SIMD=ON \
+            -DUSE_WASM_SIMD_RELAXED=OFF
+          emmake cmake --build . -j2
+          cp rapfi-single-simd128.js rapfi-single-simd128.wasm rapfi-single-simd128.data "$GITHUB_WORKSPACE/.cache/rapfi-wasm/"
+
+      - name: Build VCF pattern engine
+        if: steps.version.outputs.needs_sync == 'true' && steps.pattern-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .emsdk/emsdk_env.sh
+          rm -rf .cache/vcf-pattern-engine
+          mkdir -p .cache/vcf-pattern-engine
+          g++ rapfi/vcf-pattern-engine-optimized.cpp -O3 -flto -DNDEBUG -std=c++17 -DVCF_PATTERN_TEST_MAIN -o /tmp/vcf-pattern-engine-test
+          /tmp/vcf-pattern-engine-test
+          em++ rapfi/vcf-pattern-engine-optimized.cpp \
+            -O3 -flto -DNDEBUG -std=c++17 -msimd128 --no-entry \
+            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFPatternEngine \
+            -s ENVIRONMENT=worker -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1 \
+            -s "EXPORTED_FUNCTIONS=['_vcfAnalyzePoint','_vcfAnalyzeForbidden','_vcfLookupBenchmark','_vcfPatternSelfTest','_malloc','_free']" \
+            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+            -o .cache/vcf-pattern-engine/vcf-pattern-engine.js
+
+      - name: Build Bitboard VCF engine
+        if: steps.version.outputs.needs_sync == 'true' && steps.bitboard-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .emsdk/emsdk_env.sh
+          rm -rf .cache/vcf-bitboard-engine
+          mkdir -p .cache/vcf-bitboard-engine
+          sources=(
+            rapfi/vcf-pattern-engine-optimized.cpp
+            rapfi/vcf-bitboard-engine.cpp
+            rapfi/vcf-bitboard-search-v2.cpp
+            rapfi/vcf-bitboard-legacy-extra.cpp
+          )
+          g++ "${sources[@]}" -O3 -flto -DNDEBUG -std=c++17 -DVCF_BITBOARD_TEST_MAIN -o /tmp/vcf-bitboard-engine-test
+          /tmp/vcf-bitboard-engine-test
+          em++ "${sources[@]}" \
+            -O3 -flto -DNDEBUG -std=c++17 -msimd128 --no-entry \
+            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFBitboardModule \
+            -s ENVIRONMENT='web,worker,node' -s FORCE_FILESYSTEM=1 -s ALLOW_MEMORY_GROWTH=1 \
+            -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
+            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+            -o .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
+
+      - name: Build Rapfi DB bridge
+        if: steps.version.outputs.needs_sync == 'true' && steps.rapfi-db-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .emsdk/emsdk_env.sh
+          if [ ! -d .build/rapfi/.git ]; then
+            rm -rf .build/rapfi
+            mkdir -p .build
+            git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
+            git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
+            git -C .build/rapfi checkout --detach "$RAPFI_REF"
+          fi
+          rm -rf .cache/vcf-rapfi-db
+          mkdir -p .cache/vcf-rapfi-db
+          rapfi_root="$PWD/.build/rapfi/Rapfi"
+          sources=(
+            rapfi/vcf-rapfi-db-bridge.cpp
+            "$rapfi_root/core/hash.cpp"
+            "$rapfi_root/core/utils.cpp"
+            "$rapfi_root/core/iohelper.cpp"
+            "$rapfi_root/core/compressor.cpp"
+            "$rapfi_root/external/lz4/src/lz4_all.c"
+            "$rapfi_root/external/lz4/src/xxhash.c"
+            "$rapfi_root/game/pattern.cpp"
+            "$rapfi_root/game/board.cpp"
+            "$rapfi_root/database/dbtypes.cpp"
+            "$rapfi_root/database/dbclient.cpp"
+            "$rapfi_root/database/yxdbstorage.cpp"
+          )
+          g++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include" \
+            -O2 -std=c++17 -ffunction-sections -fdata-sections -DVCF_RAPFI_DB_BRIDGE_TEST_MAIN \
+            -Wl,--gc-sections -o /tmp/vcf-rapfi-db-test
+          /tmp/vcf-rapfi-db-test
+          em++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include" \
+            -O3 -flto -DNDEBUG -std=c++17 --no-entry \
+            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFRapfiDBModule \
+            -s ENVIRONMENT='web,worker,node' -s FORCE_FILESYSTEM=1 -s ALLOW_MEMORY_GROWTH=1 \
+            -s "EXPORTED_FUNCTIONS=['_vcfRapfiDbInit','_vcfRapfiDbResetBoard','_vcfRapfiDbClear','_vcfRapfiDbReady','_vcfRapfiDbEnsureCurrent','_vcfRapfiDbReplayMove','_vcfRapfiDbPlay','_vcfRapfiDbUndo','_vcfRapfiDbPly','_vcfRapfiDbHistoryMove','_vcfRapfiDbSideToMove','_vcfRapfiDbBoardCell','_vcfRapfiDbIsForbidden','_vcfRapfiDbSetDisplayText','_vcfRapfiDbGetDisplayText','_vcfRapfiDbSetRawText','_vcfRapfiDbGetRawText','_vcfRapfiDbSetComment','_vcfRapfiDbGetComment','_vcfRapfiDbTextPtr','_vcfRapfiDbTextLength','_vcfRapfiDbSetBoardText','_vcfRapfiDbQueryBoardTexts','_vcfRapfiDbBoardTextMove','_vcfRapfiDbBoardTextValue','_vcfRapfiDbQueryChildren','_vcfRapfiDbChildMove','_vcfRapfiDbRecordCount','_vcfRapfiDbDeleteCurrentAndChildren','_vcfRapfiDbCloneRule','_vcfRapfiDbExportYXDB','_vcfRapfiDbImportYXDB','_vcfRapfiDbBytesPtr','_vcfRapfiDbBytesLength','_malloc','_free']" \
+            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+            -o .cache/vcf-rapfi-db/vcf-rapfi-db.js
+
+      - name: Build YXDB query engine
+        if: steps.version.outputs.needs_sync == 'true' && steps.yxdb-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .emsdk/emsdk_env.sh
+          rm -rf .cache/vcf-yxdb-index
+          mkdir -p .cache/vcf-yxdb-index
+          g++ rapfi/vcf-yxdb-index.cpp -O3 -flto -DNDEBUG -std=c++17 -DVCF_YXDB_INDEX_TEST_MAIN -o /tmp/vcf-yxdb-index-test
+          /tmp/vcf-yxdb-index-test
+          em++ rapfi/vcf-yxdb-index.cpp \
+            -O3 -flto -DNDEBUG -std=c++17 --no-entry \
+            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFYxdbIndexModule \
+            -s ENVIRONMENT='web,worker,node' -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1 \
+            -s "EXPORTED_FUNCTIONS=['_vcfYxdbLoadFrame','_vcfYxdbQueryKey','_vcfYxdbQueryBoard','_vcfYxdbResultTextPtr','_vcfYxdbResultTextLength','_vcfYxdbQueryKeyPtr','_vcfYxdbQueryKeyLength','_vcfYxdbRecordCount','_vcfYxdbRawSize','_vcfYxdbIndexSlots','_vcfYxdbLastError','_malloc','_free']" \
+            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
+            -o .cache/vcf-yxdb-index/vcf-yxdb-index.js
+
+      - name: Verify source and built engines
+        if: steps.version.outputs.needs_sync == 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          npm run test:architecture
+          VCF_BITBOARD_ENGINE_DIR=.cache/vcf-bitboard-engine npm run test:runtime
+          node - <<'NODE'
+          const path = require("path");
+          const createModule = require(path.resolve(".cache/vcf-rapfi-db/vcf-rapfi-db.js"));
+          createModule({ locateFile: file => path.resolve(".cache/vcf-rapfi-db", file) })
+            .then(module => {
+              const init = module.cwrap("vcfRapfiDbInit", "number", ["number"]);
+              const play = module.cwrap("vcfRapfiDbPlay", "number", ["number", "number"]);
+              const exportYXDB = module.cwrap("vcfRapfiDbExportYXDB", "number", []);
+              const bytesPtr = module.cwrap("vcfRapfiDbBytesPtr", "number", []);
+              const importYXDB = module.cwrap("vcfRapfiDbImportYXDB", "number", ["number", "number", "number"]);
+              const recordCount = module.cwrap("vcfRapfiDbRecordCount", "number", []);
+              if (init(2) !== 1 || exportYXDB() <= 0) throw new Error("empty Rapfi DB snapshot failed");
+              if (play(112, 1) !== 1) throw new Error("Rapfi DB play failed");
+              const length = exportYXDB();
+              if (length <= 0) throw new Error("played Rapfi DB snapshot failed");
+              const snapshot = module.HEAPU8.slice(bytesPtr(), bytesPtr() + length);
+              const buffer = module._malloc(length);
+              module.HEAPU8.set(snapshot, buffer);
+              const restored = importYXDB(buffer, length, 2);
+              module._free(buffer);
+              if (restored !== 1 || recordCount() < 2) throw new Error("Rapfi DB snapshot restore failed");
+              console.log("Rapfi DB Wasm snapshot smoke test passed");
+            })
+            .catch(error => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Prepare BD1 server site
+        if: steps.version.outputs.needs_sync == 'true'
+        shell: bash
+        env:
+          VCF_SHA: ${{ github.sha }}
+        run: |
+          set -euxo pipefail
+          python tools/prepare-pages-site.py
+          python tools/prepare-server-site.py \
+            --site _site \
+            --yxdb-engine-dir .cache/vcf-yxdb-index \
+            --api-url /BD/api/yxdb.php \
+            --revision "$VCF_SHA"
+
+          test -s _site/index.html
+          test -s _site/deployment.json
+          test -s _site/rapfi/vcf-bitboard-main.js
+          test -s _site/rapfi/vcf-bitboard-worker.js
+          test -s _site/rapfi/engine/rapfi-single-simd128.js
+          test -s _site/rapfi/engine/rapfi-single-simd128.wasm
+          test -s _site/rapfi/engine/rapfi-single-simd128.data
+          test -s _site/rapfi/engine/vcf-pattern-engine.js
+          test -s _site/rapfi/engine/vcf-pattern-engine.wasm
+          test -s _site/rapfi/engine/vcf-bitboard-engine.js
+          test -s _site/rapfi/engine/vcf-bitboard-engine.wasm
+          test -s _site/rapfi/engine/vcf-rapfi-db.js
+          test -s _site/rapfi/engine/vcf-rapfi-db.wasm
+          test -s _site/rapfi/engine/vcf-yxdb-index.js
+          test -s _site/rapfi/engine/vcf-yxdb-index.wasm
+          test -s _site/rapfi/vcf-lz4-cloud.js
+
+      - name: Upload BD1
+        if: steps.version.outputs.needs_sync == 'true'
+        shell: python
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+          FTP_PASSWORD: ${{ secrets.FTP_PASSWORD }}
+          FTP_SERVER_DIR: ${{ vars.FTP_SERVER_DIR }}
+          VCF_SHA: ${{ github.sha }}
+        run: |
+          import ftplib, json, os, posixpath
+          from pathlib import Path
+
+          def clean(value):
+              return (value or '').strip('\r\n ').strip()
+
+          server = clean(os.environ['FTP_SERVER'])
+          username = clean(os.environ['FTP_USERNAME'])
+          password = clean(os.environ['FTP_PASSWORD'])
+          server_dir = clean(os.environ.get('FTP_SERVER_DIR', ''))
+          vcf_sha = clean(os.environ['VCF_SHA'])
+          local_root = Path('_site')
+          deployment_file = local_root / 'deployment.json'
+          if not (local_root / 'index.html').is_file() or not deployment_file.is_file():
+              raise SystemExit('VCF BD1 site bundle is incomplete')
+
+          deployment = json.loads(deployment_file.read_text(encoding='utf-8'))
+          if deployment.get('revision') != vcf_sha or deployment.get('target') != 'BD1':
+              raise SystemExit('BD1 deployment.json does not match the current VCF revision')
+
+          ftp = ftplib.FTP_TLS()
+          ftp.connect(server, 21, timeout=60)
+          ftp.login(username, password)
+          ftp.prot_p()
+
+          def ensure_dir(path):
+              path = (path or '').replace('\\', '/').strip()
+              if not path or path == '.':
+                  return
+              if path.startswith('/'):
+                  ftp.cwd('/')
+              for part in path.strip('/').split('/'):
+                  if not part:
+                      continue
+                  try:
+                      ftp.cwd(part)
+                  except ftplib.error_perm:
+                      ftp.mkd(part)
+                      ftp.cwd(part)
+
+          ensure_dir(server_dir)
+          ensure_dir('BD1')
+          target_dir = ftp.pwd()
+
+          files = sorted(
+              path for path in local_root.rglob('*')
+              if path.is_file() and path != deployment_file
+          )
+          print(f'Uploading {len(files)} VCF files to {target_dir}')
+          for path in files:
+              rel = path.relative_to(local_root).as_posix()
+              ftp.cwd(target_dir)
+              parent = posixpath.dirname(rel)
+              if parent:
+                  ensure_dir(parent)
+              with path.open('rb') as fh:
+                  ftp.storbinary(f'STOR {posixpath.basename(rel)}', fh)
+
+          ftp.cwd(target_dir)
+          with deployment_file.open('rb') as fh:
+              ftp.storbinary('STOR deployment.json', fh)
+
+          ftp.quit()
+          print(f'VCF BD1 deployment complete: {vcf_sha}')
+
+      - name: Verify BD1 deployment
+        if: steps.version.outputs.needs_sync == 'true'
+        shell: bash
+        env:
+          VCF_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          check_file() {
+            rel="$1"
+            remote="$(mktemp)"
+            curl -k -fLsS --retry 3 \
+              -H 'Cache-Control: no-cache' \
+              "https://587.renju.org.tw/BD1/$rel?sync_verify=$VCF_SHA" \
+              -o "$remote"
+            local_sha="$(sha256sum "_site/$rel" | awk '{print $1}')"
+            remote_sha="$(sha256sum "$remote" | awk '{print $1}')"
+            echo "$rel local=$local_sha remote=$remote_sha"
+            test "$local_sha" = "$remote_sha"
+            rm -f "$remote"
+          }
+
+          check_file index.html
+          check_file rapfi/vcf-bitboard-main.js
+          check_file rapfi/vcf-bitboard-worker.js
+          check_file rapfi/engine/vcf-bitboard-engine.js
+          check_file rapfi/engine/vcf-bitboard-engine.wasm
+          check_file rapfi/engine/vcf-rapfi-db.js
+          check_file rapfi/engine/vcf-rapfi-db.wasm
+          check_file rapfi/engine/vcf-yxdb-index.js
+          check_file rapfi/engine/vcf-yxdb-index.wasm
+          check_file rapfi/vcf-lz4-cloud.js
+
+          marker="$(mktemp)"
+          curl -k -fLsS --retry 3 \
+            -H 'Cache-Control: no-cache' \
+            "https://587.renju.org.tw/BD1/deployment.json?sync_verify=$VCF_SHA" \
+            -o "$marker"
+          test "$(jq -r '.revision' "$marker")" = "$VCF_SHA"
+          test "$(jq -r '.target' "$marker")" = 'BD1'
+          echo "BD1 verified at VCF $VCF_SHA"
