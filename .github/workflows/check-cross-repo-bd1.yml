@@ -1,0 +1,11 @@
+name: Check cross-repo BD1 trigger
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/check-cross-repo-bd1.yml'
+
+jobs:
+  check:
+    uses: 5871224/587-RENJU/.github/workflows/check-reusable-bd1.yml@main
