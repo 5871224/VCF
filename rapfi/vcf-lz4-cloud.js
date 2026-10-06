@@ -450,6 +450,31 @@
     dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端 YXDB 棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-list></div></div>';
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close()); document.body.appendChild(dialog); return dialog;
   }
+  async function adminRequest(action, body = null) {
+    if (!isAdminUser(authUser)) throw new Error("此帳號沒有管理員權限");
+    const options = { cache: "no-store", mode: "cors", headers: authHeaders() };
+    if (body !== null) {
+      options.method = "POST";
+      options.headers = authHeaders({ "Content-Type": "application/json" });
+      options.body = JSON.stringify(body);
+    }
+    const response = await fetch(`${API_URL}?action=${encodeURIComponent(action)}`, options);
+    return jsonResponse(response);
+  }
+  async function listUsers() {
+    const payload = await adminRequest("admin_users");
+    return Array.isArray(payload.users) ? payload.users : [];
+  }
+  async function setUserStatus(userId, enabled) {
+    return adminRequest("admin_user_status", { user_id: Number(userId), enabled: Boolean(enabled) });
+  }
+  async function setUserRole(userId, role) {
+    const normalized = role === "admin" ? "admin" : "user";
+    return adminRequest("admin_user_role", { user_id: Number(userId), role: normalized });
+  }
+  async function deleteUser(userId) {
+    return adminRequest("admin_user_delete", { user_id: Number(userId) });
+  }
   function ensureAdminDialog() {
     let dialog = document.getElementById("vcf-account-admin-dialog");
     if (dialog) return dialog;
@@ -460,33 +485,78 @@
     document.body.appendChild(dialog);
     return dialog;
   }
-  function refreshAdminDialog(dialog) {
+  async function refreshAdminDialog(dialog) {
     const container = dialog.querySelector("[data-admin-list]");
-    container.replaceChildren();
+    container.innerHTML = '<div class="vcf-cloud-empty">正在讀取帳號……</div>';
     if (!isAdminUser(authUser)) {
-      const denied = document.createElement("div");
-      denied.className = "vcf-cloud-empty";
-      denied.textContent = "此帳號沒有管理員權限。";
-      container.appendChild(denied);
+      container.innerHTML = '<div class="vcf-cloud-empty">此帳號沒有管理員權限。</div>';
       return;
     }
-    const row = document.createElement("div");
-    row.className = "vcf-cloud-row";
-    const info = document.createElement("div");
-    const title = document.createElement("div");
-    title.className = "vcf-cloud-title";
-    title.textContent = authUser?.name || ADMIN_EMAIL;
-    const meta = document.createElement("div");
-    meta.className = "vcf-cloud-meta";
-    meta.textContent = `${ADMIN_EMAIL} · 管理員`;
-    info.append(title, meta);
-    row.append(info);
-    container.appendChild(row);
+    let users;
+    try {
+      users = await listUsers();
+    } catch (error) {
+      container.innerHTML = '<div class="vcf-cloud-empty"></div>';
+      container.firstElementChild.textContent = error?.message || String(error);
+      return;
+    }
+    container.replaceChildren();
+    if (!users.length) {
+      container.innerHTML = '<div class="vcf-cloud-empty">目前沒有帳號資料。</div>';
+      return;
+    }
+    for (const account of users) {
+      const row = document.createElement("div");
+      row.className = "vcf-cloud-row";
 
-    const note = document.createElement("div");
-    note.className = "vcf-cloud-empty";
-    note.textContent = "目前管理員固定為 5871224@gmail.com；其他 Google 帳號皆為一般使用者。";
-    container.appendChild(note);
+      const info = document.createElement("div");
+      const title = document.createElement("div");
+      title.className = "vcf-cloud-title";
+      title.textContent = account.name || account.email || `帳號 #${account.id}`;
+      const meta = document.createElement("div");
+      meta.className = "vcf-cloud-meta";
+      const roleText = account.role === "admin" ? "管理員" : "一般使用者";
+      const stateText = account.enabled === false || Number(account.enabled) === 0 ? "已停用" : "啟用";
+      meta.textContent = `${account.email || ""} · ${roleText} · ${stateText}${account.last_login_at ? ` · 最後登入 ${account.last_login_at}` : ""}`;
+      info.append(title, meta);
+
+      const actions = document.createElement("div");
+      actions.className = "vcf-cloud-actions";
+      const isOwner = String(account.email || "").trim().toLowerCase() === ADMIN_EMAIL;
+
+      const statusButton = document.createElement("button");
+      const enabled = !(account.enabled === false || Number(account.enabled) === 0);
+      statusButton.textContent = enabled ? "停用" : "啟用";
+      statusButton.disabled = isOwner;
+      statusButton.addEventListener("click", async () => {
+        statusButton.disabled = true;
+        try { await setUserStatus(account.id, !enabled); await refreshAdminDialog(dialog); }
+        catch (e) { status(e.message || String(e)); statusButton.disabled = false; }
+      });
+
+      const roleButton = document.createElement("button");
+      roleButton.textContent = account.role === "admin" ? "改為一般使用者" : "設為管理員";
+      roleButton.disabled = isOwner;
+      roleButton.addEventListener("click", async () => {
+        roleButton.disabled = true;
+        try { await setUserRole(account.id, account.role === "admin" ? "user" : "admin"); await refreshAdminDialog(dialog); }
+        catch (e) { status(e.message || String(e)); roleButton.disabled = false; }
+      });
+
+      const deleteButton = document.createElement("button");
+      deleteButton.textContent = "刪除";
+      deleteButton.disabled = isOwner;
+      deleteButton.addEventListener("click", async () => {
+        if (!confirm(`確定刪除「${account.email || account.name || account.id}」？該帳號的登入資料與雲端棋譜將依後端政策處理。`)) return;
+        deleteButton.disabled = true;
+        try { await deleteUser(account.id); await refreshAdminDialog(dialog); }
+        catch (e) { status(e.message || String(e)); deleteButton.disabled = false; }
+      });
+
+      actions.append(statusButton, roleButton, deleteButton);
+      row.append(info, actions);
+      container.appendChild(row);
+    }
   }
 
   async function refreshDialog(dialog) {
@@ -552,7 +622,7 @@
       } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
     openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
-    adminButton.addEventListener("click", () => { if (!isAdminUser(authUser)) return; const dialog = ensureAdminDialog(); refreshAdminDialog(dialog); dialog.showModal(); });
+    adminButton.addEventListener("click", () => { if (!isAdminUser(authUser)) return; const dialog = ensureAdminDialog(); dialog.showModal(); refreshAdminDialog(dialog); });
     queryButton.addEventListener("click", async () => {
       queryButton.disabled = true;
       try {
@@ -565,7 +635,7 @@
 
   const api = {
     API_URL, ADMIN_EMAIL, isAdminUser, xxhash32, lz4CompressBlock, createLZ4Frame, buildRawYXDBFromTree, createCurrentYXDB,
-    publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, loadIntoIndex, queryCurrentBoard,
+    publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, loadIntoIndex, queryCurrentBoard, listUsers, setUserStatus, setUserRole, deleteUser,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
