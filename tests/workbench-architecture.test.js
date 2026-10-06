@@ -602,6 +602,11 @@ for (const token of [
   'global._renderBoardArr || global._setBoardArr',
 ]) if (!header.includes(token)) throw new Error(`Rapfi record state contract missing: ${token}`);
 for (const token of [
+  'const visibleHistory = service.history().slice(basePly);',
+  'if (visibleHistory.includes(PASS)) throw new Error("打譜模式目前手順含 PASS，無法匯出 YXDB");',
+]) if (!header.includes(token)) throw new Error(`YXDB visible PASS contract missing: ${token}`);
+
+for (const token of [
   'id = "vcf-workspace-mode"',
   'document.getElementById("vcf-workspace-mode-slot")',
   'workspaceModeSlot.appendChild(panel)',
@@ -638,7 +643,7 @@ for (const forbiddenToken of [
 const entry = read("index.html");
 for (const token of [
   'makevcf-layout.js?v=20260923-calculation-layout1',
-  'rapfi/rapfi-workbench-header.js?v=20260922-bd-layout1',
+  'rapfi/rapfi-workbench-header.js?v=20261007-yxdb-pass-fix1',
   'rapfi/vcf-record-tools.js?v=20261007-copy-record1',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
