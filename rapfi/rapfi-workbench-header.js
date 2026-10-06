@@ -1432,7 +1432,8 @@
       exportYXDB() {
         const service = db();
         if (workspaceMode !== WORKSPACE_RECORD || !rapfiDbActive || !exact || !service?.isReady) return null;
-        if (service.history().includes(PASS)) throw new Error("打譜模式含 PASS，無法匯出 YXDB");
+        const visibleHistory = service.history().slice(basePly);
+        if (visibleHistory.includes(PASS)) throw new Error("打譜模式目前手順含 PASS，無法匯出 YXDB");
         service.ensureCurrent();
         const bytes = service.snapshotYXDB();
         return bytes?.length ? { bytes, recordCount: service.recordCount() } : null;
