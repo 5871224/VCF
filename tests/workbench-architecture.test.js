@@ -183,8 +183,24 @@ if (!recordTools.includes("const basePly = Math.max(0, Math.min(history.length, 
   throw new Error("record hand numbers must ignore imported setup plies");
 }
 for (const token of [
+  'makeIconButton("btn-record-copy", "copy.svg", "複製目前棋譜")',
+  "history.slice(basePly)",
+  "String.fromCharCode(97 + col)",
+  "BOARD_SIZE - row",
+  "global.navigator?.clipboard?.writeText",
+]) if (!recordTools.includes(token)) throw new Error(`record copy contract missing: ${token}`);
+const coordinateFromRecordIndex = index => {
+  const col = index % 15;
+  const row = Math.floor(index / 15);
+  return `${String.fromCharCode(97 + col)}${15 - row}`;
+};
+if ([112, 128, 81].map(coordinateFromRecordIndex).join("") !== "h8i7g10") {
+  throw new Error("record coordinate mapping must use a-o from left to right and 1-15 from bottom to top");
+}
+for (const token of [
   'double_arrow_left.svg',
   'photo.svg',
+  'copy.svg',
   'edit.svg',
   'font.svg',
   'cancel.svg',
@@ -203,7 +219,7 @@ for (const excluded of ['share.svg', 'link.svg', 'grid_3x3.svg', 'flag.svg', 'fl
   if (recordTools.includes(excluded)) throw new Error(`excluded record control returned: ${excluded}`);
 }
 for (const icon of [
-  'double_arrow_left.svg','arrow_left.svg','arrow_right.svg','double_arrow_right.svg','photo.svg','edit.svg','font.svg','Aa.svg','star.svg','arrow.svg','delete.svg','cancel.svg','number.svg','settings.svg','dock_top.svg','dock_left.svg','flip.svg','rotate_90.svg','forbidden.svg','circle.svg','circle_n.svg'
+  'double_arrow_left.svg','arrow_left.svg','arrow_right.svg','double_arrow_right.svg','photo.svg','copy.svg','edit.svg','font.svg','Aa.svg','star.svg','arrow.svg','delete.svg','cancel.svg','number.svg','settings.svg','dock_top.svg','dock_left.svg','flip.svg','rotate_90.svg','forbidden.svg','circle.svg','circle_n.svg'
 ]) {
   if (!exists(`rapfi/record-svg/${icon}`)) throw new Error(`record SVG missing: ${icon}`);
 }

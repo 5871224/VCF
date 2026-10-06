@@ -96,6 +96,7 @@
   setIcon(nextStepButton, "arrow_right.svg", "次一手");
   setIcon(nextBranchButton, "double_arrow_right.svg", "次一個分支或末端");
 
+  const copyRecordButton = makeIconButton("btn-record-copy", "copy.svg", "複製目前棋譜");
   const photoButton = makeIconButton("btn-record-photo", "photo.svg", "截圖");
   const editButton = makeIconButton("btn-record-edit", "edit.svg", "編輯模式");
   const markerButton = makeIconButton("btn-record-marker", "font.svg", "標記模式");
@@ -127,6 +128,7 @@
   }
 
   actions.append(
+    copyRecordButton,
     photoButton,
     editButton,
     markerButton,
@@ -287,6 +289,45 @@
     }
   }
 
+  function formatRecordMoveCoordinate(move) {
+    const index = Number(move?.index ?? move?.move ?? move);
+    if (!Number.isInteger(index) || index < 0 || index >= BOARD_CELLS) return "";
+    const col = index % BOARD_SIZE;
+    const row = Math.floor(index / BOARD_SIZE);
+    return `${String.fromCharCode(97 + col)}${BOARD_SIZE - row}`;
+  }
+
+  function currentRecordCoordinateText() {
+    const snapshot = global.VCFWorkbenchRecord?.snapshot?.();
+    const history = Array.isArray(snapshot?.history) ? snapshot.history : [];
+    const basePly = Math.max(0, Math.min(history.length, Number(snapshot?.basePly || 0)));
+    const coordinates = history.slice(basePly).map(formatRecordMoveCoordinate).filter(Boolean);
+    return { text: coordinates.join(""), pointCount: coordinates.length };
+  }
+
+  async function copyTextToClipboard(text) {
+    if (global.navigator?.clipboard?.writeText) {
+      await global.navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    let copied = false;
+    try {
+      copied = typeof document.execCommand === "function" && document.execCommand("copy");
+    } finally {
+      textarea.remove();
+    }
+    if (!copied) throw new Error("瀏覽器不允許寫入剪貼簿");
+  }
+
   function renderHandNumbers() {
     handLayer.replaceChildren();
     if (!state.showNumbers) return;
@@ -328,6 +369,7 @@
       state.editMode = true;
       state.markerMode = false;
     }
+    copyRecordButton.disabled = !workspace.mode || puzzleSetup;
     editButton.classList.toggle("is-active", state.editMode);
     editButton.disabled = !workspace.mode || puzzleSetup;
     markerButton.classList.toggle("is-active", state.markerMode);
@@ -507,6 +549,21 @@
   markStarButton.addEventListener("click", () => { markerInput.value = "★"; markerInput.focus(); });
   markArrowButton.addEventListener("click", () => { markerInput.value = "→"; markerInput.focus(); });
   clearMarkTextButton.addEventListener("click", () => { markerInput.value = ""; markerInput.focus(); });
+
+  copyRecordButton.addEventListener("click", async () => {
+    const { text, pointCount } = currentRecordCoordinateText();
+    if (!text) {
+      status("目前盤面沒有可複製的棋譜手順");
+      return;
+    }
+    try {
+      await copyTextToClipboard(text);
+      status(`已複製目前棋譜（${pointCount} 手）`);
+    } catch (error) {
+      console.error("複製棋譜失敗", error);
+      status(`複製棋譜失敗：${error?.message || error}`);
+    }
+  });
 
   deleteBranchButton.addEventListener("click", () => {
     if (!state.editMode) {
