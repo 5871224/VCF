@@ -639,7 +639,7 @@ const entry = read("index.html");
 for (const token of [
   'makevcf-layout.js?v=20260923-calculation-layout1',
   'rapfi/rapfi-workbench-header.js?v=20260922-bd-layout1',
-  'rapfi/vcf-record-tools.js?v=20260922-workspace-mode1',
+  'rapfi/vcf-record-tools.js?v=20261007-copy-record1',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
   'global.VCFWorkbenchRecord?.ensureActive?.()',
