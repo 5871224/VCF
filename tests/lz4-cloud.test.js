@@ -5,7 +5,17 @@ const {
   xxhash32,
   createLZ4Frame,
   buildRawYXDBFromTree,
+  ADMIN_EMAIL,
+  isAdminUser,
 } = require("../rapfi/vcf-lz4-cloud.js");
+
+{
+  assert.equal(ADMIN_EMAIL, "5871224@gmail.com");
+  assert.equal(isAdminUser({ email: "5871224@gmail.com" }), true);
+  assert.equal(isAdminUser({ email: "5871224@GMAIL.COM" }), true);
+  assert.equal(isAdminUser({ email: "other@gmail.com" }), false);
+  assert.equal(isAdminUser(null), false);
+}
 
 function readU32LE(bytes, offset) {
   return (bytes[offset]

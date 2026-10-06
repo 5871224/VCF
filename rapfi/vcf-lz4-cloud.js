@@ -8,6 +8,7 @@
   const PASS = -1;
   const API_URL = String(global.VCF_CLOUD_API_URL || "api/yxdb.php");
   const AUTH_TOKEN_KEY = "vcf_google_auth_token_v1";
+  const ADMIN_EMAIL = "5871224@gmail.com";
   const MAX_BLOCK = 64 * 1024;
   const FLG = 0x64;
   const BD = 0x40;
@@ -202,6 +203,9 @@
   function currentRule() {
     const value = Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
     return [0, 1, 2].includes(value) ? value : 2;
+  }
+  function isAdminUser(user) {
+    return String(user?.email || "").trim().toLowerCase() === ADMIN_EMAIL;
   }
 
   function buildRawYXDBFromTree(tree, rule = currentRule()) {
@@ -434,7 +438,7 @@
     style.textContent = `
       #bb-cloud-auth{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 0}
       #bb-cloud-user{font-size:12px;color:#4f5d50}.bb-cloud-btn{min-height:36px;padding:7px 10px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}.bb-cloud-btn:disabled{opacity:.5;cursor:not-allowed}
-      #vcf-google-login{min-height:36px}#vcf-cloud-dialog{width:min(760px,calc(100vw - 24px));max-height:min(78vh,720px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop{background:rgb(0 0 0 / 35%)}
+      #vcf-google-login{min-height:36px}#vcf-cloud-dialog,#vcf-account-admin-dialog{width:min(760px,calc(100vw - 24px));max-height:min(78vh,720px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop,#vcf-account-admin-dialog::backdrop{background:rgb(0 0 0 / 35%)}
       .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-title{font-weight:700}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
@@ -446,6 +450,45 @@
     dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端 YXDB 棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-list></div></div>';
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close()); document.body.appendChild(dialog); return dialog;
   }
+  function ensureAdminDialog() {
+    let dialog = document.getElementById("vcf-account-admin-dialog");
+    if (dialog) return dialog;
+    dialog = document.createElement("dialog");
+    dialog.id = "vcf-account-admin-dialog";
+    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>管理帳號</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-admin-list></div></div>';
+    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+    document.body.appendChild(dialog);
+    return dialog;
+  }
+  function refreshAdminDialog(dialog) {
+    const container = dialog.querySelector("[data-admin-list]");
+    container.replaceChildren();
+    if (!isAdminUser(authUser)) {
+      const denied = document.createElement("div");
+      denied.className = "vcf-cloud-empty";
+      denied.textContent = "此帳號沒有管理員權限。";
+      container.appendChild(denied);
+      return;
+    }
+    const row = document.createElement("div");
+    row.className = "vcf-cloud-row";
+    const info = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "vcf-cloud-title";
+    title.textContent = authUser?.name || ADMIN_EMAIL;
+    const meta = document.createElement("div");
+    meta.className = "vcf-cloud-meta";
+    meta.textContent = `${ADMIN_EMAIL} · 管理員`;
+    info.append(title, meta);
+    row.append(info);
+    container.appendChild(row);
+
+    const note = document.createElement("div");
+    note.className = "vcf-cloud-empty";
+    note.textContent = "目前管理員固定為 5871224@gmail.com；其他 Google 帳號皆為一般使用者。";
+    container.appendChild(note);
+  }
+
   async function refreshDialog(dialog) {
     const container = dialog.querySelector("[data-list]"); container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
     const records = await list(); container.replaceChildren();
@@ -466,9 +509,9 @@
   function refreshQueryButton() { const b = document.getElementById("bb-cloud-query"); if (b) b.disabled = !authUser || !indexedMeta; }
   function refreshAuthUI() {
     const login = document.getElementById("vcf-google-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
-    const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open");
+    const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open"), adminButton = document.getElementById("bb-cloud-admin");
     const recordMode = global.VCFWorkbenchRecord?.workspace?.()?.mode === "record";
-    if (user) user.textContent = authUser ? `${authUser.name || authUser.email}｜只顯示此帳號棋譜` : "未登入";
+    if (user) user.textContent = authUser ? `${authUser.name || authUser.email}${isAdminUser(authUser) ? "｜管理員" : ""}｜只顯示此帳號棋譜` : "未登入";
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
@@ -476,6 +519,7 @@
       saveButton.title = recordMode ? "" : "題目模式使用 .vcf.json，不儲存為 YXDB";
     }
     if (openButton) openButton.disabled = !authUser;
+    if (adminButton) adminButton.hidden = !isAdminUser(authUser);
     refreshQueryButton();
   }
   function renderGoogleButton() {
@@ -495,8 +539,9 @@
     auth.innerHTML = '<div id="vcf-google-login"></div><span id="bb-cloud-user"></span><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
     const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
+    const adminButton = document.createElement("button"); adminButton.id = "bb-cloud-admin"; adminButton.className = "bb-cloud-btn"; adminButton.textContent = "管理帳號"; adminButton.hidden = true;
     const queryButton = document.createElement("button"); queryButton.id = "bb-cloud-query"; queryButton.className = "bb-cloud-btn"; queryButton.textContent = "查目前盤面"; queryButton.disabled = true;
-    panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(queryButton, exportStatus || null);
+    panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(adminButton, exportStatus || null); panel.insertBefore(queryButton, exportStatus || null);
     auth.querySelector("#bb-cloud-logout").addEventListener("click", () => logout());
     saveButton.addEventListener("click", async () => {
       saveButton.disabled = true; status("正在建立 LZ4 YXDB……");
@@ -507,6 +552,7 @@
       } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
     openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
+    adminButton.addEventListener("click", () => { if (!isAdminUser(authUser)) return; const dialog = ensureAdminDialog(); refreshAdminDialog(dialog); dialog.showModal(); });
     queryButton.addEventListener("click", async () => {
       queryButton.disabled = true;
       try {
@@ -518,7 +564,7 @@
   }
 
   const api = {
-    API_URL, xxhash32, lz4CompressBlock, createLZ4Frame, buildRawYXDBFromTree, createCurrentYXDB,
+    API_URL, ADMIN_EMAIL, isAdminUser, xxhash32, lz4CompressBlock, createLZ4Frame, buildRawYXDBFromTree, createCurrentYXDB,
     publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, loadIntoIndex, queryCurrentBoard,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
