@@ -256,7 +256,7 @@
       bytes,
       recordCount,
       nodeCount: recordCount,
-      rawSize: bytes.length,
+      rawSize: Math.max(0, Number(exported.rawSize || 0)) || bytes.length,
       compressedSize: bytes.length,
     };
   }
