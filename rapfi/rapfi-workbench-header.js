@@ -1433,8 +1433,10 @@
         const service = db();
         if (workspaceMode !== WORKSPACE_RECORD || !rapfiDbActive || !exact || !service?.isReady) return null;
         service.ensureCurrent();
-        const bytes = service.snapshotYXDB();
-        return bytes?.length ? { bytes, recordCount: service.recordCount() } : null;
+        const rawBytes = service.snapshotYXDB();
+        if (!rawBytes?.length) return null;
+        const bytes = wrapLZ4Frame(rawBytes);
+        return { bytes, rawSize: rawBytes.length, recordCount: service.recordCount() };
       },
       ensureActive() { return activateRapfiDatabase(); },
       isActive() { return Boolean(rapfiDbActive && exact && db()?.isReady); },
