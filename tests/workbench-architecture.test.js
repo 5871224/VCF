@@ -607,6 +607,11 @@ if (!header.includes('workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZ
 if (header.includes('打譜模式目前手順含 PASS，無法匯出 YXDB')) {
   throw new Error("record-mode YXDB export must not perform a redundant PASS rejection");
 }
+for (const token of [
+  'const rawBytes = service.snapshotYXDB();',
+  'const bytes = wrapLZ4Frame(rawBytes);',
+  'return { bytes, rawSize: rawBytes.length, recordCount: service.recordCount() };',
+]) if (!header.includes(token)) throw new Error(`YXDB LZ4 export contract missing: ${token}`);
 
 for (const token of [
   'id = "vcf-workspace-mode"',
@@ -645,7 +650,7 @@ for (const forbiddenToken of [
 const entry = read("index.html");
 for (const token of [
   'makevcf-layout.js?v=20260923-calculation-layout1',
-  'rapfi/rapfi-workbench-header.js?v=20261007-yxdb-no-pass-check1',
+  'rapfi/rapfi-workbench-header.js?v=20261008-yxdb-lz4-frame1',
   'rapfi/vcf-record-tools.js?v=20261007-copy-record1',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
@@ -694,6 +699,9 @@ for (const token of [
   'global.VCFWorkbenchRecord?.exportYXDB?.()',
   'const exported = global.VCFWorkbenchRecord?.exportYXDB?.();',
 ]) if (!cloudYXDB.includes(token)) throw new Error("cloud save must use Rapfi YXDB snapshot: " + token);
+if (!cloudYXDB.includes('rawSize: Math.max(0, Number(exported.rawSize || 0)) || bytes.length')) {
+  throw new Error("cloud save must preserve raw YXDB size while uploading the framed bytes");
+}
 if (cloudYXDB.includes("vcf_board_record_tree_v3") || cloudYXDB.includes("readStoredTree()")) {
   throw new Error("cloud save still depends on the obsolete JavaScript record tree");
 }
