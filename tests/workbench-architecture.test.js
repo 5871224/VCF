@@ -620,7 +620,7 @@ for (const token of [
 ]) if (!header.includes(token)) throw new Error(`YXDB LZ4 export contract missing: ${token}`);
 
 for (const token of [
-  '儲存格式：VCF 題目容器',
+  '可匯出 VCFDB 或 VCF 題目',
 ]) if (!header.includes(token)) throw new Error(`workspace mode UI contract missing: ${token}`);
 if (header.includes("boardCard.insertBefore(panel, boardWrap)") || header.includes("boardCard.prepend(panel)")) {
   throw new Error("workspace mode controls must stay outside the BD calculation/board layout");
@@ -648,9 +648,10 @@ for (const forbiddenToken of [
 }
 const entry = read("index.html");
 for (const token of [
-  'makevcf-layout.js?v=20261008-static-workbench1',
-  'rapfi/rapfi-workbench-header.js?v=20261008-static-workbench1',
-  'rapfi/vcf-record-tools.js?v=20261008-static-workbench1',
+  'makevcf-layout.js?v=20261009',
+  'rapfi/vcf-static-annotations.js?v=20261009',
+  'rapfi/rapfi-workbench-header.js?v=20261009',
+  'rapfi/vcf-record-tools.js?v=20261009',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
   'global.VCFWorkbenchRecord?.ensureActive?.()',
@@ -761,10 +762,11 @@ for (const token of [
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`direct board edit contract missing: ${token}`);
 for (const token of [
   'const markerControlsVisible = state.editMode && state.markerMode',
-  'markerInput.hidden = !markerControlsVisible',
-  'button.hidden = !markerControlsVisible',
-  'const markerText = markerInput.value.trim()',
-  'if (point.index >= 0) addOrReplaceMarker(point.index)',
+  'markerTools.hidden = !markerControlsVisible',
+  'annotation.setMark(mark)',
+  'annotation.eraseAt(index % BOARD_SIZE',
+  'renderStaticMarkers();',
+  'if (point.index >= 0) applyMarker(point.index)',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`marker toggle contract missing: ${token}`);
 for (const token of [
   'VCFWorkbenchRecord?.currentBoard?.()',
@@ -830,3 +832,19 @@ if (!startupSource) throw new Error("Rapfi startup runtime not found");
   console.error(error);
   process.exitCode = 1;
 });
+
+const annotations = read("rapfi/vcf-static-annotations.js");
+for (const token of [
+  'const COLORS = Object.freeze(', 'function validateRoutes(raw)', 'function transform(t)',
+  'async function encode(payload)', 'async function decode(input)', 'global.VCFStaticAnnotations',
+]) if (!annotations.includes(token)) throw new Error("VCFDB model contract missing: " + token);
+for (const token of [
+  'looksVCFDB', 'await annotations.decode(bytes)', 'annotations.importData(doc.annotations || {})',
+]) if (!layout.includes(token)) throw new Error("VCFDB importer contract missing: " + token);
+for (const token of [
+  'annotationRoute()', 'formatSelect.value === "vcfdb"',
+  'global.VCFStaticAnnotations?.transform?.(normalized)',
+]) if (!header.includes(token)) throw new Error("VCFDB workbench contract missing: " + token);
+if (!entry.includes('value="vcfdb"') || !entry.includes('vcf-static-marker-tools')) {
+  throw new Error("VCFDB interface is missing");
+}
