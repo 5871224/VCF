@@ -312,6 +312,7 @@
   async function saveCurrent(title = "") {
     if (!authUser) throw new Error("請先使用 Google 登入");
     if (global.VCFWorkbenchRecord?.workspace?.()?.mode !== "record") throw new Error("雲端 YXDB 只能儲存打譜模式");
+    if (global.VCFStaticAnnotations?.count?.()) throw new Error("此棋譜有進階標記；請先匯出 .vcfdb，現有雲端 YXDB 尚未支援進階標記");
     const result = createCurrentYXDB();
     const params = new URLSearchParams({ action: "save", title: String(title || ""), record_count: String(result.recordCount), raw_size: String(result.rawSize) });
     const response = await fetch(`${API_URL}?${params}`, {
