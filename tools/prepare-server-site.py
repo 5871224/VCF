@@ -24,7 +24,6 @@ def copy_file(source: Path, destination: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--site", type=Path, required=True)
-    parser.add_argument("--yxdb-engine-dir", type=Path, required=True)
     parser.add_argument("--api-url", required=True)
     parser.add_argument("--revision", required=True)
     args = parser.parse_args()
@@ -40,8 +39,6 @@ def main() -> None:
         raise ValueError("revision contains unsupported characters")
 
     copy_file(ROOT / "rapfi" / "vcf-lz4-cloud.js", site / "rapfi" / "vcf-lz4-cloud.js")
-    for name in ("vcf-yxdb-index.js", "vcf-yxdb-index.wasm"):
-        copy_file(args.yxdb_engine_dir / name, site / "rapfi" / "engine" / name)
 
     html = index.read_text(encoding="utf-8")
     if MARKER in html or "</body>" not in html:
@@ -50,7 +47,6 @@ def main() -> None:
     block = f"""{MARKER}
 <script>window.VCF_CLOUD_API_URL={json.dumps(args.api_url, ensure_ascii=False)};</script>
 <script src="https://accounts.google.com/gsi/client"></script>
-<script src="rapfi/engine/vcf-yxdb-index.js?v={version}"></script>
 <script src="rapfi/vcf-lz4-cloud.js?v={version}"></script>
 """
     index.write_text(html.replace("</body>", block + "\n</body>", 1), encoding="utf-8", newline="\n")
