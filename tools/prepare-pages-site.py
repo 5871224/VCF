@@ -42,7 +42,6 @@ RAPFI_FILES = [
     "rapfi-workbench-header.js",
     "vcf-rapfi-db.js",
     "vcf-record-tools.js",
-    "rapfi-question-bank.js",
 ]
 
 

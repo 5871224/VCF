@@ -2,7 +2,7 @@
 
 ## 1. 文件
 
-- [`規格書.MD`](規格書.MD) 是工作台、搜尋核心、題庫與題目產生器的唯一正式產品規格。
+- [`規格書.MD`](規格書.MD) 是工作台、搜尋核心與題目產生器的唯一正式產品規格。
 - [`禁手判斷規格.MD`](禁手判斷規格.MD) 只保存棋型、長連與禁手遞迴的實作規格。
 - [`檔案用途總覽.MD`](檔案用途總覽.MD) 保存所有追蹤檔案、載入關係與使用狀態，不複製產品行為規格。
 - 本檔只保存開發流程與不可跨越的專案邊界，不複製產品功能規格。
@@ -57,7 +57,7 @@ makevcf-generator-core.js
 - 優先修改正式來源，不以額外修補層長期保留兩套互相覆蓋的邏輯。
 - 工作台跨模組行為統一使用 `rapfi/vcf-bitboard-generator-compat.js` 提供的具名 Registry／事件：`vcfSetRules`、`vcf-board-changed`、`vcfRegisterBusyHook`、`vcfRegisterStatusFormatter`、`vcfRegisterTrimGroupsProvider`、`vcfRegisterSearchHandler`。
 - Rapfi `Board`／`VCFWorkbenchRecord` 是唯一正式棋盤與棋譜資料來源；`index.html` 的 SVG board 只是 renderer，不得再保存或推導第二份可修改盤面。
-- `_renderBoardArr` 與相容 `_setBoardArr` 只允許 Rapfi record 層用來重畫；題目產生器、圖片匯入、題庫、搜尋 UI 等功能模組必須用 `VCFWorkbenchRecord.playAt/replacePosition/replaceHistory/clearPosition`。
+- `_renderBoardArr` 與相容 `_setBoardArr` 只允許 Rapfi record 層用來重畫；題目產生器、圖片匯入、搜尋 UI 等功能模組必須用 `VCFWorkbenchRecord.playAt/replacePosition/replaceHistory/clearPosition`。
 - Bitboard Engine 是唯讀計算服務；搜尋前由目前 Rapfi Board 轉成 225 格／Bitboard，搜尋結果只能進計算展示 overlay，不得自動寫入 Rapfi DB 分支。
 - 功能模組不得重新指派 `setBusy`、`setStatus`、`doSearch`、`doAddVCF`、`engine.findVCF`、`engine.trimVCFGroups`、`pool.getLevelPoints`、`_setBoardArr` 或 `_clearBoard`；只有工作台 runtime 可建立一次正式 dispatcher。
 - 題目產生器一次執行共用單一 `GenerationContext`；新增設定或控制項鎖定行為應使用具名提供者／Hook，不得覆寫 `genOptions` 或核心 `genSetBusy`。
@@ -96,10 +96,6 @@ makevcf-generator-core.js
 - 確認 BD1 基礎 artifact 只有 allowlist 內的正式網頁資源，沒有 `rapfi/index.html`、桌面版、C++ 原始碼、測試原型或已刪除工具頁。
 - 確認 VCF `.github/workflows/deploy-bd1.yml` 在 `main` push 時直接於本 repository 建置、FTPS 上傳與線上雜湊驗證，不使用排程輪詢或跨 repository 觸發。
 - 確認 `/BD1/deployment.json` 的 revision 等於該次 VCF `github.sha`。
-
-## 跨模組介面掛載
-- 題庫等晚於主介面建立的區塊，必須用具名 ready event 與正式掛載函式銜接；不得把「元素尚未出現」誤判為版面完成，也不得以全頁 MutationObserver 或輪詢補救。
-- `#vcf-question-bank` 的正式位置是 `#generator-panel` 最下方；變更腳本順序或初始化時機時，必須保留 `vcf-question-bank-ready` 契約與架構回歸測試。
 
 ## 執行期驗證與熱路徑效能
 - `vcfBbSelfTest`、`vcfBbSearchV2SelfTest` 與完整棋型表自測只在 Native／Wasm CI 執行；正式瀏覽器執行個體只做固定盤面的 ABI 冒煙檢查。

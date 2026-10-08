@@ -17,6 +17,7 @@ for (const removed of [
   "eval/engine.js",
   "VCF介面規格.MD",
   "介面配置規格.MD",
+  "rapfi/rapfi-question-bank.js",
 ]) {
   if (exists(removed)) throw new Error(`obsolete project path remains: ${removed}`);
 }
@@ -59,7 +60,6 @@ for (const token of [
 const noOverrides = [
   "rapfi/rapfi-bitboard-dashboard.js",
   "rapfi/vcf-shortest-vcf-ui.js",
-  "rapfi/rapfi-question-bank.js",
   "rapfi/vcf-forbidden-overlay.js",
   "rapfi/rapfi-workbench-header.js",
   "rapfi/vcf-record-tools.js",
@@ -169,9 +169,11 @@ for (const token of [
   '"主執行緒 Bitboard Wasm 初始化逾時"',
 ]) if (!main.includes(token)) throw new Error("Bitboard startup timeout contract missing: " + token);
 if (!workbenchHtml.includes("VCF 計算引擎初始化失敗")
-    || !workbenchHtml.includes("Rapfi 棋盤仍可使用")
-    || !workbenchHtml.includes("rapfi/rapfi-question-bank.js?v=20260921-load-timeout1")) {
-  throw new Error("startup failure status/cache-bust contract missing");
+    || !workbenchHtml.includes("Rapfi 棋盤仍可使用")) {
+  throw new Error("startup failure status contract missing");
+}
+if (workbenchHtml.includes("rapfi-question-bank.js") || workbenchHtml.includes("supabase")) {
+  throw new Error("removed Supabase question-bank runtime is still loaded");
 }
 
 const recordTools = read("rapfi/vcf-record-tools.js");
@@ -224,17 +226,6 @@ for (const icon of [
   if (!exists(`rapfi/record-svg/${icon}`)) throw new Error(`record SVG missing: ${icon}`);
 }
 
-const questionBank = read("rapfi/rapfi-question-bank.js");
-for (const token of ["vcf-board-changed", "vcfRegisterBusyHook", "VCFWorkbenchRecord?.replacePosition"]) {
-  if (!questionBank.includes(token)) throw new Error(`question bank event contract missing: ${token}`);
-}
-for (const token of [
-  "const REQUEST_TIMEOUT_MS = 10000;",
-  'controller.abort()',
-  '"題庫連線逾時，請重新載入"',
-  'retryButton.addEventListener("click"',
-  'id="qb-retry"',
-]) if (!questionBank.includes(token)) throw new Error("question bank timeout/retry contract missing: " + token);
 const forbidden = read("rapfi/vcf-forbidden-overlay.js");
 if (!forbidden.includes("vcf-board-changed") || !forbidden.includes("vcf-rule-changed")) {
   throw new Error("forbidden overlay is not event driven");
@@ -408,7 +399,6 @@ const generatorIntegration = read("makevcf-generator-integrated.js");
 for (const [file, source] of [
   ["makevcf-generator-integrated.js", generatorIntegration],
   ["makevcf-generator-image-import-fix.js", image],
-  ["rapfi/rapfi-question-bank.js", questionBank],
 ]) {
   if (source.includes("_setBoardArr")) {
     throw new Error(file + " must write positions through VCFWorkbenchRecord, not the renderer");

@@ -1540,7 +1540,6 @@
       #generator-panel .gen-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px!important;width:100%;margin:0 0 10px!important}
       #generator-panel .gen-legend{justify-content:flex-start!important;padding:8px 10px;border-radius:8px;background:#faf7ef}
       #generator-panel .gen-note{margin-top:0!important;padding:9px 10px;border-left:3px solid #c9b46f;border-radius:6px;background:#fbf7ea;text-align:left!important}
-      #generator-panel #vcf-question-bank{width:100%;max-width:none;margin:12px 0 0}
       #import-panel>.vcf-card-heading{display:none}
       #import-panel #import-toolbar{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px!important;width:100%;margin:0 0 9px!important}
       #import-panel #import-status{margin:0 0 10px!important}
@@ -1730,8 +1729,6 @@
     }
     const actions = panel.querySelector(":scope > .gen-actions");
     if (actions && panel.firstElementChild !== actions) panel.prepend(actions);
-    const bank = document.getElementById("vcf-question-bank");
-    if (bank && (bank.parentElement !== panel || panel.lastElementChild !== bank)) panel.appendChild(bank);
   }
 
   function installTabs(host, panels) {
@@ -1844,7 +1841,6 @@
     const generatorTab = document.createElement("section");
     groupGenerator(generatorPanel);
     arrangeGeneratorPanel(generatorPanel);
-    window.addEventListener("vcf-question-bank-ready", () => arrangeGeneratorPanel(generatorPanel), { once: true });
     generatorTab.appendChild(generatorPanel);
 
     const importTab = document.createElement("section");
