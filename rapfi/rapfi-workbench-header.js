@@ -571,62 +571,9 @@
 
   if (typeof document === "undefined") return;
 
-  function installStyle() {
-    let style = document.getElementById("bb-compact-header-style");
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "bb-compact-header-style";
-      document.head.appendChild(style);
-    }
-    style.textContent = `
-      #bitboard-architecture-panel:not(.bb-quick-actions){display:none!important}
-      #bitboard-architecture-panel.bb-quick-actions{width:min(100%,1120px);display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;padding:0;border:0;background:transparent;box-shadow:none}
-      #bitboard-architecture-panel.bb-quick-actions .bb-lab-link,
-      #bitboard-architecture-panel.bb-quick-actions #bb-hard-refresh,
-      #bitboard-architecture-panel.bb-quick-actions #bb-export-file,
-      #bitboard-architecture-panel.bb-quick-actions #bb-export-format{min-height:38px;display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;line-height:1.3;text-decoration:none;cursor:pointer}
-      #bitboard-architecture-panel.bb-quick-actions #bb-export-format{padding-right:28px}
-      #bitboard-architecture-panel.bb-quick-actions #bb-hard-refresh:disabled,
-      #bitboard-architecture-panel.bb-quick-actions #bb-export-file:disabled{opacity:.65;cursor:wait}
-      #bitboard-architecture-panel.bb-quick-actions #bb-export-status{font-size:12px;color:#58645b}
-      #vcf-workspace-mode-slot:empty{display:none}\n      #vcf-workspace-mode-slot{width:100%}\n      #vcf-workspace-mode{display:grid;gap:8px;margin:0 0 10px;padding:10px;border:1px solid #d5c496;border-radius:10px;background:#fff9e8}
-      #vcf-workspace-mode .vcf-workspace-mode-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-      #vcf-workspace-mode .vcf-workspace-mode-title{font-weight:800;color:#4d432c}
-      #vcf-workspace-mode .vcf-workspace-mode-badge{padding:4px 8px;border-radius:999px;background:#ede4ca;color:#5d5135;font-size:12px;font-weight:700}
-      #vcf-workspace-mode button,#vcf-workspace-mode select{min-height:34px;padding:6px 10px;border:1px solid #bbaa7d;border-radius:7px;background:#fff;font:inherit;font-size:13px}
-      #vcf-workspace-mode button.is-active{border-color:#477aa8;background:#d9e9f7;color:#214d72;font-weight:800}
-      #vcf-workspace-mode .vcf-puzzle-controls[hidden]{display:none!important}
-      #vcf-workspace-mode .vcf-workspace-format{margin-left:auto;color:#6c624c;font-size:12px}
-      @media(max-width:600px){#vcf-workspace-mode .vcf-workspace-format{width:100%;margin-left:0}}
-    `;
-  }
-
-  function setRuleLabel(label, text) {
-    for (const node of Array.from(label.childNodes)) {
-      if (node.nodeType === Node.TEXT_NODE) node.remove();
-    }
-    label.appendChild(document.createTextNode(` ${text}`));
-  }
-
   function installRuleOptions() {
     const ruleBox = document.getElementById("rule-box");
     if (!ruleBox || ruleBox.dataset.threeRulesReady === "1") return Boolean(ruleBox);
-
-    for (const radio of ruleBox.querySelectorAll('input[name="rules"]')) {
-      const label = radio.closest("label");
-      const name = ruleNames[Number(radio.value)];
-      if (label && name) setRuleLabel(label, name);
-    }
-
-    if (!ruleBox.querySelector('input[name="rules"][value="0"]')) {
-      const label = document.createElement("label");
-      const radio = document.createElement("input");
-      radio.type = "radio";
-      radio.name = "rules";
-      radio.value = "0";
-      label.append(radio, document.createTextNode(" 自由"));
-      ruleBox.appendChild(label);
-    }
 
     ruleBox.addEventListener("change", async event => {
       const radio = event.target;
@@ -1553,36 +1500,8 @@
   installWorkbenchRecordState();
 
   function installWorkspaceModeUI() {
-    const workspaceModeSlot = document.getElementById("vcf-workspace-mode-slot");
-    if (!workspaceModeSlot || document.getElementById("vcf-workspace-mode")) return false;
-    const panel = document.createElement("section");
-    panel.id = "vcf-workspace-mode";
-    panel.setAttribute("aria-label", "工作模式");
-    panel.innerHTML = `
-      <div class="vcf-workspace-mode-row">
-        <span class="vcf-workspace-mode-title">工作模式</span>
-        <span class="vcf-workspace-mode-badge" data-mode-badge>尚未選擇</span>
-        <button type="button" data-new-mode="record">新增打譜</button>
-        <button type="button" data-new-mode="puzzle">新增題目</button>
-        <span class="vcf-workspace-format" data-format>請先選擇模式</span>
-      </div>
-      <div class="vcf-workspace-mode-row vcf-puzzle-controls" data-puzzle-controls hidden>
-        <label>攻方
-          <select data-puzzle-attacker aria-label="題目攻方">
-            <option value="1">黑方</option>
-            <option value="2">白方</option>
-          </select>
-        </label>
-        <span data-setup-tools>
-          <button type="button" data-setup-tool="1">放黑子</button>
-          <button type="button" data-setup-tool="2">放白子</button>
-          <button type="button" data-setup-tool="0">橡皮擦</button>
-        </span>
-        <button type="button" data-commit-puzzle>開始編輯解答</button>
-        <button type="button" data-edit-puzzle hidden>重編初始盤面</button>
-      </div>
-    `;
-    workspaceModeSlot.appendChild(panel);
+    const panel = document.getElementById("vcf-workspace-mode");
+    if (!panel) return false;
 
     const badge = panel.querySelector("[data-mode-badge]");
     const format = panel.querySelector("[data-format]");
@@ -1694,21 +1613,6 @@
   function installHeader() {
     const panel = document.getElementById("bitboard-architecture-panel");
     if (!panel) return false;
-    if (panel.dataset.compactHeaderReady === "1") return true;
-
-    panel.className = "bb-quick-actions";
-    panel.dataset.compactHeaderReady = "1";
-    panel.innerHTML = `
-      <a class="bb-lab-link" href="rapfi/lab.html">Rapfi 官方對照／棋型實驗室</a>
-      <select id="bb-export-format" aria-label="棋譜匯出格式">
-        <option value="yxdb">Rapfi YXDB (.db)</option>
-        <option value="lib">RenLib (.lib)</option>
-      </select>
-      <button id="bb-export-file" type="button">匯出棋譜</button>
-      <button id="bb-hard-refresh" type="button">強制重新整理</button>
-      <span id="bb-export-status" aria-live="polite"></span>
-    `;
-
     const formatSelect = panel.querySelector("#bb-export-format");
     const exportButton = panel.querySelector("#bb-export-file");
     const exportStatus = panel.querySelector("#bb-export-status");
@@ -1791,7 +1695,6 @@
     return true;
   }
 
-  installStyle();
   installRuleOptions();
   installHeader();
 })(typeof window !== "undefined" ? window : globalThis);

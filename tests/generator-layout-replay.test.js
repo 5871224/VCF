@@ -3,18 +3,17 @@
 const fs = require("fs");
 const vm = require("vm");
 
-const layoutSource = fs.readFileSync("makevcf-layout.js", "utf8");
+const html = fs.readFileSync("index.html", "utf8");
 for (const token of [
-  "#${FAST_BUTTON_ID}",
-  "#btn-shortest-vcf",
+  "#btn-fast-vcf,#btn-shortest-vcf",
   "color:#000;-webkit-text-fill-color:#000",
-  "VCF 題目產生器",
-  "panel.prepend(actions)",
-  "panel.appendChild(bank)",
-]) {
-  if (!layoutSource.includes(token)) {
-    throw new Error(`missing generator layout rule: ${token}`);
-  }
+  'id="generator-panel"',
+  'class="vcf-gen-group-title">題目條件',
+  'class="vcf-gen-group-title">候選偏好',
+]) if (!html.includes(token)) throw new Error(`missing initial generator layout: ${token}`);
+const generatorMarkup = html.split('id="generator-panel"')[1].split('id="import-panel"')[0];
+if (generatorMarkup.indexOf('class="gen-actions"') > generatorMarkup.indexOf('class="gen-controls"')) {
+  throw new Error("generator actions must precede its settings in the initial HTML");
 }
 
 const replaySource = fs.readFileSync("makevcf-generator-progress.js", "utf8");

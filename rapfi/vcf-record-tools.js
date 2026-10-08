@@ -10,13 +10,11 @@
   const SETTINGS_KEY = "vcf_record_tools_v1";
   const SETTINGS_VERSION = 3;
   const TITLE_KEY = "vcf_record_title_v1";
-  const ICON_ROOT = "rapfi/record-svg/";
 
   const board = document.getElementById("board-svg");
   const recordNavigation = document.getElementById("vcf-record-navigation");
   const actions = document.getElementById("vcf-record-navigation-actions");
   const boardCard = document.querySelector(".vcf-board-card");
-  const annotationCard = document.querySelector(".vcf-annotation-card");
   if (!board || !recordNavigation || !actions || !boardCard) return;
 
   const state = {
@@ -59,144 +57,34 @@
     }
   }
 
-  function makeIconButton(id, icon, label) {
-    const button = document.createElement("button");
-    button.id = id;
-    button.type = "button";
-    button.className = "vcf-record-icon-button";
-    button.title = label;
-    button.setAttribute("aria-label", label);
-    const image = document.createElement("img");
-    image.src = ICON_ROOT + icon;
-    image.alt = "";
-    image.draggable = false;
-    button.appendChild(image);
-    return button;
-  }
-
-  function setIcon(button, icon, label) {
-    if (!button) return;
-    button.classList.add("vcf-record-icon-button");
-    button.textContent = "";
-    const image = document.createElement("img");
-    image.src = ICON_ROOT + icon;
-    image.alt = "";
-    image.draggable = false;
-    button.appendChild(image);
-    button.title = label;
-    button.setAttribute("aria-label", label);
-  }
-
-  const prevBranchButton = document.getElementById("btn-vcf-branch-prev");
   const prevStepButton = document.getElementById("btn-vcf-step-prev");
   const nextStepButton = document.getElementById("btn-vcf-step-next");
-  const nextBranchButton = document.getElementById("btn-vcf-branch-next");
-  setIcon(prevBranchButton, "double_arrow_left.svg", "前一個分支或起始點");
-  setIcon(prevStepButton, "arrow_left.svg", "前一手");
-  setIcon(nextStepButton, "arrow_right.svg", "次一手");
-  setIcon(nextBranchButton, "double_arrow_right.svg", "次一個分支或末端");
-
-  const copyRecordButton = makeIconButton("btn-record-copy", "copy.svg", "複製目前棋譜");
-  const photoButton = makeIconButton("btn-record-photo", "photo.svg", "截圖");
-  const editButton = makeIconButton("btn-record-edit", "edit.svg", "編輯模式");
-  const markerButton = makeIconButton("btn-record-marker", "font.svg", "標記模式");
-  const markAButton = makeIconButton("btn-record-mark-a", "Aa.svg", "標記文字 A");
-  const markStarButton = makeIconButton("btn-record-mark-star", "star.svg", "標記文字 ★");
-  const markArrowButton = makeIconButton("btn-record-mark-arrow", "arrow.svg", "標記文字 →");
-  const clearMarkTextButton = makeIconButton("btn-record-mark-clear", "delete.svg", "清空標記欄");
-  const deleteBranchButton = makeIconButton("btn-record-delete-branch", "cancel.svg", "刪除目前棋子及之後分支");
-  const numbersButton = makeIconButton("btn-record-numbers", "number.svg", "手順開關");
-  const settingsButton = makeIconButton("btn-record-settings", "settings.svg", "設定選項");
-  const titleToggleButton = makeIconButton("btn-record-title-toggle", "dock_top.svg", "標題欄開關");
-  const commentToggleButton = makeIconButton("btn-record-comment-toggle", "dock_left.svg", "解說欄開關");
-  const flipButton = makeIconButton("btn-record-flip", "flip.svg", "鏡像盤面");
-  const rotateButton = makeIconButton("btn-record-rotate", "rotate_90.svg", "旋轉 90 度盤面");
-  const forbiddenButton = makeIconButton("btn-record-forbidden", "forbidden.svg", "顯示禁手");
-  const reduceButton = makeIconButton("btn-record-number-reduce", "circle.svg", "設定手順減少值");
-  const hideFirstButton = makeIconButton("btn-record-number-hide-first", "circle_n.svg", "設定隱藏前幾手手順");
-
-  const markerInput = document.createElement("input");
-  markerInput.id = "vcf-record-marker-text";
-  markerInput.type = "text";
-  markerInput.maxLength = 12;
-  markerInput.value = "A";
-  markerInput.placeholder = "標記";
-  markerInput.setAttribute("aria-label", "盤面標記文字");
-  markerInput.classList.add("vcf-record-marker-control");
-  for (const button of [markAButton, markStarButton, markArrowButton, clearMarkTextButton]) {
-    button.classList.add("vcf-record-marker-control");
-  }
-
-  actions.append(
-    copyRecordButton,
-    photoButton,
-    editButton,
-    markerButton,
-    markerInput,
-    markAButton,
-    markStarButton,
-    markArrowButton,
-    clearMarkTextButton,
-    deleteBranchButton,
-    numbersButton,
-    settingsButton,
-    titleToggleButton,
-    commentToggleButton,
-    flipButton,
-    rotateButton,
-    forbiddenButton,
-    reduceButton,
-    hideFirstButton,
-  );
-
-  const titleWrap = document.createElement("div");
-  titleWrap.id = "vcf-record-title-wrap";
-  titleWrap.className = "vcf-record-title-wrap";
-  const titleInput = document.createElement("input");
-  titleInput.id = "vcf-record-title";
-  titleInput.type = "text";
-  titleInput.placeholder = "棋譜標題";
-  titleInput.setAttribute("aria-label", "棋譜標題");
+  const copyRecordButton = document.getElementById("btn-record-copy");
+  const photoButton = document.getElementById("btn-record-photo");
+  const editButton = document.getElementById("btn-record-edit");
+  const markerButton = document.getElementById("btn-record-marker");
+  const markAButton = document.getElementById("btn-record-mark-a");
+  const markStarButton = document.getElementById("btn-record-mark-star");
+  const markArrowButton = document.getElementById("btn-record-mark-arrow");
+  const clearMarkTextButton = document.getElementById("btn-record-mark-clear");
+  const deleteBranchButton = document.getElementById("btn-record-delete-branch");
+  const numbersButton = document.getElementById("btn-record-numbers");
+  const settingsButton = document.getElementById("btn-record-settings");
+  const titleToggleButton = document.getElementById("btn-record-title-toggle");
+  const commentToggleButton = document.getElementById("btn-record-comment-toggle");
+  const flipButton = document.getElementById("btn-record-flip");
+  const rotateButton = document.getElementById("btn-record-rotate");
+  const forbiddenButton = document.getElementById("btn-record-forbidden");
+  const reduceButton = document.getElementById("btn-record-number-reduce");
+  const hideFirstButton = document.getElementById("btn-record-number-hide-first");
+  const markerInput = document.getElementById("vcf-record-marker-text");
+  const titleInput = document.getElementById("vcf-record-title");
+  const settingsPanel = document.getElementById("vcf-record-settings-panel");
+  const reduceInput = document.getElementById("vcf-record-number-reduce-value");
+  const hideInput = document.getElementById("vcf-record-number-hide-value");
   try { titleInput.value = localStorage.getItem(TITLE_KEY) || ""; } catch (_) {}
-  titleWrap.appendChild(titleInput);
-  const boardWrap = boardCard.querySelector(".vcf-board-wrap");
-  if (boardWrap) boardCard.insertBefore(titleWrap, boardWrap);
-  else boardCard.prepend(titleWrap);
-
-  const settingsPanel = document.createElement("div");
-  settingsPanel.id = "vcf-record-settings-panel";
-  settingsPanel.className = "vcf-record-settings-panel";
-  settingsPanel.hidden = true;
-  settingsPanel.innerHTML = `
-    <label>手順減少值 <input id="vcf-record-number-reduce-value" type="number" min="0" max="999" step="1"></label>
-    <label>隱藏前幾手 <input id="vcf-record-number-hide-value" type="number" min="0" max="999" step="1"></label>
-  `;
-  recordNavigation.appendChild(settingsPanel);
-  const reduceInput = settingsPanel.querySelector("#vcf-record-number-reduce-value");
-  const hideInput = settingsPanel.querySelector("#vcf-record-number-hide-value");
   reduceInput.value = String(state.reduceNumbers);
   hideInput.value = String(state.hideFirstNumbers);
-
-  const style = document.createElement("style");
-  style.id = "vcf-record-tools-style";
-  style.textContent = `
-    #vcf-record-navigation-actions{grid-template-columns:repeat(auto-fit,minmax(42px,42px));justify-content:center;align-items:center}
-    #vcf-record-navigation-actions .vcf-record-icon-button{width:42px;height:42px;min-height:42px;padding:7px;display:inline-flex;align-items:center;justify-content:center}
-    .vcf-record-icon-button img{width:100%;height:100%;object-fit:contain;pointer-events:none}
-    .vcf-record-icon-button.is-active{background:#cfe1f4!important;border-color:#477aa8!important;box-shadow:inset 0 0 0 1px #477aa8}
-    #vcf-record-marker-text{width:76px;height:42px;padding:6px 8px;border:1px solid #c9bea0;border-radius:8px;background:#fff;font:inherit;text-align:center}
-    #vcf-record-marker-text:disabled{opacity:.5}
-    .vcf-record-title-wrap{margin:0 0 10px}
-    .vcf-record-title-wrap input{width:100%;padding:8px 10px;border:1px solid #cfc3a4;border-radius:8px;background:#fffefa;font:inherit;font-size:16px;font-weight:700;text-align:center}
-    .vcf-record-settings-panel{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px solid #e1d8c1}
-    .vcf-record-settings-panel[hidden]{display:none}
-    .vcf-record-settings-panel label{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#625a48}
-    .vcf-record-settings-panel input{width:76px;padding:5px 6px;border:1px solid #cfc3a4;border-radius:6px;background:#fff}
-    #vcf-record-text-layer{display:none!important}
-    #vcf-record-hand-layer,#vcf-record-marker-layer{pointer-events:none}
-    @media(max-width:600px){#vcf-record-navigation-actions{grid-template-columns:repeat(8,38px);gap:5px}#vcf-record-navigation-actions .vcf-record-icon-button{width:38px;height:38px;min-height:38px;padding:6px}#vcf-record-marker-text{width:70px;height:38px}}
-  `;
-  document.head.appendChild(style);
 
   function ensureLayer(id) {
     let layer = board.querySelector(`#${id}`);
@@ -385,8 +273,8 @@
       button.hidden = !markerControlsVisible;
       button.disabled = !markerControlsVisible;
     }
-    titleWrap.hidden = !state.showTitle;
-    if (annotationCard) annotationCard.hidden = !state.showComment;
+    document.documentElement.dataset.vcfRecordTitle = state.showTitle ? "1" : "0";
+    document.documentElement.dataset.vcfRecordComment = state.showComment ? "1" : "0";
     const forbidden = document.getElementById("show-forbidden");
     forbiddenButton.classList.toggle("is-active", Boolean(forbidden?.checked));
     renderHandNumbers();
@@ -737,9 +625,6 @@
   global.addEventListener("vcf-board-changed", () => queueMicrotask(renderHandNumbers));
   global.addEventListener("vcf-workspace-mode-changed", syncUI);
   document.getElementById("show-forbidden")?.addEventListener("change", syncUI);
-
-  const observerTarget = document.getElementById("show-forbidden-label");
-  if (observerTarget) observerTarget.hidden = true;
 
   persistSettings();
   syncUI();

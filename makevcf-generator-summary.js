@@ -499,34 +499,7 @@
 
 // Show only the compact generator summary requested by the user.
 (function initGeneratorCompactSummary() {
-  document.querySelector("#generator-panel .gen-badge")?.remove();
 
-  let details = genEl("details");
-  if (!details) {
-    const status = genEl("status");
-    if (status) {
-      details = document.createElement("div");
-      details.id = status.id.startsWith("gen-") ? "gen-details" : "details";
-      status.insertAdjacentElement("afterend", details);
-    }
-  }
-
-  const style = document.createElement("style");
-  style.dataset.generatorCompactSummary = "true";
-  style.textContent = `
-    #gen-details, #details {
-      display: block !important;
-      margin-top: 8px;
-      color: #685936;
-      font-size: 12px;
-      line-height: 1.65;
-      white-space: pre-line;
-    }
-    #gen-details:empty, #details:empty {
-      display: none !important;
-    }
-  `;
-  document.head.appendChild(style);
 
   genRegisterResultPresenter("compact-summary", (result, context) => {
     const { targetSteps, attacker, counters, options } = context;

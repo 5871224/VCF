@@ -25,7 +25,7 @@
   }
 
   const multiButton = document.getElementById("btn-multi-vcf");
-  if (!multiButton || document.getElementById("btn-shortest-vcf")) return;
+  if (!multiButton) return;
 
   function normalizeGroupsKeepingLiveFour(groups, color) {
     const attacker = Number(color) === 2 ? 2 : 1;
@@ -57,18 +57,11 @@
     }
   }
 
-  const label = document.createElement("label");
-  label.id = "vcf-same-type-trim-live-four-label";
-  label.title = "勾選：最後以活四取勝時，同型比較只取到活四前一手；未勾選：把活四落子也納入同型比較。";
-  const sameTypeCheck = document.createElement("input");
-  sameTypeCheck.id = CHECKBOX_ID;
-  sameTypeCheck.type = "checkbox";
+  const sameTypeCheck = document.getElementById(CHECKBOX_ID);
   sameTypeCheck.checked = storedChecked();
   sameTypeCheck.addEventListener("change", () => {
     try { localStorage.setItem(STORAGE_KEY, sameTypeCheck.checked ? "1" : "0"); } catch (_) {}
   });
-  label.append(sameTypeCheck, document.createTextNode("同型-活四取前一手"));
-  multiButton.insertAdjacentElement("afterend", label);
 
   global.vcfRegisterTrimGroupsProvider?.("live-four-grouping", options => {
     if (sameTypeCheck.checked) return undefined;
@@ -82,12 +75,7 @@
       .replace(/→修剪後/g, "→同型整理後");
   }, 100);
 
-  const button = document.createElement("button");
-  button.id = "btn-shortest-vcf";
-  button.type = "button";
-  button.className = multiButton.className;
-  button.textContent = "最短 VCF";
-  label.insertAdjacentElement("afterend", button);
+  const button = document.getElementById("btn-shortest-vcf");
 
   global.vcfRegisterBusyHook?.("shortest-vcf", value => {
     button.disabled = Boolean(value);

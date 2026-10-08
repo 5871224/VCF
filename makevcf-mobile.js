@@ -1,51 +1,7 @@
 "use strict";
 
-// Keep the 15x15 board completely visible on narrow mobile screens.
-(function applyMobileBoardLayout() {
-  const style = document.createElement("style");
-  style.dataset.vcfMobileLayout = "true";
-  style.textContent = `
-    #board-svg {
-      width: min(520px, calc(100vw - 24px));
-      height: auto;
-      aspect-ratio: 1 / 1;
-      max-width: 100%;
-      flex: 0 0 auto;
-    }
-
-    @media (max-width: 600px) {
-      body {
-        padding: max(6px, env(safe-area-inset-top)) max(6px, env(safe-area-inset-right))
-          max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
-        gap: 7px;
-        overflow-x: hidden;
-      }
-
-      #board-svg {
-        width: min(520px, calc(100vw - 12px - env(safe-area-inset-left) - env(safe-area-inset-right)));
-      }
-
-      #status,
-      #generator-panel,
-      #import-panel {
-        width: 100%;
-        max-width: 100%;
-        min-width: 0;
-      }
-
-      #rule-box,
-      #analysis-box,
-      #btns,
-      #btns2 {
-        max-width: 100%;
-      }
-    }
-  `;
-  document.head.appendChild(style);
-})();
-
-// Image move-order mode is created by makevcf-generator-image-import-fix.js later in
-// the fixed script order. This module owns only responsive/pointer presentation.
+// Image move-order controls and responsive styles are native HTML/CSS.
+// This module owns pointer presentation and edit gestures.
 // The real orderByIndex and all edit history stay in the move-order editor.
 (function installImageMoveOrderPresentation() {
   const BOARD_SIZE = 15;
@@ -55,171 +11,16 @@
     const panel = document.getElementById("vcf-image-order-panel");
     const sourceCanvas = document.getElementById("source-canvas");
     const canvasWrap = document.querySelector(".vcf-image-order-canvas-wrap");
-    const tableWrap = panel?.querySelector(".vcf-image-order-table-wrap");
+    const tableWrap = document.querySelector(".vcf-image-order-table-wrap");
     const table = document.getElementById("vcf-image-order-table");
     const currentInput = document.getElementById("vcf-image-order-current");
     const clearButton = document.getElementById("vcf-image-order-clear-selected");
     const toggleButton = document.getElementById("btn-import-move-order");
-    const legacyOverlay = document.getElementById("vcf-image-order-overlay");
     if (
       !panel || !sourceCanvas || !canvasWrap || !tableWrap || !table || !currentInput || !clearButton
     ) return;
-    if (document.getElementById("vcf-image-order-stage")) return;
 
-    const style = document.createElement("style");
-    style.id = "vcf-image-move-order-presentation-style";
-    style.textContent = `
-      #vcf-image-order-stage{
-        display:flex;
-        align-items:stretch;
-        justify-content:center;
-        gap:4px;
-        width:min(100%,820px);
-        margin:0 auto;
-      }
-      #vcf-image-order-stage>.vcf-image-order-canvas-wrap{
-        flex:1 1 auto;
-        width:auto;
-        min-width:0;
-      }
-      #vcf-image-order-stage>.vcf-image-order-canvas-wrap>.import-canvas{
-        width:100%;
-        height:auto;
-      }
-      #vcf-image-order-stage>.vcf-image-order-table-wrap{
-        flex:0 0 40px;
-        width:40px;
-        max-height:none;
-        overflow-y:auto;
-        overflow-x:hidden;
-        border:1px solid #cfc4a3;
-        border-radius:5px;
-        background:#fffdf5;
-      }
-      #vcf-image-order-stage>.vcf-image-order-table-wrap[hidden]{display:none}
-      #vcf-image-order-table{width:100%;font-size:9px;border-collapse:collapse}
-      #vcf-image-order-table th:nth-child(2),
-      #vcf-image-order-table th:nth-child(3),
-      #vcf-image-order-table td:nth-child(2),
-      #vcf-image-order-table td:nth-child(3){display:none}
-      #vcf-image-order-table thead th{
-        padding:3px 1px;
-        background:#f7efd8;
-        font-size:9px;
-        line-height:1.1;
-      }
-      #vcf-image-order-table tbody tr{
-        cursor:pointer;
-        background:transparent;
-      }
-      #vcf-image-order-table tbody tr:not(.is-missing){
-        background:#ffe36b;
-        box-shadow:inset 2px 0 #e29b00;
-      }
-      #vcf-image-order-table tbody tr.is-selected{
-        background:#79c7ff;
-        outline:1px solid #1976c9;
-        outline-offset:-1px;
-      }
-      #vcf-image-order-table tbody tr.is-invalid{
-        background:#ffaaa3;
-        box-shadow:inset 2px 0 #c4372c;
-      }
-      #vcf-image-order-table tbody td:first-child{
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        width:16px;
-        height:16px;
-        margin:2px auto;
-        padding:0;
-        border-radius:50%;
-        box-sizing:border-box;
-        font-size:8px;
-        font-weight:800;
-        line-height:1;
-      }
-      #vcf-image-order-table tbody tr:nth-child(odd) td:first-child{
-        background:#111;
-        color:#fff;
-        border:1px solid #000;
-      }
-      #vcf-image-order-table tbody tr:nth-child(even) td:first-child{
-        background:#fff;
-        color:#111;
-        border:1px solid #555;
-      }
-      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-odd td:first-child{background:#111;color:#fff;border-color:#000}
-      #vcf-image-order-table tbody tr.is-compact-preview.is-preview-even td:first-child{background:#fff;color:#111;border-color:#555}
-      #vcf-image-order-table tbody tr.is-missing td:first-child{opacity:.52}
-      #vcf-image-order-overlay{display:none !important}
-      #vcf-image-order-dom-overlay{
-        position:absolute;
-        inset:0;
-        z-index:3;
-        pointer-events:none;
-        overflow:hidden;
-      }
-      .vcf-image-order-board-number{
-        position:absolute;
-        transform:translate(-50%,-50%);
-        width:clamp(20px,3.7vw,26px);
-        height:clamp(20px,3.7vw,26px);
-        padding:0;
-        border-radius:50%;
-        box-sizing:border-box;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-family:Arial,system-ui,sans-serif;
-        font-size:clamp(8px,1.35vw,11px);
-        font-weight:800;
-        line-height:1;
-        text-align:center;
-        pointer-events:none;
-        box-shadow:0 1px 2px rgba(0,0,0,.22);
-      }
-      .vcf-image-order-board-number.is-black{
-        background:#111;
-        color:#fff;
-        border:2px solid #fff;
-        text-shadow:none;
-      }
-      .vcf-image-order-board-number.is-white{
-        background:#fff;
-        color:#111;
-        border:2px solid #333;
-        text-shadow:none;
-      }
-      .vcf-image-order-board-number.is-invalid{
-        border-color:#e02b22;
-        box-shadow:0 0 0 1px rgba(255,255,255,.85),0 0 0 3px rgba(224,43,34,.72);
-      }
-      @media(max-width:600px){
-        #vcf-image-order-stage{gap:3px}
-        #vcf-image-order-stage>.vcf-image-order-table-wrap{
-          flex-basis:36px;
-          width:36px;
-        }
-        #vcf-image-order-table tbody td:first-child{
-          width:15px;
-          height:15px;
-          margin:1px auto;
-          font-size:7px;
-        }
-      }
-    `;
-    document.head.appendChild(style);
-
-    const stage = document.createElement("div");
-    stage.id = "vcf-image-order-stage";
-    canvasWrap.parentNode.insertBefore(stage, canvasWrap);
-    stage.append(canvasWrap, tableWrap);
-
-    const markerLayer = document.createElement("div");
-    markerLayer.id = "vcf-image-order-dom-overlay";
-    canvasWrap.appendChild(markerLayer);
-    if (legacyOverlay) legacyOverlay.hidden = true;
+    const markerLayer = document.getElementById("vcf-image-order-dom-overlay");
 
     function normalizeNumber(value) {
       return Math.max(1, Math.min(999, Math.floor(Number(value) || 1)));

@@ -102,74 +102,6 @@
     return "補守";
   }
 
-  function ensureReplayStyle() {
-    if (document.querySelector?.('style[data-generator-event-replay-style="true"]')) return;
-    const style = document.createElement("style");
-    style.dataset.generatorEventReplayStyle = "true";
-    style.textContent = `
-      .gen-replay-panel {
-        width: min(100%, 760px);
-        margin: 8px auto 0;
-        padding: 10px 12px;
-        border: 1px solid #c9c9c9;
-        border-radius: 8px;
-        background: #fff;
-        box-shadow: 0 1px 5px rgba(0, 0, 0, 0.08);
-        font-size: 13px;
-      }
-      .gen-replay-panel[hidden] { display: none !important; }
-      .gen-replay-toolbar {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .gen-replay-toolbar button { min-width: 68px; }
-      .gen-replay-count { min-width: 110px; text-align: center; font-weight: 700; }
-      .gen-replay-summary {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 8px;
-        margin-top: 8px;
-        text-align: center;
-        flex-wrap: wrap;
-      }
-      .gen-replay-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 52px;
-        padding: 2px 8px;
-        border-radius: 999px;
-        font-weight: 700;
-      }
-      .gen-replay-badge[data-status="passed"] { color: #126b2c; background: #dff4e5; }
-      .gen-replay-badge[data-status="failed"] { color: #9a2f24; background: #fbe2df; }
-      .gen-replay-badge[data-status="pending"] { color: #6b5a19; background: #fff2bf; }
-      .gen-replay-badge[data-status="info"] { color: #285a8e; background: #e2effc; }
-      .gen-replay-title { font-weight: 700; }
-      .gen-replay-reason {
-        margin-top: 6px;
-        line-height: 1.55;
-        text-align: center;
-        color: #444;
-        overflow-wrap: anywhere;
-      }
-      @media (max-width: 560px) {
-        .gen-replay-panel { padding: 9px; }
-        .gen-replay-toolbar button {
-          min-width: 62px;
-          padding-left: 9px;
-          padding-right: 9px;
-        }
-        .gen-replay-count { min-width: 92px; }
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
   function bindReplayPanel(panel) {
     if (!panel) return null;
     const ui = {
@@ -196,33 +128,8 @@
 
   function ensureReplayUI() {
     if (replayUI) return replayUI;
-    ensureReplayStyle();
 
-    let panel = document.getElementById("gen-replay-combined-panel");
-    if (!panel) {
-      const status = genEl("status");
-      if (!status?.parentNode) return null;
-      panel = document.createElement("section");
-      panel.id = "gen-replay-combined-panel";
-      panel.className = "gen-replay-panel";
-      panel.hidden = true;
-      panel.innerHTML = `
-        <div class="gen-replay-toolbar">
-          <button id="gen-replay-combined-first" type="button">最前</button>
-          <button id="gen-replay-combined-prev" type="button">上一步</button>
-          <span id="gen-replay-combined-count" class="gen-replay-count">0 / 0</span>
-          <button id="gen-replay-combined-next" type="button">下一步</button>
-          <button id="gen-replay-combined-last" type="button">最後</button>
-        </div>
-        <div class="gen-replay-summary">
-          <span id="gen-replay-combined-badge" class="gen-replay-badge" data-status="info">紀錄</span>
-          <span id="gen-replay-combined-title" class="gen-replay-title"></span>
-        </div>
-        <div id="gen-replay-combined-reason" class="gen-replay-reason"></div>
-      `;
-      if (status.nextSibling) status.parentNode.insertBefore(panel, status.nextSibling);
-      else status.parentNode.appendChild(panel);
-    }
+    const panel = document.getElementById("gen-replay-combined-panel");
     replayUI = bindReplayPanel(panel);
     return replayUI;
   }

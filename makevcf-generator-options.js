@@ -12,20 +12,6 @@
   window.__generatorReuseBonusLoaded = true;
   const bothN = GEN_NO_BLACK | GEN_NO_WHITE;
 
-  function renameReuseControl() {
-    const input = genEl("bonus-reuse");
-    const label = input?.closest("label");
-    if (!label) return;
-    for (const node of label.childNodes) {
-      if (node === input) break;
-      if (node.nodeType === Node.TEXT_NODE) {
-        node.nodeValue = "沿用棋子加成 ";
-        break;
-      }
-    }
-    label.title = "0% 不加權；攻方棋，以及死四模板 X 點或五點原有的守方棋，每沿用一顆都套用相同加成；100% 時每顆沿用棋使候選權重增加 99";
-  }
-
   function protectCandidateFivePoints(candidate) {
     if (!candidate?.nMask) return;
     for (const idx of new Set([
@@ -36,7 +22,6 @@
     }
   }
 
-  renameReuseControl();
 
   genRegisterCandidateDecorator("reuse-bonus", (candidates, context) => {
     const base = context.base;
@@ -73,20 +58,6 @@
   if (window.__generatorConcentrationBonusLoaded) return;
   window.__generatorConcentrationBonusLoaded = true;
 
-  function renameConcentrationControl() {
-    const input = genEl("bonus-center");
-    const label = input?.closest("label");
-    if (!label) return;
-    for (const node of label.childNodes) {
-      if (node === input) break;
-      if (node.nodeType === Node.TEXT_NODE) {
-        node.nodeValue = "棋子集中加成 ";
-        break;
-      }
-    }
-    label.title = "以目前盤面全部黑白棋的座標平均值作為分布中心；死四模板正中間那一點越接近分布中心，加成越高";
-  }
-
   function stoneCentroid(board) {
     let sumX = 0;
     let sumY = 0;
@@ -119,7 +90,6 @@
     return maximum > 0 ? Math.max(0, Math.min(1, 1 - distance / maximum)) : 1;
   }
 
-  renameConcentrationControl();
 
   genRegisterCandidateDecorator("concentration", (candidates, context) => {
     const middleSlot = Math.floor(context.template.cells.length / 2);
@@ -157,20 +127,6 @@
   if (window.__generatorOrderModeLoaded) return;
   window.__generatorOrderModeLoaded = true;
 
-  function addOrderControl() {
-    const referenceInput = genEl("bonus-center") || genEl("bonus-reuse");
-    const controls = referenceInput &&
-      (referenceInput.closest(".gen-controls") || referenceInput.closest(".controls"));
-    if (!controls || genEl("order-by-bonus")) return;
-
-    const integrated = referenceInput.id.startsWith("gen-");
-    const label = document.createElement("label");
-    label.title = "未勾選時依候選權重隨機排序；勾選後依總加成權重由高到低逐一驗證，同權重隨機排列";
-    label.innerHTML = `<input id="${integrated ? "gen-order-by-bonus" : "order-by-bonus"}" type="checkbox"> 依加成高低排序`;
-    referenceInput.closest("label")?.insertAdjacentElement("afterend", label);
-  }
-
-  addOrderControl();
 
   genRegisterOptionProvider("order-mode", options => ({
     ...options,
@@ -190,39 +146,6 @@
 // 「補齊黑白子數」只負責最終盤面的輪次平衡。
 // 較短 VCF 與其他 VCF 的補守由 defense-points 模組獨立處理。
 (function initGeneratorBalanceControls() {
-  function addBalanceControls() {
-    const target = genEl("target-steps");
-    const controls = target &&
-      (target.closest(".gen-controls") || target.closest(".controls"));
-    if (!controls || genEl("balance-stones")) return;
-
-    const balanceLabel = document.createElement("label");
-    balanceLabel.title =
-      "死四延伸及 VCF 驗證完成後，依輪到攻方下棋所需的黑白子數補齊缺少的顏色";
-    balanceLabel.innerHTML =
-      '<input id="gen-balance-stones" type="checkbox" checked> 補齊黑白子數';
-
-    const threeLabel = document.createElement("label");
-    threeLabel.title = "最後補子時，形成活三或死三的權重倍數";
-    threeLabel.innerHTML =
-      '三型加成 <input id="gen-three-multiplier" type="number" min="0" max="1000000" step="1" value="30"> 倍';
-
-    controls.append(balanceLabel, threeLabel);
-
-    const style = document.createElement("style");
-    style.textContent = `
-      #gen-three-multiplier {
-        width: 72px;
-        padding: 5px 7px;
-        border: 1px solid #aaa;
-        border-radius: 4px;
-        text-align: center;
-        font-size: 14px;
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
   function countStones(board) {
     let black = 0;
     let white = 0;
@@ -233,7 +156,6 @@
     return { black, white };
   }
 
-  addBalanceControls();
 
   genRegisterOptionProvider("final-balance", options => {
     const balanceInput = genEl("balance-stones");
@@ -284,19 +206,6 @@
   if (window.__generatorUniqueControlLoaded) return;
   window.__generatorUniqueControlLoaded = true;
 
-  function addUniqueControl() {
-    const target = genEl("target-steps");
-    const controls = target &&
-      (target.closest(".gen-controls") || target.closest(".controls"));
-    if (!controls || genEl("block-other-vcf")) return;
-
-    const label = document.createElement("label");
-    label.title = "勾選後，除較短 VCF 外，也會封鎖同一步數但完成盤面不同的其他 VCF";
-    label.innerHTML = '<input id="gen-block-other-vcf" type="checkbox"> 只保留目標 VCF';
-    controls.appendChild(label);
-  }
-
-  addUniqueControl();
 
   genRegisterOptionProvider("unique-vcf", options => ({
     ...options,

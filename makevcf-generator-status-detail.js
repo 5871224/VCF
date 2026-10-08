@@ -6,16 +6,7 @@
   if (window.__generatorDetailedStatusInstalled) return;
   window.__generatorDetailedStatusInstalled = true;
 
-  const style = document.createElement("style");
-  style.dataset.generatorDetailedStatus = "true";
-  style.textContent = `
-    #gen-status, #status {
-      white-space: pre-line;
-      line-height: 1.55;
-      overflow-wrap: anywhere;
-    }
-  `;
-  document.head.appendChild(style);
+
 
   const state = {
     phase: "idle",

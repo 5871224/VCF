@@ -91,31 +91,13 @@
   }
 
   function installControl() {
-    const host = global.document?.getElementById("vcf-search-options");
-    if (!host) return false;
+    const input = control();
+    if (!input) return false;
     normalizeTimeInput();
-    if (control()) return true;
-
-    const label = global.document.createElement("label");
-    label.className = "vcf-option-check";
-    label.title = "同一盤面若有直接連五或活四勝法，只保留全部終局候選，不再搜尋其他死四延伸；快速與嚴格剪枝都適用。";
-
-    const input = global.document.createElement("input");
-    input.id = CONTROL_ID;
-    input.type = "checkbox";
     input.checked = storedEnabled();
     input.addEventListener("change", () => {
-      try {
-        global.localStorage?.setItem(STORAGE_KEY, input.checked ? "1" : "0");
-      } catch (_) {}
+      try { global.localStorage?.setItem(STORAGE_KEY, input.checked ? "1" : "0"); } catch (_) {}
     });
-
-    label.append(input, "活四不搜後續");
-    const pruning = global.document.getElementById("vcf-multi-pruning")?.closest("label");
-    if (pruning?.parentNode === host)
-      pruning.insertAdjacentElement("afterend", label);
-    else
-      host.appendChild(label);
     return true;
   }
 

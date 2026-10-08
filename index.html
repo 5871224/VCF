@@ -7,14 +7,7 @@
 <title>五子棋工作台</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  background: #f0e8d0;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  display: flex; flex-direction: column; align-items: center;
-  padding: 12px; gap: 10px; min-height: 100vh;
-}
 svg { background: #dcb97a; border-radius: 4px; box-shadow: 0 2px 8px #0003; display: block; cursor: crosshair; touch-action: none; }
-#btns { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 button {
   padding: 8px 14px; font-size: 14px;
   border: 1px solid #aaa; border-radius: 4px;
@@ -23,11 +16,6 @@ button {
 button:hover { background: #e8f0ff; }
 button:active { background: #c8d8ff; }
 button:disabled { opacity: 0.45; cursor: default; }
-#rule-box { display: flex; gap: 14px; font-size: 14px; }
-#rule-box label { cursor: pointer; }
-#analysis-box { display: flex; gap: 14px; font-size: 14px; align-items: center; }
-#analysis-box label { cursor: pointer; }
-#btns2 { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center; }
 #status {
   font-size: 13px; color: #333;
   background: #fffbe6; border: 1px solid #c8b870;
@@ -257,58 +245,1111 @@ button:disabled { opacity: 0.45; cursor: default; }
 #btn-live-camera-capture:disabled {
   opacity: 0.42;
 }
+
+#generator-panel {
+  width: min(100%, 760px);
+  padding: 10px;
+  border: 1px solid #c9b46f;
+  border-radius: 7px;
+  background: #fffdf5;
+  box-shadow: 0 2px 8px #0001;
+}
+.gen-controls, .gen-actions, .gen-legend {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.gen-controls fieldset { border: 0; display: flex; align-items: center; gap: 9px; }
+.gen-controls legend { display: inline; margin-right: 2px; font-weight: 700; }
+.gen-controls label { white-space: nowrap; cursor: pointer; font-size: 14px; }
+#gen-target-steps, #gen-bonus-reuse, #gen-bonus-center {
+  width: 65px;
+  padding: 5px 7px;
+  border: 1px solid #aaa;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 14px;
+}
+.gen-actions { margin-top: 9px; }
+#gen-status {
+  margin-top: 9px;
+  min-height: 31px;
+  padding: 6px 9px;
+  border: 1px solid #d5c373;
+  border-radius: 4px;
+  background: #fff9dc;
+  color: #443a22;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.4;
+}
+#gen-details {
+  margin-top: 7px;
+  color: #685936;
+  font-size: 12px;
+  line-height: 1.55;
+}
+#gen-details:empty { display: none; }
+.gen-legend { margin-top: 8px; font-size: 12px; color: #594c30; }
+.gen-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.gen-mark { width: 14px; height: 14px; display: inline-block; border-radius: 2px; }
+.gen-both { background: #2e9f45; border: 2px solid #176729; }
+.gen-black { background: #222; border: 2px solid #d02020; }
+.gen-white { background: #f8f8f8; border: 2px solid #d02020; }
+.gen-note { margin-top: 7px; text-align: center; color: #786a47; font-size: 12px; line-height: 1.45; }
+#board-svg.gen-locked { pointer-events: none; opacity: .88; }
+
+:root {
+  --vcf-bg: #eee6d3;
+  --vcf-card: #fffdf7;
+  --vcf-border: #d6c89f;
+  --vcf-text: #302919;
+  --vcf-muted: #74684c;
+  --vcf-accent: #355f8d;
+  --vcf-accent-soft: #e8f0f8;
+  --vcf-danger: #a54a42;
+}
+
+body {
+  display: block;
+  min-height: 100vh;
+  padding: 14px;
+  background: var(--vcf-bg);
+  color: var(--vcf-text);
+}
+
+#vcf-app-shell {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  display: grid;
+  gap: 14px;
+}
+
+.vcf-app-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  padding: 4px 2px 2px;
+}
+
+.vcf-app-header h1 {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 30px);
+  line-height: 1.2;
+  color: #3d321d;
+}
+
+.vcf-app-header p,
+.vcf-card-heading p {
+  margin: 4px 0 0;
+  color: var(--vcf-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.vcf-top-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 570px) minmax(430px, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.vcf-board-card > .vcf-annotation-card {
+  margin-top: 12px;
+  padding: 11px;
+  border-radius: 9px;
+  background: #faf6e9;
+  box-shadow: none;
+}
+
+.vcf-card,
+#vcf-app-shell #generator-panel,
+#vcf-app-shell #import-panel {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--vcf-border);
+  border-radius: 12px;
+  background: var(--vcf-card);
+  box-shadow: 0 3px 12px #4f3e1d12;
+}
+
+.vcf-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e7dec6;
+  text-align: left;
+}
+
+.vcf-card-heading h2 {
+  margin: 0;
+  font-size: 17px;
+  color: #46391f;
+}
+
+.vcf-board-wrap {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.vcf-record-navigation,
+.vcf-calculation-navigation {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid #d8caa8;
+  border-radius: 9px;
+  background: #faf6e9;
+}
+
+.vcf-calculation-navigation {
+  border-color: #c8c0ad;
+  background: #f5f3ed;
+  opacity: .72;
+  transition: background .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease;
+}
+
+.vcf-calculation-navigation.is-active {
+  border-color: #d29a2e;
+  background: #fff7df;
+  box-shadow: inset 4px 0 0 #d29a2e;
+  opacity: 1;
+}
+
+.vcf-record-navigation-heading,
+.vcf-calculation-navigation-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #46391f;
+  font-size: 13px;
+}
+
+.vcf-record-navigation-heading span,
+.vcf-calculation-navigation-heading > span {
+  color: var(--vcf-muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.vcf-calculation-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vcf-calculation-group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  color: #6f592c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.vcf-calculation-group-row select {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 9px;
+  border: 1px solid #c99028;
+  border-radius: 7px;
+  background: #fffdf6;
+  color: #4f3b17;
+  font: inherit;
+  font-weight: 600;
+}
+
+.vcf-calculation-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #dedad0;
+  color: #6f685a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.vcf-calculation-navigation.is-active .vcf-calculation-badge {
+  background: #d29a2e;
+  color: #fff;
+}
+
+.vcf-record-navigation-actions,
+.vcf-calculation-navigation-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.vcf-annotation-card textarea {
+  width: 100%;
+  min-height: 150px;
+  padding: 10px 11px;
+  border: 1px solid #cfc3a4;
+  border-radius: 8px;
+  background: #fffefa;
+  color: var(--vcf-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.vcf-annotation-card textarea:focus {
+  outline: 2px solid #8ba8c455;
+  border-color: #789abb;
+}
+
+.vcf-record-comment-meta {
+  margin-top: 7px;
+  color: var(--vcf-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+#vcf-record-navigation-actions button,
+#vcf-calculation-navigation-actions button {
+  min-height: 38px;
+  padding: 7px 5px;
+  font-size: 13px;
+}
+
+#vcf-calculation-navigation.is-active #vcf-calculation-navigation-actions button:not(:disabled) {
+  border-color: #c99028;
+  background: #fffdf6;
+}
+
+#vcf-app-shell #board-svg {
+  width: min(520px, 100%);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  max-width: 100%;
+}
+
+#vcf-app-shell #status,
+#vcf-app-shell #gen-status,
+#vcf-app-shell #import-status {
+  width: 100%;
+  min-width: 0;
+  margin-top: 12px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  line-height: 1.4;
+}
+
+#generator-panel .gen-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 11px;
+  font-size: 14px;
+}
+
+#generator-panel .gen-controls label,
+#generator-panel .gen-controls fieldset {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid #ddd2b5;
+  border-radius: 999px;
+  background: #faf6e9;
+  white-space: nowrap;
+}
+
+#generator-panel .gen-actions,
+#import-toolbar,
+#import-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+}
+
+#vcf-app-shell button {
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  border-color: #c9bea0;
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+#vcf-app-shell button:hover:not(:disabled) {
+  background: var(--vcf-accent-soft);
+  border-color: #8ba8c4;
+}
+
+#vcf-app-shell .vcf-primary-action,
+#generator-panel #gen-btn-generate {
+  color: #fff;
+  background: var(--vcf-accent);
+  border-color: var(--vcf-accent);
+}
+
+#vcf-app-shell .vcf-primary-action:hover:not(:disabled),
+#generator-panel #gen-btn-generate:hover:not(:disabled) {
+  background: #294f78;
+}
+
+#vcf-app-shell .vcf-muted-action {
+  color: #625a48;
+  background: #f2eee4;
+}
+
+#vcf-app-shell .vcf-danger-action {
+  color: #fff;
+  background: var(--vcf-danger);
+  border-color: var(--vcf-danger);
+}
+
+#vcf-app-shell #generator-panel .gen-controls,
+#vcf-app-shell #generator-panel .gen-actions,
+#vcf-app-shell #generator-panel .gen-legend {
+  justify-content: flex-start;
+}
+
+#vcf-app-shell #generator-panel .gen-actions {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 11px;
+}
+
+#vcf-app-shell #generator-panel .gen-note {
+  margin-top: 10px;
+  text-align: left;
+}
+
+#vcf-app-shell #import-panel {
+  max-width: none;
+}
+
+#vcf-app-shell #import-canvases {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#vcf-app-shell .canvas-card {
+  min-width: 0;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+@media (max-width: 820px) {
+  body { padding: 8px; }
+  #vcf-app-shell { gap: 10px; }
+  .vcf-top-grid { grid-template-columns: 1fr; gap: 10px; }
+  .vcf-card,
+  #vcf-app-shell #generator-panel,
+  #vcf-app-shell #import-panel { padding: 11px; border-radius: 10px; }
+  #vcf-app-shell #generator-panel .gen-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .vcf-app-header { padding: 2px 2px 0; }
+  .vcf-app-header p { font-size: 12px; }
+  .vcf-card-heading { margin-bottom: 9px; padding-bottom: 8px; }
+  #generator-panel .gen-controls { gap: 6px; margin-bottom: 9px; }
+  #generator-panel .gen-controls label,
+  #generator-panel .gen-controls fieldset { min-height: 34px; padding: 5px 8px; font-size: 13px; }
+  #generator-panel .gen-actions,
+  #import-toolbar,
+  #import-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  #vcf-app-shell button { min-height: 40px; padding: 7px 6px; font-size: 13px; }
+  #vcf-app-shell #import-canvases { grid-template-columns: 1fr; }
+  #vcf-app-shell #status { margin-top: 9px; }
+  .vcf-record-navigation-heading, .vcf-calculation-navigation-heading { align-items: flex-start; flex-direction: column; }
+  .vcf-record-navigation-heading span, .vcf-calculation-navigation-heading > span { text-align: left; }
+  .vcf-record-navigation-actions, .vcf-calculation-navigation-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 380px) {
+  #generator-panel .gen-actions,
+  #import-toolbar,
+  #import-actions { grid-template-columns: 1fr; }
+}
+
+#vcf-app-shell{width:min(100%,1180px)}
+#vcf-app-shell>.vcf-app-header p,.vcf-card-heading p{display:none}
+.vcf-top-grid{grid-template-columns:minmax(0,570px) minmax(430px,1fr)}
+.vcf-workspace{min-width:0}
+.vcf-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;padding:5px;border:1px solid var(--vcf-border,#d6c89f);border-radius:11px;background:#e8dfc9}
+#vcf-app-shell .vcf-tab{min-height:42px;padding:8px 6px;border:1px solid transparent;border-radius:8px;background:transparent;color:#65583d;font-weight:700}
+#vcf-app-shell .vcf-tab[aria-selected="true"]{border-color:#b9ad8e;background:#fffdf7;color:#304f72;box-shadow:0 2px 6px #59461514}
+.vcf-tab-panel[hidden]{display:none!important}
+.vcf-tab-panel{min-width:0;padding:13px;border:1px solid var(--vcf-border,#d6c89f);border-radius:12px;background:var(--vcf-card,#fffdf7);box-shadow:0 3px 12px #4f3e1d12}
+.vcf-calc-panel{display:grid;gap:10px}
+.vcf-section{display:grid;gap:8px;padding:10px;border:1px solid #e7dec6;border-radius:10px;background:#fffefb}
+.vcf-section-title{margin:0;color:#65583d;font-size:12px;font-weight:800;letter-spacing:.03em}
+.vcf-inline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+#analysis-box{display:flex!important;align-items:center;flex-wrap:wrap;gap:8px!important;font-size:13px!important}
+#analysis-box label,.vcf-inline>label,.vcf-settings-grid>label,#rule-box .vcf-rule-select-label{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:6px 10px;border:1px solid #ddd2b5;border-radius:8px;background:#faf6e9;font-size:13px;font-weight:600;white-space:nowrap}
+#analysis-box label{border-radius:999px}
+.vcf-actions{display:grid;gap:8px;width:100%}
+.vcf-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.vcf-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.vcf-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+#vcf-app-shell button{min-width:0}
+#btn-fast-vcf,#btn-shortest-vcf{color:#000;-webkit-text-fill-color:#000;background:#fff;border-color:#c9bea0;font-weight:700}
+#btn-fast-vcf:hover:not(:disabled),#btn-shortest-vcf:hover:not(:disabled){color:#000;-webkit-text-fill-color:#000;background:#faf6e9}
+.vcf-setting-toggle{display:flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:7px 9px;border:1px solid #c9bea0;border-radius:8px;background:#fff;color:#4f4634;font-size:13px;font-weight:700;cursor:pointer;user-select:none}
+.vcf-setting-toggle.vcf-setting-toggle-active{border-color:#7798b9;background:#e8f0f8;color:#294f78}
+.vcf-settings-card[hidden]{display:none!important}
+.vcf-settings-card{padding:10px;border:1px dashed #cdbf9d;border-radius:9px;background:#fbf7ec}
+.vcf-settings-card h3{margin:0 0 8px;color:#5d5138;font-size:14px}
+.vcf-settings-grid{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+#vcf-rule-select,.vcf-settings-grid select,.vcf-settings-grid input[type="number"]{min-width:0;padding:6px 8px;border:1px solid #bdb397;border-radius:6px;background:#fff;color:inherit;font:inherit}
+.vcf-settings-grid input[type="number"]{width:72px;text-align:right}
+#vcf-multi-pruning{min-width:108px}
+#vcf-add-search-mode{min-width:78px}
+#vcf-app-shell #generator-panel,#vcf-app-shell #import-panel{width:100%;max-width:none;margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+#generator-panel .gen-controls{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px!important;margin:0!important}
+#generator-panel .vcf-gen-group{display:flex;align-content:flex-start;flex-wrap:wrap;gap:8px;min-width:0;padding:10px;border:1px solid #e7dec6;border-radius:9px;background:#fffefb}
+#generator-panel .vcf-gen-group-title{flex-basis:100%;margin:0;color:#65583d;font-size:12px;font-weight:800}
+#generator-panel .gen-controls label,#generator-panel .gen-controls fieldset{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:6px 9px;border:1px solid #ddd2b5;border-radius:8px;background:#faf6e9;white-space:nowrap}
+#generator-panel .gen-actions{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px!important;width:100%;margin:0 0 10px!important}
+#generator-panel .gen-legend{justify-content:flex-start!important;padding:8px 10px;border-radius:8px;background:#faf7ef}
+#generator-panel .gen-note{margin-top:0!important;padding:9px 10px;border-left:3px solid #c9b46f;border-radius:6px;background:#fbf7ea;text-align:left!important}
+#import-panel>.vcf-card-heading{display:none}
+#import-panel #import-toolbar{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px!important;width:100%;margin:0 0 9px!important}
+#import-panel #import-status{margin:0 0 10px!important}
+#import-panel .canvas-card{width:100%;max-width:none;min-width:0;margin:0;padding:10px;border-radius:9px;box-shadow:none}
+#import-panel #import-actions{display:block!important;margin:9px 0 0!important;padding:8px 10px;border-radius:8px;background:#faf7ef;text-align:left;line-height:1.5}
+@media(max-width:920px){.vcf-top-grid{grid-template-columns:1fr}.vcf-workspace{width:100%}}
+@media(max-width:700px){.vcf-cols-4,#generator-panel .gen-actions,#import-panel #import-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}#generator-panel .gen-controls{grid-template-columns:1fr}}
+@media(max-width:520px){.vcf-tabs{gap:4px;padding:4px}#vcf-app-shell .vcf-tab{min-height:40px;padding:7px 4px;font-size:12px}.vcf-cols-3{grid-template-columns:1fr}.vcf-inline,.vcf-settings-grid{align-items:stretch}.vcf-inline>label,.vcf-settings-grid>label{flex:1 1 150px}}
+@media(max-width:360px){.vcf-tabs,.vcf-actions,.vcf-cols-2,.vcf-cols-4,#generator-panel .gen-actions,#import-panel #import-toolbar{grid-template-columns:1fr}}
+
+#bitboard-architecture-panel.bb-quick-actions{width:min(100%,1120px);display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;padding:0;border:0;background:transparent;box-shadow:none}
+#bitboard-architecture-panel.bb-quick-actions .bb-lab-link,
+#bitboard-architecture-panel.bb-quick-actions #bb-hard-refresh,
+#bitboard-architecture-panel.bb-quick-actions #bb-export-file,
+#bitboard-architecture-panel.bb-quick-actions #bb-export-format{min-height:38px;display:inline-flex;align-items:center;justify-content:center;padding:8px 12px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;line-height:1.3;text-decoration:none;cursor:pointer}
+#bitboard-architecture-panel.bb-quick-actions #bb-export-format{padding-right:28px}
+#bitboard-architecture-panel.bb-quick-actions #bb-hard-refresh:disabled,
+#bitboard-architecture-panel.bb-quick-actions #bb-export-file:disabled{opacity:.65;cursor:wait}
+#bitboard-architecture-panel.bb-quick-actions #bb-export-status{font-size:12px;color:#58645b}
+#vcf-workspace-mode-slot:empty{display:none}
+      #vcf-workspace-mode-slot{width:100%}
+      #vcf-workspace-mode{display:grid;gap:8px;margin:0 0 10px;padding:10px;border:1px solid #d5c496;border-radius:10px;background:#fff9e8}
+#vcf-workspace-mode .vcf-workspace-mode-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+#vcf-workspace-mode .vcf-workspace-mode-title{font-weight:800;color:#4d432c}
+#vcf-workspace-mode .vcf-workspace-mode-badge{padding:4px 8px;border-radius:999px;background:#ede4ca;color:#5d5135;font-size:12px;font-weight:700}
+#vcf-workspace-mode button,#vcf-workspace-mode select{min-height:34px;padding:6px 10px;border:1px solid #bbaa7d;border-radius:7px;background:#fff;font:inherit;font-size:13px}
+#vcf-workspace-mode button.is-active{border-color:#477aa8;background:#d9e9f7;color:#214d72;font-weight:800}
+#vcf-workspace-mode .vcf-puzzle-controls[hidden]{display:none!important}
+#vcf-workspace-mode .vcf-workspace-format{margin-left:auto;color:#6c624c;font-size:12px}
+@media(max-width:600px){#vcf-workspace-mode .vcf-workspace-format{width:100%;margin-left:0}}
+
+#vcf-record-navigation-actions{grid-template-columns:repeat(auto-fit,minmax(42px,42px));justify-content:center;align-items:center}
+#vcf-record-navigation-actions .vcf-record-icon-button{width:42px;height:42px;min-height:42px;padding:7px;display:inline-flex;align-items:center;justify-content:center}
+.vcf-record-icon-button img{width:100%;height:100%;object-fit:contain;pointer-events:none}
+.vcf-record-icon-button.is-active{background:#cfe1f4!important;border-color:#477aa8!important;box-shadow:inset 0 0 0 1px #477aa8}
+#vcf-record-marker-text{width:76px;height:42px;padding:6px 8px;border:1px solid #c9bea0;border-radius:8px;background:#fff;font:inherit;text-align:center}
+#vcf-record-marker-text:disabled{opacity:.5}
+.vcf-record-title-wrap{margin:0 0 10px}
+.vcf-record-title-wrap input{width:100%;padding:8px 10px;border:1px solid #cfc3a4;border-radius:8px;background:#fffefa;font:inherit;font-size:16px;font-weight:700;text-align:center}
+.vcf-record-settings-panel{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;padding-top:9px;border-top:1px solid #e1d8c1}
+.vcf-record-settings-panel[hidden]{display:none}
+.vcf-record-settings-panel label{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#625a48}
+.vcf-record-settings-panel input{width:76px;padding:5px 6px;border:1px solid #cfc3a4;border-radius:6px;background:#fff}
+#vcf-record-text-layer{display:none!important}
+#vcf-record-hand-layer,#vcf-record-marker-layer{pointer-events:none}
+@media(max-width:600px){#vcf-record-navigation-actions{grid-template-columns:repeat(8,38px);gap:5px}#vcf-record-navigation-actions .vcf-record-icon-button{width:38px;height:38px;min-height:38px;padding:6px}#vcf-record-marker-text{width:70px;height:38px}}
+
+/* ponytail: native HTML/CSS owns the layout; saved visibility is read before first paint. */
+html:not([data-vcf-tab="generator"]):not([data-vcf-tab="import"]) #vcf-tab-panel-generator,
+html:not([data-vcf-tab="generator"]):not([data-vcf-tab="import"]) #vcf-tab-panel-import,
+html[data-vcf-tab="generator"] #vcf-tab-panel-calculation,
+html[data-vcf-tab="generator"] #vcf-tab-panel-import,
+html[data-vcf-tab="import"] #vcf-tab-panel-calculation,
+html[data-vcf-tab="import"] #vcf-tab-panel-generator,
+html:not([data-vcf-calculation-settings="1"]) #vcf-calculation-settings-card,
+html:not([data-vcf-multi-settings="1"]) #vcf-multi-settings-card,
+html[data-vcf-record-title="0"] #vcf-record-title-wrap,
+html[data-vcf-record-comment="0"] .vcf-annotation-card { display: none; }
+#vcf-app-shell [hidden], .vcf-rule-radio-compat, .vcf-compat-host { display: none !important; }
+#vcf-app-shell .vcf-tab { background: transparent; border-color: transparent; color: #65583d; box-shadow: none; }
+html:not([data-vcf-tab="generator"]):not([data-vcf-tab="import"]) .vcf-tab[data-tab="calculation"],
+html[data-vcf-tab="generator"] .vcf-tab[data-tab="generator"],
+html[data-vcf-tab="import"] .vcf-tab[data-tab="import"] { border-color: #b9ad8e; background: #fffdf7; color: #304f72; box-shadow: 0 2px 6px #59461514; }
+html[data-vcf-calculation-settings="1"] .vcf-calculation-toggle,
+html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; background: #e8f0f8; color: #294f78; }
+#gen-three-multiplier { width: 72px; padding: 5px 7px; border: 1px solid #aaa; border-radius: 4px; text-align: center; font-size: 14px; }
+@media (max-width: 600px) { body { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); } }
+
+#gen-details, #details {
+  display: block !important;
+  margin-top: 8px;
+  color: #685936;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+#gen-details:empty, #details:empty {
+  display: none !important;
+}
+
+#gen-status, #status {
+  white-space: pre-line;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.gen-replay-panel {
+  width: min(100%, 760px);
+  margin: 8px auto 0;
+  padding: 10px 12px;
+  border: 1px solid #c9c9c9;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.08);
+  font-size: 13px;
+}
+.gen-replay-panel[hidden] { display: none !important; }
+.gen-replay-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.gen-replay-toolbar button { min-width: 68px; }
+.gen-replay-count { min-width: 110px; text-align: center; font-weight: 700; }
+.gen-replay-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  text-align: center;
+  flex-wrap: wrap;
+}
+.gen-replay-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 52px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.gen-replay-badge[data-status="passed"] { color: #126b2c; background: #dff4e5; }
+.gen-replay-badge[data-status="failed"] { color: #9a2f24; background: #fbe2df; }
+.gen-replay-badge[data-status="pending"] { color: #6b5a19; background: #fff2bf; }
+.gen-replay-badge[data-status="info"] { color: #285a8e; background: #e2effc; }
+.gen-replay-title { font-weight: 700; }
+.gen-replay-reason {
+  margin-top: 6px;
+  line-height: 1.55;
+  text-align: center;
+  color: #444;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .gen-replay-panel { padding: 9px; }
+  .gen-replay-toolbar button {
+    min-width: 62px;
+    padding-left: 9px;
+    padding-right: 9px;
+  }
+  .gen-replay-count { min-width: 92px; }
+}
+
+.vcf-image-order-canvas-wrap{position:relative;width:100%}
+.vcf-image-order-canvas-wrap>.import-canvas{position:relative;z-index:1}
+#vcf-image-order-overlay{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+#vcf-image-order-panel{margin:0 auto 8px;width:min(100%,780px);padding:9px;border:1px solid #d8c48a;border-radius:6px;background:#fffdf5}
+#vcf-image-order-panel[hidden]{display:none}
+.vcf-image-order-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center}
+.vcf-image-order-controls label{display:inline-flex;gap:5px;align-items:center;font-size:13px}
+.vcf-image-order-history{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:5px}
+.vcf-image-order-history svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#vcf-image-order-current{width:72px;padding:7px 6px;border:1px solid #aaa;border-radius:4px;text-align:center}
+#vcf-image-order-status{margin:7px 0;font-size:12px;line-height:1.5;text-align:center;color:#65552f}
+#vcf-image-order-status.is-error{color:#a0462a;font-weight:600}
+.vcf-image-order-table-wrap{max-height:230px;overflow:auto;border:1px solid #ddd3b8;border-radius:5px;background:#fff}
+#vcf-image-order-table{width:100%;border-collapse:collapse;font-size:12px}
+#vcf-image-order-table th,#vcf-image-order-table td{padding:5px 7px;border-bottom:1px solid #eee6d2;text-align:center}
+#vcf-image-order-table thead th{position:sticky;top:0;background:#f7efd8;z-index:1}
+#vcf-image-order-table tbody tr{cursor:pointer}
+#vcf-image-order-table tbody tr:hover{background:#eef5ff}
+#vcf-image-order-table tbody tr.is-selected{background:#dcecff;outline:1px solid #6b9bd2}
+#vcf-image-order-table tbody tr.is-missing td:first-child{font-weight:700;color:#b25d00}
+#vcf-image-order-table tbody tr.is-invalid{background:#fff0ef;color:#a3342b}
+@media(max-width:600px){
+  #vcf-image-order-panel{padding:7px}
+  .vcf-image-order-controls button{padding:7px 9px}
+  #vcf-image-order-table th,#vcf-image-order-table td{padding:6px 4px}
+}
+
+#vcf-image-order-stage{
+  display:flex;
+  align-items:stretch;
+  justify-content:center;
+  gap:4px;
+  width:min(100%,820px);
+  margin:0 auto;
+}
+#vcf-image-order-stage>.vcf-image-order-canvas-wrap{
+  flex:1 1 auto;
+  width:auto;
+  min-width:0;
+}
+#vcf-image-order-stage>.vcf-image-order-canvas-wrap>.import-canvas{
+  width:100%;
+  height:auto;
+}
+#vcf-image-order-stage>.vcf-image-order-table-wrap{
+  flex:0 0 40px;
+  width:40px;
+  max-height:none;
+  overflow-y:auto;
+  overflow-x:hidden;
+  border:1px solid #cfc4a3;
+  border-radius:5px;
+  background:#fffdf5;
+}
+#vcf-image-order-stage>.vcf-image-order-table-wrap[hidden]{display:none}
+#vcf-image-order-table{width:100%;font-size:9px;border-collapse:collapse}
+#vcf-image-order-table th:nth-child(2),
+#vcf-image-order-table th:nth-child(3),
+#vcf-image-order-table td:nth-child(2),
+#vcf-image-order-table td:nth-child(3){display:none}
+#vcf-image-order-table thead th{
+  padding:3px 1px;
+  background:#f7efd8;
+  font-size:9px;
+  line-height:1.1;
+}
+#vcf-image-order-table tbody tr{
+  cursor:pointer;
+  background:transparent;
+}
+#vcf-image-order-table tbody tr:not(.is-missing){
+  background:#ffe36b;
+  box-shadow:inset 2px 0 #e29b00;
+}
+#vcf-image-order-table tbody tr.is-selected{
+  background:#79c7ff;
+  outline:1px solid #1976c9;
+  outline-offset:-1px;
+}
+#vcf-image-order-table tbody tr.is-invalid{
+  background:#ffaaa3;
+  box-shadow:inset 2px 0 #c4372c;
+}
+#vcf-image-order-table tbody td:first-child{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:16px;
+  height:16px;
+  margin:2px auto;
+  padding:0;
+  border-radius:50%;
+  box-sizing:border-box;
+  font-size:8px;
+  font-weight:800;
+  line-height:1;
+}
+#vcf-image-order-table tbody tr:nth-child(odd) td:first-child{
+  background:#111;
+  color:#fff;
+  border:1px solid #000;
+}
+#vcf-image-order-table tbody tr:nth-child(even) td:first-child{
+  background:#fff;
+  color:#111;
+  border:1px solid #555;
+}
+#vcf-image-order-table tbody tr.is-compact-preview.is-preview-odd td:first-child{background:#111;color:#fff;border-color:#000}
+#vcf-image-order-table tbody tr.is-compact-preview.is-preview-even td:first-child{background:#fff;color:#111;border-color:#555}
+#vcf-image-order-table tbody tr.is-missing td:first-child{opacity:.52}
+#vcf-image-order-overlay{display:none !important}
+#vcf-image-order-dom-overlay{
+  position:absolute;
+  inset:0;
+  z-index:3;
+  pointer-events:none;
+  overflow:hidden;
+}
+.vcf-image-order-board-number{
+  position:absolute;
+  transform:translate(-50%,-50%);
+  width:clamp(20px,3.7vw,26px);
+  height:clamp(20px,3.7vw,26px);
+  padding:0;
+  border-radius:50%;
+  box-sizing:border-box;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-family:Arial,system-ui,sans-serif;
+  font-size:clamp(8px,1.35vw,11px);
+  font-weight:800;
+  line-height:1;
+  text-align:center;
+  pointer-events:none;
+  box-shadow:0 1px 2px rgba(0,0,0,.22);
+}
+.vcf-image-order-board-number.is-black{
+  background:#111;
+  color:#fff;
+  border:2px solid #fff;
+  text-shadow:none;
+}
+.vcf-image-order-board-number.is-white{
+  background:#fff;
+  color:#111;
+  border:2px solid #333;
+  text-shadow:none;
+}
+.vcf-image-order-board-number.is-invalid{
+  border-color:#e02b22;
+  box-shadow:0 0 0 1px rgba(255,255,255,.85),0 0 0 3px rgba(224,43,34,.72);
+}
+@media(max-width:600px){
+  #vcf-image-order-stage{gap:3px}
+  #vcf-image-order-stage>.vcf-image-order-table-wrap{
+    flex-basis:36px;
+    width:36px;
+  }
+  #vcf-image-order-table tbody td:first-child{
+    width:15px;
+    height:15px;
+    margin:1px auto;
+    font-size:7px;
+  }
+}
+
+#vcf-import-mode-dialog[hidden]{display:none!important}
+#vcf-import-mode-dialog{
+  position:fixed;inset:0;z-index:10020;display:flex;align-items:center;justify-content:center;
+  padding:18px;background:rgba(0,0,0,.42)
+}
+.vcf-import-mode-card{
+  width:min(92vw,420px);padding:18px;border:1px solid #cdbb85;border-radius:10px;
+  background:#fffdf5;box-shadow:0 16px 44px rgba(0,0,0,.30);text-align:center
+}
+.vcf-import-mode-card h3{margin:0 0 8px;font-size:18px;color:#3f331d}
+.vcf-import-mode-card p{margin:0 0 14px;font-size:13px;line-height:1.55;color:#6d5b35}
+.vcf-import-mode-actions{display:flex;gap:10px;justify-content:center}
+.vcf-import-mode-actions button{min-width:128px;font-weight:700}
+@media(max-width:520px){
+  .vcf-import-mode-actions{flex-direction:column}
+  .vcf-import-mode-actions button{width:100%}
+}
 </style>
+<script>
+// ponytail: restore layout preferences before parsing the visible workbench, without hiding the page.
+(function restoreWorkbenchPresentation() {
+  try {
+    const view = document.documentElement.dataset;
+    const tab = localStorage.getItem("vcf_workspace_tab");
+    view.vcfTab = ["calculation", "generator", "import"].includes(tab) ? tab : "calculation";
+    for (const kind of ["calculation", "multi"]) {
+      view[kind === "calculation" ? "vcfCalculationSettings" : "vcfMultiSettings"] =
+        localStorage.getItem(`vcf_user_setting_v1:vcf-tab-panel-calculation:id:vcf-show-${kind}-settings`)
+        ?? localStorage.getItem(`vcf_show_${kind}_settings`) ?? "0";
+    }
+    const record = JSON.parse(localStorage.getItem("vcf_record_tools_v1") || "null");
+    view.vcfRecordTitle = record?.showTitle === false ? "0" : "1";
+    view.vcfRecordComment = record?.showComment === false ? "0" : "1";
+  } catch (_) {}
+})();
+</script>
 </head>
 <body>
 
-<svg id="board-svg"></svg>
+<main id="vcf-app-shell">
+  <header class="vcf-app-header"><h1>五子棋工作台</h1></header>
+  <div id="vcf-workspace-mode-slot" class="vcf-workspace-mode-slot">
+    <section id="vcf-workspace-mode" aria-label="工作模式">
+      <div class="vcf-workspace-mode-row">
+        <span class="vcf-workspace-mode-title">工作模式</span>
+        <span class="vcf-workspace-mode-badge" data-mode-badge>尚未選擇</span>
+        <button type="button" data-new-mode="record">新增打譜</button>
+        <button type="button" data-new-mode="puzzle">新增題目</button>
+        <span class="vcf-workspace-format" data-format>請先選擇模式</span>
+      </div>
+      <div class="vcf-workspace-mode-row vcf-puzzle-controls" data-puzzle-controls hidden>
+        <label>攻方
+          <select data-puzzle-attacker aria-label="題目攻方">
+            <option value="1">黑方</option>
+            <option value="2">白方</option>
+          </select>
+        </label>
+        <span data-setup-tools>
+          <button type="button" data-setup-tool="1">放黑子</button>
+          <button type="button" data-setup-tool="2">放白子</button>
+          <button type="button" data-setup-tool="0">橡皮擦</button>
+        </span>
+        <button type="button" data-commit-puzzle>開始編輯解答</button>
+        <button type="button" data-edit-puzzle hidden>重編初始盤面</button>
+      </div>
+    </section>
+  </div>
+  <div class="vcf-top-grid">
+    <section class="vcf-card vcf-board-card">
+      <div class="vcf-card-heading"><h2>棋盤</h2></div>
+      <div id="vcf-record-title-wrap" class="vcf-record-title-wrap"><input id="vcf-record-title" type="text" placeholder="棋譜標題" aria-label="棋譜標題"></div>
+      <div class="vcf-board-wrap">
+        <svg id="board-svg" viewBox="0 0 520 520" width="520" height="520" aria-label="15×15 棋盤">
+      <path d="M22 22V498M22 22H498" stroke="#333" stroke-width="1"/>
+      <path d="M56 22V498M22 56H498" stroke="#333" stroke-width="1"/>
+      <path d="M90 22V498M22 90H498" stroke="#333" stroke-width="1"/>
+      <path d="M124 22V498M22 124H498" stroke="#333" stroke-width="1"/>
+      <path d="M158 22V498M22 158H498" stroke="#333" stroke-width="1"/>
+      <path d="M192 22V498M22 192H498" stroke="#333" stroke-width="1"/>
+      <path d="M226 22V498M22 226H498" stroke="#333" stroke-width="1"/>
+      <path d="M260 22V498M22 260H498" stroke="#333" stroke-width="1"/>
+      <path d="M294 22V498M22 294H498" stroke="#333" stroke-width="1"/>
+      <path d="M328 22V498M22 328H498" stroke="#333" stroke-width="1"/>
+      <path d="M362 22V498M22 362H498" stroke="#333" stroke-width="1"/>
+      <path d="M396 22V498M22 396H498" stroke="#333" stroke-width="1"/>
+      <path d="M430 22V498M22 430H498" stroke="#333" stroke-width="1"/>
+      <path d="M464 22V498M22 464H498" stroke="#333" stroke-width="1"/>
+      <path d="M498 22V498M22 498H498" stroke="#333" stroke-width="1"/>
+      <circle cx="124" cy="124" r="3" fill="#333"/>
+      <circle cx="260" cy="124" r="3" fill="#333"/>
+      <circle cx="396" cy="124" r="3" fill="#333"/>
+      <circle cx="124" cy="260" r="3" fill="#333"/>
+      <circle cx="260" cy="260" r="3" fill="#333"/>
+      <circle cx="396" cy="260" r="3" fill="#333"/>
+      <circle cx="124" cy="396" r="3" fill="#333"/>
+      <circle cx="260" cy="396" r="3" fill="#333"/>
+      <circle cx="396" cy="396" r="3" fill="#333"/>
+        </svg>
+      </div>
+      <div id="status" role="status">引擎初始化中...</div>
+      <section id="vcf-record-navigation" class="vcf-record-navigation">
+        <div class="vcf-record-navigation-heading"><strong>棋譜導覽</strong><span>只控制棋譜本身；VCF 計算結果由下方「展示計算」另外控制。</span></div>
+        <div id="vcf-record-navigation-actions" class="vcf-record-navigation-actions">
+          <button id="btn-vcf-step-prev" type="button" class="vcf-record-icon-button" title="前一手" aria-label="前一手"><img src="rapfi/record-svg/arrow_left.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-vcf-step-next" type="button" class="vcf-record-icon-button" title="次一手" aria-label="次一手"><img src="rapfi/record-svg/arrow_right.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-vcf-branch-prev" type="button" class="vcf-record-icon-button" title="前一個分支或起始點" aria-label="前一個分支或起始點"><img src="rapfi/record-svg/double_arrow_left.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-vcf-branch-next" type="button" class="vcf-record-icon-button" title="次一個分支或末端" aria-label="次一個分支或末端"><img src="rapfi/record-svg/double_arrow_right.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-copy" type="button" class="vcf-record-icon-button" title="複製目前棋譜" aria-label="複製目前棋譜" disabled><img src="rapfi/record-svg/copy.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-photo" type="button" class="vcf-record-icon-button" title="截圖" aria-label="截圖"><img src="rapfi/record-svg/photo.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-edit" type="button" class="vcf-record-icon-button" title="編輯模式" aria-label="編輯模式" disabled><img src="rapfi/record-svg/edit.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-marker" type="button" class="vcf-record-icon-button" title="標記模式" aria-label="標記模式" disabled><img src="rapfi/record-svg/font.svg" alt="" draggable="false" width="28" height="28"></button>
+<input id="vcf-record-marker-text" class="vcf-record-marker-control" type="text" maxlength="12" value="A" placeholder="標記" aria-label="盤面標記文字" hidden>
+<button id="btn-record-mark-a" type="button" class="vcf-record-icon-button vcf-record-marker-control" title="標記文字 A" aria-label="標記文字 A" hidden><img src="rapfi/record-svg/Aa.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-mark-star" type="button" class="vcf-record-icon-button vcf-record-marker-control" title="標記文字 ★" aria-label="標記文字 ★" hidden><img src="rapfi/record-svg/star.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-mark-arrow" type="button" class="vcf-record-icon-button vcf-record-marker-control" title="標記文字 →" aria-label="標記文字 →" hidden><img src="rapfi/record-svg/arrow.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-mark-clear" type="button" class="vcf-record-icon-button vcf-record-marker-control" title="清空標記欄" aria-label="清空標記欄" hidden><img src="rapfi/record-svg/delete.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-delete-branch" type="button" class="vcf-record-icon-button" title="刪除目前棋子及之後分支" aria-label="刪除目前棋子及之後分支" disabled><img src="rapfi/record-svg/cancel.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-numbers" type="button" class="vcf-record-icon-button" title="手順開關" aria-label="手順開關"><img src="rapfi/record-svg/number.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-settings" type="button" class="vcf-record-icon-button" title="設定選項" aria-label="設定選項"><img src="rapfi/record-svg/settings.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-title-toggle" type="button" class="vcf-record-icon-button" title="標題欄開關" aria-label="標題欄開關"><img src="rapfi/record-svg/dock_top.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-comment-toggle" type="button" class="vcf-record-icon-button" title="解說欄開關" aria-label="解說欄開關"><img src="rapfi/record-svg/dock_left.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-flip" type="button" class="vcf-record-icon-button" title="鏡像盤面" aria-label="鏡像盤面"><img src="rapfi/record-svg/flip.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-rotate" type="button" class="vcf-record-icon-button" title="旋轉 90 度盤面" aria-label="旋轉 90 度盤面"><img src="rapfi/record-svg/rotate_90.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-forbidden" type="button" class="vcf-record-icon-button" title="顯示禁手" aria-label="顯示禁手"><img src="rapfi/record-svg/forbidden.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-number-reduce" type="button" class="vcf-record-icon-button" title="設定手順減少值" aria-label="設定手順減少值"><img src="rapfi/record-svg/circle.svg" alt="" draggable="false" width="28" height="28"></button>
+<button id="btn-record-number-hide-first" type="button" class="vcf-record-icon-button" title="設定隱藏前幾手手順" aria-label="設定隱藏前幾手手順"><img src="rapfi/record-svg/circle_n.svg" alt="" draggable="false" width="28" height="28"></button>
+        </div>
+        <div id="vcf-record-settings-panel" class="vcf-record-settings-panel" hidden>
+          <label>手順減少值 <input id="vcf-record-number-reduce-value" type="number" min="0" max="999" step="1" value="0"></label>
+          <label>隱藏前幾手 <input id="vcf-record-number-hide-value" type="number" min="0" max="999" step="1" value="0"></label>
+        </div>
+      </section>
+      <section id="vcf-calculation-navigation" class="vcf-calculation-navigation">
+        <div class="vcf-calculation-navigation-heading">
+          <div class="vcf-calculation-title-row"><strong>展示計算</strong><span id="vcf-calculation-badge" class="vcf-calculation-badge">尚無結果</span></div>
+          <span id="vcf-calculation-navigation-state">VCF 計算完成後，可在這裡獨立逐組、逐手展示；不會改動原棋譜。</span>
+        </div>
+        <div class="vcf-calculation-group-row"><span>計算路線</span><select id="vcf-calculation-group-select" aria-label="VCF 計算組別" disabled></select></div>
+        <div id="vcf-calculation-navigation-actions" class="vcf-calculation-navigation-actions">
+          <button id="btn-vcf-calc-group-prev" type="button" disabled>上一組</button>
+          <button id="btn-vcf-calc-group-next" type="button" disabled>下一組</button>
+          <button id="btn-vcf-calc-step-prev" type="button" disabled>計算上一步</button>
+          <button id="btn-vcf-calc-step-next" type="button" disabled>計算下一步</button>
+        </div>
+      </section>
+      <section class="vcf-card vcf-annotation-card">
+        <div class="vcf-card-heading"><h2>注釋</h2></div>
+        <textarea id="vcf-record-comment-input" rows="7" placeholder="輸入目前盤面的注釋……" aria-label="目前盤面注釋" disabled></textarea>
+        <div id="vcf-record-comment-meta" class="vcf-record-comment-meta">請先選擇打譜模式或題目模式。</div>
+      </section>
+    </section>
+    <div class="vcf-workspace">
+      <div class="vcf-tabs" role="tablist" aria-label="工作台功能">
+        <button id="vcf-tab-calculation" type="button" class="vcf-tab" data-tab="calculation" role="tab" aria-controls="vcf-tab-panel-calculation" aria-selected="true">VCF計算</button>
+        <button id="vcf-tab-generator" type="button" class="vcf-tab" data-tab="generator" role="tab" aria-controls="vcf-tab-panel-generator" aria-selected="false" tabindex="-1">VCF 題目產生器</button>
+        <button id="vcf-tab-import" type="button" class="vcf-tab" data-tab="import" role="tab" aria-controls="vcf-tab-panel-import" aria-selected="false" tabindex="-1">圖片匯入</button>
+      </div>
+      <section id="vcf-tab-panel-calculation" class="vcf-tab-panel vcf-calc-panel" role="tabpanel" aria-labelledby="vcf-tab-calculation">
+        <section class="vcf-section"><h3 class="vcf-section-title">分析</h3><div class="vcf-inline"><div id="analysis-box">分析色：<label><input type="radio" name="acolor" value="1" checked> 黑</label><label><input type="radio" name="acolor" value="2"> 白</label></div></div></section>
+        <section class="vcf-section"><h3 class="vcf-section-title">VCF 搜尋</h3>
+          <div class="vcf-actions vcf-cols-3">
+            <button id="btn-fast-vcf" type="button" title="依目前分析色搜尋第一組 VCF">速找 VCF</button>
+            <button id="btn-shortest-vcf" type="button">最短 VCF</button>
+            <label class="vcf-setting-toggle vcf-calculation-toggle"><input id="vcf-show-calculation-settings" type="checkbox">計算設定</label>
+          </div>
+          <div id="vcf-calculation-settings-card" class="vcf-settings-card"><h3>計算設定</h3><div class="vcf-settings-grid"><label class="vcf-option-number">
+      時間限制：
+      <input id="vcf-multi-time-seconds" type="number" min="0" max="1048575" step="1" inputmode="numeric" value="30">
+      秒
+    </label>
+<label class="vcf-option-number">
+      節點限制：
+      <input id="vcf-multi-node-millions" type="number" min="0" max="1023" step="1" inputmode="numeric" value="20">
+      百萬
+    </label>
+<label class="vcf-option-check">
+      <input id="vcf-simplify-route" type="checkbox">
+      精簡手順
+    </label>
+<label class="vcf-rule-select-label">規則 <select id="vcf-rule-select" aria-label="規則"><option value="2">有禁</option><option value="1">無禁</option><option value="0">自由</option></select></label>
+<label id="show-forbidden-label" hidden><input id="show-forbidden" type="checkbox"> 顯示禁手</label>
+</div></div>
+        </section>
+        <section class="vcf-section"><h3 class="vcf-section-title">多組 VCF</h3>
+          <div class="vcf-actions vcf-cols-4"><button id="btn-multi-vcf" type="button">多組 VCF</button><label class="vcf-setting-toggle vcf-multi-toggle"><input id="vcf-show-multi-settings" type="checkbox">多組設定</label></div>
+          <div id="vcf-multi-settings-card" class="vcf-settings-card"><h3>多組設定</h3><div class="vcf-settings-grid"><label class="vcf-option-select">
+      多組剪枝：
+      <select id="vcf-multi-pruning">
+        <option value="fast">集合子集</option>
+        <option value="strict">完全同盤</option>
+      </select>
+    </label>
+<label class="vcf-option-check" title="同一盤面若有直接連五或活四勝法，只保留全部終局候選，不再搜尋其他死四延伸；快速與嚴格剪枝都適用。"><input id="vcf-stop-after-open-four" type="checkbox">活四不搜後續</label>
+<label id="vcf-same-type-trim-live-four-label" title="勾選：最後以活四取勝時，同型比較只取到活四前一手；未勾選：把活四落子也納入同型比較。"><input id="vcf-same-type-trim-live-four" type="checkbox" checked>同型-活四取前一手</label>
+</div></div>
+        </section>
+        <section class="vcf-section"><h3 class="vcf-section-title">防守</h3><div class="vcf-actions vcf-cols-2"><button id="btn-block-vcf" disabled>單一路線防守</button><button id="btn-block-vcf-all">全部路線防守</button></div></section>
+        <section class="vcf-section"><h3 class="vcf-section-title">延伸搜尋</h3><div class="vcf-actions vcf-cols-4"><button id="btn-level3">VCT 選點</button><button id="btn-add-black">補黑找 VCF</button><button id="btn-add-white">補白找 VCF</button><label class="vcf-option-select">
+      補子搜尋：
+      <select id="vcf-add-search-mode">
+        <option value="single">最速</option>
+        <option value="shortest-one">最短</option>
+      </select>
+    </label></div></section>
+        <section class="vcf-section"><h3 class="vcf-section-title">棋盤操作</h3><div class="vcf-actions vcf-cols-4"><button id="btn-stop" class="vcf-danger-action" disabled>停止</button><button id="btn-continue">繼續搜尋</button><button id="btn-clear-vcf" class="vcf-muted-action">清除標記</button><button id="btn-clear" class="vcf-muted-action">清空棋盤</button></div></section>
+        <div id="rule-box" class="vcf-rule-radio-compat"><label><input type="radio" name="rules" value="2" checked> 有禁</label><label><input type="radio" name="rules" value="1"> 無禁</label><label><input type="radio" name="rules" value="0"> 自由</label></div>
+        <div id="btns" class="vcf-compat-host"><button id="btn-black">找黑 VCF</button><button id="btn-white">找白 VCF</button></div>
+        <div id="btns2" class="vcf-compat-host"><button id="btn-vcf-prev" disabled>上一組</button><button id="btn-vcf-next" disabled>下一組</button></div>
+      </section>
+      <section id="vcf-tab-panel-generator" class="vcf-tab-panel" role="tabpanel" aria-labelledby="vcf-tab-generator">
+        <section id="generator-panel" class="vcf-generator-card">
+    <div class="gen-actions">
+      <button id="gen-btn-generate">產生 2 步 VCF</button>
+      <button id="gen-btn-stop" disabled>停止產生</button>
+      <button id="gen-btn-answer" disabled>顯示答案</button>
+      <button id="gen-btn-npoints" disabled>顯示 N 點</button>
+    </div>
+    <div class="gen-controls">
+      <div class="vcf-gen-group"><h3 class="vcf-gen-group-title">題目條件</h3>
+      <fieldset>
+        <legend>攻方</legend>
+        <label><input type="radio" name="gen-attacker" value="1" checked> 黑</label>
+        <label><input type="radio" name="gen-attacker" value="2"> 白</label>
+      </fieldset>
+      <label>生成步數 <input id="gen-target-steps" type="number" min="1" max="10" step="1" value="2"> 步</label>
+      </div>
+      <div class="vcf-gen-group"><h3 class="vcf-gen-group-title">候選偏好</h3>
+      <label title="0% 不加權；攻方棋，以及死四模板 X 點或五點原有的守方棋，每沿用一顆都套用相同加成；100% 時每顆沿用棋使候選權重增加 99">沿用棋子加成 <input id="gen-bonus-reuse" type="number" min="0" max="100" step="1" value="10">%</label>
+      <label title="以目前盤面全部黑白棋的座標平均值作為分布中心；死四模板正中間那一點越接近分布中心，加成越高">棋子集中加成 <input id="gen-bonus-center" type="number" min="0" max="100" step="1" value="15">%</label>
 
-<div id="rule-box">
-  <label><input type="radio" name="rules" value="2" checked> 有禁手</label>
-  <label><input type="radio" name="rules" value="1"> 無禁手</label>
-</div>
-<div id="btns">
-  <button id="btn-black">黑子VCF</button>
-  <button id="btn-white">白子VCF</button>
-  <button id="btn-stop" disabled>暫停</button>
-  <button id="btn-continue">繼續</button>
-  <button id="btn-clear-vcf">清除路線/分析</button>
-  <button id="btn-clear">清空棋盤</button>
-</div>
-<div id="analysis-box">
-  分析色：
-  <label><input type="radio" name="acolor" value="1" checked> 黑</label>
-  <label><input type="radio" name="acolor" value="2"> 白</label>
-</div>
-<div id="btns2">
-  <button id="btn-block-vcf" disabled>VCF防守</button>
-  <button id="btn-block-vcf-all">全部VCF防守</button>
-  <button id="btn-multi-vcf">多組VCF</button>
-  <button id="btn-vcf-prev" disabled>上一組</button>
-  <button id="btn-vcf-next" disabled>下一組</button>
-  <button id="btn-level3">VCT點</button>
-  <button id="btn-add-black">補黑找VCF</button>
-  <button id="btn-add-white">補白找VCF</button>
-</div>
-<div id="status">引擎初始化中...</div>
-
-<div id="import-panel">
-  <div id="import-toolbar">
+      <label title="未勾選時依候選權重隨機排序；勾選後依總加成權重由高到低逐一驗證，同權重隨機排列"><input id="gen-order-by-bonus" type="checkbox"> 依加成高低排序</label>
+      <label title="死四延伸及 VCF 驗證完成後，依輪到攻方下棋所需的黑白子數補齊缺少的顏色"><input id="gen-balance-stones" type="checkbox" checked> 補齊黑白子數</label>
+      <label title="最後補子時，形成活三或死三的權重倍數">三型加成 <input id="gen-three-multiplier" type="number" min="0" max="1000000" step="1" value="30"> 倍</label>
+      <label title="勾選後，除較短 VCF 外，也會封鎖同一步數但完成盤面不同的其他 VCF"><input id="gen-block-other-vcf" type="checkbox"> 只保留目標 VCF</label>
+      </div>
+    </div>
+    <div id="gen-status">題目產生器初始化中……</div>
+    <section id="gen-replay-combined-panel" class="gen-replay-panel" hidden>
+        <div class="gen-replay-toolbar">
+          <button id="gen-replay-combined-first" type="button">最前</button>
+          <button id="gen-replay-combined-prev" type="button">上一步</button>
+          <span id="gen-replay-combined-count" class="gen-replay-count">0 / 0</span>
+          <button id="gen-replay-combined-next" type="button">下一步</button>
+          <button id="gen-replay-combined-last" type="button">最後</button>
+        </div>
+        <div class="gen-replay-summary">
+          <span id="gen-replay-combined-badge" class="gen-replay-badge" data-status="info">紀錄</span>
+          <span id="gen-replay-combined-title" class="gen-replay-title"></span>
+        </div>
+        <div id="gen-replay-combined-reason" class="gen-replay-reason"></div>
+    </section>
+    <div id="gen-details"></div>
+    <div class="gen-legend">
+      <span><i class="gen-mark gen-both"></i>雙方 N 點</span>
+      <span><i class="gen-mark gen-black"></i>黑方 N 點</span>
+      <span><i class="gen-mark gen-white"></i>白方 N 點</span>
+    </div>
+    <p class="gen-note">可產生 1～10 步。1 步限定死四基礎；2 步以上可使用活三或合法死四基礎，死四路線會多加一層。黑方有禁手時死四基礎因四四禁手而排除。兩項偏好 0% 不加權，100% 完整加成為 100 倍權重。</p>
+        </section>
+      </section>
+      <section id="vcf-tab-panel-import" class="vcf-tab-panel" role="tabpanel" aria-labelledby="vcf-tab-import">
+<div id="import-panel" class="vcf-import-card">
+<div id="import-toolbar">
     <button id="btn-import-image">匯入圖片</button>
     <button id="btn-import-camera">手機拍照</button>
     <button id="btn-import-camera-live">手機拍照1</button>
     <button id="btn-import-redetect" disabled>重新偵測棋盤</button>
     <button id="btn-import-confirm" disabled>確認棋盤區域</button>
     <button id="btn-import-back" hidden>返回調整棋盤</button>
+    <button id="btn-import-move-order" type="button" title="先完成黑白子辨識後，才能加入手順" disabled>加上手順</button>
     <button id="btn-import-apply" hidden>套用到棋盤</button>
     <button id="btn-import-reset" disabled>重設匯入</button>
   </div>
   <div id="import-status">匯入圖片後，可自動抓棋盤範圍；若不準，可拖曳四角修正，再確認並套用。</div>
+  <div id="vcf-image-order-panel" hidden>
+    <div class="vcf-image-order-controls">
+      <label>目前手順 <input id="vcf-image-order-current" type="number" min="1" max="999" step="1" value="1"></label>
+      <button id="vcf-image-order-undo" class="vcf-image-order-history" type="button" aria-label="回上一步" title="回上一步" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5"/><path d="M5 12h8a7 7 0 0 1 7 7"/></svg>
+      </button>
+      <button id="vcf-image-order-redo" class="vcf-image-order-history" type="button" aria-label="回下一步" title="回下一步" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5"/><path d="M19 12h-8a7 7 0 0 0-7 7"/></svg>
+      </button>
+      <button id="vcf-image-order-insert-1" type="button" disabled>插入 1</button>
+      <button id="vcf-image-order-insert-2" type="button" disabled>插入 2</button>
+      <button id="vcf-image-order-compact" type="button">整理缺號</button>
+      <button id="vcf-image-order-clear-selected" type="button" disabled>清除所選</button>
+    </div>
+    <div id="vcf-image-order-status">先從下表點選要開始的手順，再點預覽中的棋子。</div>
+
+  </div>
   <div id="import-canvases">
     <div id="import-canvas-card" class="canvas-card">
       <h3 id="import-view-title">原圖與棋盤框</h3>
       <p id="source-hint">支援上傳、貼上截圖、手機拍照；桌機拖角點，手機可從對應象限任意位置拖曳該角。</p>
-      <canvas id="source-canvas" class="import-canvas" width="900" height="900"></canvas>
+      <div id="vcf-image-order-stage">
+        <div class="vcf-image-order-canvas-wrap">
+          <canvas id="source-canvas" class="import-canvas" width="900" height="900"></canvas>
+          <canvas id="vcf-image-order-overlay" hidden></canvas>
+          <div id="vcf-image-order-dom-overlay"></div>
+        </div>
+    <div class="vcf-image-order-table-wrap" hidden>
+      <table id="vcf-image-order-table">
+        <thead><tr><th>手順</th><th>狀態</th><th>位置</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+      </div>
       <div id="preview-edit-hint" class="hint preview-edit-hint" hidden>
         點一下交點可依序切換「空點 → 黑子 → 白子 → 空點」。標記採半透明顯示，可直接和原圖對照。
       </div>
@@ -321,6 +1362,19 @@ button:disabled { opacity: 0.45; cursor: default; }
   <input id="image-file-input" type="file" accept="image/*" hidden>
   <input id="camera-file-input" type="file" accept="image/*" capture="environment" hidden>
 </div>
+      </section>
+    </div>
+  </div>
+</main>
+<section id="bitboard-architecture-panel" class="bb-quick-actions">
+  <a class="bb-lab-link" href="rapfi/lab.html">Rapfi 官方對照／棋型實驗室</a>
+  <select id="bb-export-format" aria-label="棋譜匯出格式"><option value="yxdb">Rapfi YXDB (.db)</option><option value="lib">RenLib (.lib)</option></select>
+  <button id="bb-export-file" type="button" disabled>匯出棋譜</button>
+  <button id="bb-import-record" class="bb-lab-link" type="button">讀取棋譜／題目</button>
+  <input id="bb-import-record-input" type="file" accept=".db,.lib,.vcf.json,.vcfp,application/json,application/octet-stream" hidden>
+  <button id="bb-hard-refresh" type="button">強制重新整理</button>
+  <span id="bb-export-status" aria-live="polite"></span>
+</section>
 
 <div id="camera-overlay" class="camera-overlay" hidden aria-hidden="true">
   <div class="camera-stage">
@@ -346,6 +1400,24 @@ button:disabled { opacity: 0.45; cursor: default; }
   </div>
 </div>
 
+<div id="vcf-import-mode-dialog" hidden>
+    <div class="vcf-import-mode-card" role="dialog" aria-modal="true" aria-labelledby="vcf-import-mode-title">
+      <h3 id="vcf-import-mode-title">選擇圖片處理方式</h3>
+      <p>一般棋盤請辨識黑白子；若圖片是記譜紙，可直接依交點標記手順。</p>
+      <div class="vcf-import-mode-actions">
+        <button id="vcf-import-mode-recognize" type="button">辨識棋子</button>
+        <button id="vcf-import-mode-order" type="button">加上手順</button>
+      </div>
+    </div>
+</div>
+<script>
+// Keep the saved tab's accessibility state in sync before any external script loads.
+for (const tab of document.querySelectorAll(".vcf-tab")) {
+  const selected = tab.dataset.tab === (document.documentElement.dataset.vcfTab || "calculation");
+  tab.setAttribute("aria-selected", String(selected));
+  tab.tabIndex = selected ? 0 : -1;
+}
+</script>
 <script>
 (function installRootBitboardBridge() {
   let pathname = window.location.pathname;
@@ -585,8 +1657,6 @@ engine._initP
 // ============================================================
 (function() {
   const SIZE = 15, CELL = 34, PAD = 22;
-  const PX = PAD * 2 + CELL * (SIZE - 1);
-  const STARS = [3, 7, 11];
   const NS = "http://www.w3.org/2000/svg";
 
   function el(tag, attrs, parent) {
@@ -597,19 +1667,6 @@ engine._initP
   }
 
   const svg = document.getElementById("board-svg");
-  svg.setAttribute("viewBox", `0 0 ${PX} ${PX}`);
-  svg.setAttribute("width", PX);
-  svg.setAttribute("height", PX);
-
-  // Grid
-  for (let i = 0; i < SIZE; i++) {
-    const p = PAD + i * CELL;
-    el("line", {x1:p,y1:PAD,x2:p,y2:PAD+(SIZE-1)*CELL,stroke:"#333","stroke-width":"1"}, svg);
-    el("line", {x1:PAD,y1:p,x2:PAD+(SIZE-1)*CELL,y2:p,stroke:"#333","stroke-width":"1"}, svg);
-  }
-  for (const r of STARS) for (const c of STARS)
-    el("circle", {cx:PAD+c*CELL,cy:PAD+r*CELL,r:3,fill:"#333"}, svg);
-
   // Stone layer (placed stones)
   const stoneLayer = el("g", {}, svg);
 
@@ -1203,42 +2260,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   const btnImportApply = document.getElementById("btn-import-apply");
   const btnImportReset = document.getElementById("btn-import-reset");
 
-  const importModeStyle = document.createElement("style");
-  importModeStyle.textContent = `
-    #vcf-import-mode-dialog[hidden]{display:none!important}
-    #vcf-import-mode-dialog{
-      position:fixed;inset:0;z-index:10020;display:flex;align-items:center;justify-content:center;
-      padding:18px;background:rgba(0,0,0,.42)
-    }
-    .vcf-import-mode-card{
-      width:min(92vw,420px);padding:18px;border:1px solid #cdbb85;border-radius:10px;
-      background:#fffdf5;box-shadow:0 16px 44px rgba(0,0,0,.30);text-align:center
-    }
-    .vcf-import-mode-card h3{margin:0 0 8px;font-size:18px;color:#3f331d}
-    .vcf-import-mode-card p{margin:0 0 14px;font-size:13px;line-height:1.55;color:#6d5b35}
-    .vcf-import-mode-actions{display:flex;gap:10px;justify-content:center}
-    .vcf-import-mode-actions button{min-width:128px;font-weight:700}
-    @media(max-width:520px){
-      .vcf-import-mode-actions{flex-direction:column}
-      .vcf-import-mode-actions button{width:100%}
-    }
-  `;
-  document.head.appendChild(importModeStyle);
-
-  const importModeDialog = document.createElement("div");
-  importModeDialog.id = "vcf-import-mode-dialog";
-  importModeDialog.hidden = true;
-  importModeDialog.innerHTML = `
-    <div class="vcf-import-mode-card" role="dialog" aria-modal="true" aria-labelledby="vcf-import-mode-title">
-      <h3 id="vcf-import-mode-title">選擇圖片處理方式</h3>
-      <p>一般棋盤請辨識黑白子；若圖片是記譜紙，可直接依交點標記手順。</p>
-      <div class="vcf-import-mode-actions">
-        <button id="vcf-import-mode-recognize" type="button">辨識棋子</button>
-        <button id="vcf-import-mode-order" type="button">加上手順</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(importModeDialog);
+  const importModeDialog = document.getElementById("vcf-import-mode-dialog");
   const btnImportModeRecognize = importModeDialog.querySelector("#vcf-import-mode-recognize");
   const btnImportModeOrder = importModeDialog.querySelector("#vcf-import-mode-order");
 
@@ -3637,7 +4659,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 </script>
 
 <!-- 手機棋盤自適應 -->
-<script src="makevcf-mobile.js"></script>
+<script src="makevcf-mobile.js?v=20261008-static-workbench1"></script>
 <!-- VCF 題目產生器：固定載入順序，不再由功能檔動態插入腳本 -->
 <script src="emoji/emoji.js"></script>
 <script src="eval/EvaluatorJScript.js"></script>
@@ -3648,23 +4670,23 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-generator-base.js"></script>
 <script src="makevcf-generator-layer.js"></script>
 <script src="makevcf-generator-validate.js"></script>
-<script src="makevcf-generator-integrated.js"></script>
-<script src="makevcf-generator-options.js"></script>
+<script src="makevcf-generator-integrated.js?v=20261008-static-workbench1"></script>
+<script src="makevcf-generator-options.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-main.js"></script>
-<script src="makevcf-generator-summary.js"></script>
+<script src="makevcf-generator-summary.js?v=20261008-static-workbench1"></script>
 <!-- 目標盤面、補守、最終補色與回放政策 -->
 <script src="makevcf-generator-search-policy.js"></script>
 <script src="makevcf-generator-finalize.js"></script>
-<script src="makevcf-generator-progress.js"></script>
-<script src="makevcf-generator-status-detail.js"></script>
-<!-- 計算控制項先建立，工作台版面再一次掛載；不做載入後補排版。 -->
-<script src="rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats"></script>
-<script src="rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats"></script>
-<script src="rapfi/vcf-forbidden-overlay.js?v=20260923-calculation-layout1"></script>
-<script src="makevcf-generator-open-four-stop.js"></script>
-<script src="makevcf-layout.js?v=20260923-calculation-layout1"></script>
-<script src="rapfi/rapfi-workbench-header.js?v=20261008-yxdb-lz4-frame1"></script>
-<script src="rapfi/vcf-record-tools.js?v=20261007-copy-record1"></script>
+<script src="makevcf-generator-progress.js?v=20261008-static-workbench1"></script>
+<script src="makevcf-generator-status-detail.js?v=20261008-static-workbench1"></script>
+<!-- 正式 HTML 已包含完整版面；各模組只綁定功能與狀態。 -->
+<script src="rapfi/rapfi-bitboard-dashboard.js?v=20261008-static-workbench1"></script>
+<script src="rapfi/vcf-shortest-vcf-ui.js?v=20261008-static-workbench1"></script>
+<script src="rapfi/vcf-forbidden-overlay.js?v=20261008-static-workbench1"></script>
+<script src="makevcf-generator-open-four-stop.js?v=20261008-static-workbench1"></script>
+<script src="makevcf-layout.js?v=20261008-static-workbench1"></script>
+<script src="rapfi/rapfi-workbench-header.js?v=20261008-static-workbench1"></script>
+<script src="rapfi/vcf-record-tools.js?v=20261008-static-workbench1"></script>
 <script>
 (function scheduleRapfiRecordDatabase(global) {
   const version = "20260921-rapfi-export1";
@@ -3744,7 +4766,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 })(window);
 </script>
 <script src="makevcf-generator-settings-persistence.js?v=20260923-calculation-layout1"></script>
-<script src="makevcf-generator-image-import-fix.js"></script>
+<script src="makevcf-generator-image-import-fix.js?v=20261008-static-workbench1"></script>
 <!-- 根工作台不啟動舊的優化搜尋覆寫 -->
 <script src="makevcf-optimized-search-v2.js"></script>
 

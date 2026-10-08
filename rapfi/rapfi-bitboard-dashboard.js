@@ -1,96 +1,6 @@
 "use strict";
 
 (function initBitboardDashboard() {
-  document.title = "VCF Bitboard C++ WebAssembly 工作台";
-
-  const searchOptions = document.createElement("div");
-  searchOptions.id = "vcf-search-options";
-  searchOptions.innerHTML = `
-    <label class="vcf-option-check">
-      <input id="vcf-simplify-route" type="checkbox">
-      精簡手順
-    </label>
-    <label class="vcf-option-select">
-      多組剪枝：
-      <select id="vcf-multi-pruning">
-        <option value="fast">高速多組 VCF（集合子集）</option>
-        <option value="strict">嚴格多組 VCF（完全同盤）</option>
-      </select>
-    </label>
-    <label class="vcf-option-number">
-      時間限制：
-      <input id="vcf-multi-time-seconds" type="number" min="0" max="2097151" step="1" inputmode="numeric">
-      秒
-    </label>
-    <label class="vcf-option-number">
-      節點限制：
-      <input id="vcf-multi-node-millions" type="number" min="0" max="1023" step="1" inputmode="numeric">
-      百萬
-    </label>
-    <label class="vcf-option-select">
-      補子搜尋：
-      <select id="vcf-add-search-mode">
-        <option value="single">最速</option>
-        <option value="shortest-one">最短</option>
-      </select>
-    </label>
-  `;
-  const analysisBox = document.getElementById("analysis-box");
-  if (analysisBox) analysisBox.insertAdjacentElement("afterend", searchOptions);
-
-  const panel = document.createElement("section");
-  panel.id = "bitboard-architecture-panel";
-  panel.innerHTML = `
-    <div class="bb-title-row">
-      <div>
-        <h1>VCF Bitboard C++ WebAssembly 工作台</h1>
-        <p>單組使用固定式勝負 TT；多組可切換嚴格同盤剪枝或高速集合子集剪枝。棋型、禁手、VCF 遞迴、防守驗證與逐點掃描皆由獨立 C++ Wasm 執行。</p>
-      </div>
-      <a class="bb-lab-link" href="rapfi/lab.html">Rapfi 官方對照／棋型實驗室</a>
-    </div>
-    <div class="bb-status-grid">
-      <div><strong>單組 VCF</strong><span>Rapfi 式固定 bucket TT，找到一組立即回傳</span></div>
-      <div><strong>多組 VCF</strong><span>嚴格完全同盤／高速黑白集合子集兩種剪枝</span></div>
-      <div><strong>多組精簡</strong><span>先以原始手順做子集去重，再精簡保留下來的路線</span></div>
-      <div><strong>平行</strong><span>${window.engineAPI?.workerCount || 1} 個獨立 Wasm Worker</span></div>
-    </div>
-    <p id="bb-engine-status" class="bb-engine-status">Bitboard 引擎初始化中……</p>
-  `;
-
-  const style = document.createElement("style");
-  style.textContent = `
-    #vcf-search-options {
-      display:flex; gap:12px; flex-wrap:wrap; justify-content:center; align-items:center;
-      width:min(100%,1120px); padding:7px 10px; border:1px solid #bdc9b8;
-      border-radius:7px; background:#f7fbf4; font-size:13px;
-    }
-    #vcf-search-options label { display:flex; align-items:center; gap:5px; cursor:pointer; }
-    #vcf-search-options select,
-    #vcf-search-options input[type="number"] {
-      padding:5px 7px; border:1px solid #aaa; border-radius:5px; background:#fff; font-size:13px;
-    }
-    #vcf-search-options input[type="number"] { width:72px; text-align:right; }
-    #bitboard-architecture-panel {
-      width: min(100%, 1120px); padding: 12px 14px; border: 1px solid #8ca28e;
-      border-radius: 8px; background: #f5fff6; box-shadow: 0 2px 8px #0001;
-    }
-    .bb-title-row { display: flex; justify-content: space-between; gap: 14px; align-items: center; flex-wrap: wrap; }
-    .bb-title-row h1 { margin: 0 0 4px; font-size: 20px; color: #194c2b; }
-    .bb-title-row p { margin: 0; font-size: 13px; color: #45634e; line-height: 1.5; }
-    .bb-lab-link { padding: 7px 10px; border: 1px solid #39744c; border-radius: 6px; background: #fff; color: #19512d; text-decoration: none; font-size: 13px; }
-    .bb-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 7px; margin-top: 10px; }
-    .bb-status-grid div { padding: 7px 9px; border-radius: 6px; background: #fff; min-width: 0; }
-    .bb-status-grid strong { display: block; color: #376344; font-size: 11px; margin-bottom: 2px; }
-    .bb-status-grid span { font-size: 12px; line-height: 1.4; }
-    .bb-engine-status { margin: 9px 0 0; padding: 6px 9px; border-radius: 5px; background: #fff7d1; color: #6c561d; font-size: 12px; text-align: center; }
-    .bb-engine-status.ready { background: #daf3e1; color: #145e2c; }
-    .bb-engine-status.error { background: #ffe1de; color: #8b241d; }
-    @media (max-width: 760px) { .bb-status-grid { grid-template-columns: 1fr 1fr; } }
-    @media (max-width: 430px) { .bb-status-grid { grid-template-columns: 1fr; } #vcf-search-options{align-items:stretch;flex-direction:column;} }
-  `;
-  document.head.appendChild(style);
-  document.body.insertBefore(panel, document.body.firstChild);
-
   const simplifyCheck = document.getElementById("vcf-simplify-route");
   const pruningSelect = document.getElementById("vcf-multi-pruning");
   const multiTimeInput = document.getElementById("vcf-multi-time-seconds");
@@ -519,15 +429,4 @@ async function runAddSearch(arr, placeColor) {
 
 window.vcfRegisterSearchHandler?.("add", "workbench-add", runAddSearch, 50);
 
-  const status = panel.querySelector("#bb-engine-status");
-  Promise.all([
-    window.VCFBitboard?.syncReady,
-    window.VCFBitboard?.main?.ready,
-  ]).then(() => {
-    status.className = "bb-engine-status ready";
-    status.textContent = "Bitboard C++ Wasm 已就緒；嚴格與高速多組剪枝已分開實作。";
-  }).catch(error => {
-    status.className = "bb-engine-status error";
-    status.textContent = `Bitboard 引擎初始化失敗：${error?.message || error}`;
-  });
 })();

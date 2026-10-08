@@ -97,20 +97,9 @@ if (dashboard.includes("stopImmediatePropagation")) throw new Error("dashboard s
 const layout = read("makevcf-layout.js");
 new Function(layout); // parse the actual browser layout script, not only string contracts
 for (const token of [
-  'document.title = "五子棋工作台"',
-  '<h1>五子棋工作台</h1>',
-  'workspaceModeSlot.id = "vcf-workspace-mode-slot"',
-  'const analysisSection = section("分析")',
-  'const calcSection = section("VCF 搜尋")',
-  'const multiSection = section("多組 VCF")',
-  'const defenseSection = section("防守")',
-  'const extensionSection = section("延伸搜尋")',
-  'const boardSection = section("棋盤操作")',
-  'prevStepButton.id = "btn-vcf-step-prev"',
-  'nextStepButton.id = "btn-vcf-step-next"',
-  '"btn-vcf-prev": "上一組"',
-  '"btn-vcf-next": "下一組"',
-  'calcGroupSelect.id = "vcf-calculation-group-select"',
+  'const prevStepButton = document.getElementById("btn-vcf-step-prev")',
+  'const nextStepButton = document.getElementById("btn-vcf-step-next")',
+  'const calcGroupSelect = document.getElementById("vcf-calculation-group-select")',
   "calculationDisplay",
   "renderRecordNextMoveMarkers",
   "renderCalculationNextMoveMarkers",
@@ -118,11 +107,9 @@ for (const token of [
   "decompressLZ4Frame",
   "parseYXDB",
   "parseRenLib",
-  'button.id = "bb-import-record"',
   'window.VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, state.history, state.basePly)',
   'window.VCFWorkbenchRecord?.importRoutes?.(routes, rule, openHistory)',
-  'recordNavigation.id = "vcf-record-navigation"',
-  'recordCommentInput.id = "vcf-record-comment-input"',
+  'const recordCommentInput = document.getElementById("vcf-record-comment-input")',
   'replaceRapfiComment',
   'parsedImportState',
   'collectRenLibRoutes',
@@ -185,7 +172,7 @@ if (!recordTools.includes("const basePly = Math.max(0, Math.min(history.length, 
   throw new Error("record hand numbers must ignore imported setup plies");
 }
 for (const token of [
-  'makeIconButton("btn-record-copy", "copy.svg", "複製目前棋譜")',
+  'document.getElementById("btn-record-copy")',
   "history.slice(basePly)",
   "String.fromCharCode(97 + col)",
   "BOARD_SIZE - row",
@@ -200,18 +187,6 @@ if ([112, 128, 81].map(coordinateFromRecordIndex).join("") !== "h8i7g10") {
   throw new Error("record coordinate mapping must use a-o from left to right and 1-15 from bottom to top");
 }
 for (const token of [
-  'double_arrow_left.svg',
-  'photo.svg',
-  'copy.svg',
-  'edit.svg',
-  'font.svg',
-  'cancel.svg',
-  'number.svg',
-  'flip.svg',
-  'rotate_90.svg',
-  'forbidden.svg',
-  'circle.svg',
-  'circle_n.svg',
   'vcf-record-marker-text',
   'deleteCurrentAndFollowing',
   'transformRecord(4)',
@@ -240,8 +215,6 @@ for (const token of [
   "createYXDB",
   "addYXDBSetupPath",
   "createRenLib",
-  'Rapfi YXDB (.db)',
-  'RenLib (.lib)',
   'rootRecordText',
   'setCurrentRecordText',
   'vcf-record-state-changed',
@@ -420,7 +393,6 @@ if (header.includes("routes = vcfGroups.map") || header.includes("lastVCFMoves")
 }
 for (const token of [
   'global.VCFWorkbenchRecord?.exportYXDB?.()',
-  '<button id="bb-export-file" type="button">匯出棋譜</button>',
 ]) if (!header.includes(token)) throw new Error("Rapfi DB direct export contract missing: " + token);
 
 
@@ -463,7 +435,7 @@ if (!pureStatsShortest.includes("global.vcfFormatPureEngineStats?.(info)")) {
 if (!pureStatsMain.includes("nodesPerSecond: elapsedMs > 0 ? nodeCount * 1000 / elapsedMs : 0")) {
   throw new Error("parallel engine result must return pure throughput");
 }
-if (!pureStatsHtml.includes('rapfi/vcf-shortest-vcf-ui.js?v=20260914-pure-engine-stats')) {
+if (!pureStatsHtml.includes('rapfi/vcf-shortest-vcf-ui.js?v=20261008-static-workbench1')) {
   throw new Error("pure engine stats scripts must be cache-busted");
 }
 console.log("Workbench and repository architecture checks passed");
@@ -481,12 +453,11 @@ if (!header.includes('normalizeSetupHistory')) throw new Error('YXDB setup path 
 
 // Manual record-tree navigation and visible annotation contract.
 for (const token of [
-  'calculationNavigation.id = "vcf-calculation-navigation"',
-  '<strong>展示計算</strong>',
-  'calcPrevStepButton.id = "btn-vcf-calc-step-prev"',
-  'calcNextStepButton.id = "btn-vcf-calc-step-next"',
-  'calcPrevGroupButton.id = "btn-vcf-calc-group-prev"',
-  'calcNextGroupButton.id = "btn-vcf-calc-group-next"',
+  'const calculationNavigation = document.getElementById("vcf-calculation-navigation")',
+  'const calcPrevStepButton = document.getElementById("btn-vcf-calc-step-prev")',
+  'const calcNextStepButton = document.getElementById("btn-vcf-calc-step-next")',
+  'const calcPrevGroupButton = document.getElementById("btn-vcf-calc-group-prev")',
+  'const calcNextGroupButton = document.getElementById("btn-vcf-calc-group-next")',
   'window.addEventListener("vcf-result-changed"',
   'calculationNavigation.classList.toggle("is-active", hasResult)',
 ]) if (!layout.includes(token)) throw new Error(`calculation display contract missing: ${token}`);
@@ -514,8 +485,8 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("index.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20260923-calculation-layout1')
-    || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20260914-pure-engine-stats')) {
+if (!calculationEntry.includes('makevcf-layout.js?v=20261008-static-workbench1')
+    || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20261008-static-workbench1')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
 const calculationControlOrder = [
@@ -527,25 +498,70 @@ const calculationControlOrder = [
 ].map(name => calculationEntry.indexOf(`<script src="${name}`));
 if (calculationControlOrder.some(index => index < 0)
     || calculationControlOrder.some((index, position) => position && index <= calculationControlOrder[position - 1])) {
-  throw new Error("calculation controls must exist before the canonical layout mounts them");
+  throw new Error("calculation behavior modules must initialize before workbench bindings");
 }
-for (const section of ["分析", "VCF 搜尋", "多組 VCF", "防守", "延伸搜尋", "棋盤操作"]) {
-  if (!layout.includes(`section("${section}")`)) throw new Error(`calculation section missing: ${section}`);
+// The first response contains the final layout before any network-loaded module.
+const restorePresentation = calculationEntry.match(/<script>\n\/\/ ponytail: restore layout preferences[\s\S]*?<\/script>/)[0].replace(/<\/?script>/g, "");
+for (const values of [null, {}, {vcf_workspace_tab: "import", vcf_show_calculation_settings: "1", vcf_record_tools_v1: '{"showTitle":false}'}, {vcf_workspace_tab: "invalid", vcf_record_tools_v1: "broken"}]) {
+  const dataset = {};
+  require("vm").runInNewContext(restorePresentation, {
+    document: {documentElement: {dataset}},
+    localStorage: {getItem: key => { if (values === null) throw new Error("storage blocked"); return values[key] ?? null; }},
+  });
+  if (values?.vcf_workspace_tab === "import") {
+    if (dataset.vcfTab !== "import" || dataset.vcfCalculationSettings !== "1" || dataset.vcfRecordTitle !== "0") throw new Error("saved layout must restore before first paint");
+  } else if (values && dataset.vcfTab !== "calculation") throw new Error("invalid or empty preferences must use the calculation tab");
 }
-if (!layout.includes('move(document.getElementById("btn-shortest-vcf"), calcRow)')
-    || !layout.includes('move(document.getElementById("btn-multi-vcf"), multiRow)')
-    || !layout.includes('Array.from(searchOptions?.children || []).forEach(element => move(element, calcSettingsGrid))')
-    || layout.includes('move(document.getElementById("btn-vcf-prev"), multiRow)')
-    || layout.includes('move(document.getElementById("btn-vcf-next"), multiRow)')) {
-  throw new Error("calculation controls or result navigation are in the wrong section");
+const initialMarkup = calculationEntry.split("<body>")[1].split("<script>")[0];
+const initialIds = Array.from(initialMarkup.matchAll(/\bid="([^"]+)"/g), match => match[1]);
+if (new Set(initialIds).size !== initialIds.length) throw new Error("initial interface contains duplicate control IDs");
+for (const id of [
+  "vcf-app-shell", "vcf-workspace-mode-slot", "vcf-workspace-mode", "board-svg",
+  "vcf-record-title", "vcf-record-navigation", "btn-record-copy", "vcf-record-comment-input",
+  "vcf-calculation-navigation", "vcf-calculation-group-select",
+  "vcf-tab-panel-calculation", "vcf-tab-panel-generator", "vcf-tab-panel-import",
+  "btn-fast-vcf", "btn-shortest-vcf", "vcf-calculation-settings-card", "vcf-multi-settings-card",
+  "vcf-stop-after-open-four", "vcf-same-type-trim-live-four", "show-forbidden",
+  "generator-panel", "gen-order-by-bonus", "gen-balance-stones", "gen-block-other-vcf",
+  "bb-import-record", "bb-export-file", "bb-hard-refresh", "gen-replay-combined-panel", "btn-import-move-order", "vcf-image-order-panel", "vcf-image-order-stage", "vcf-import-mode-dialog",
+]) {
+  if ((initialMarkup.match(new RegExp(`id="${id}"`, "g")) || []).length !== 1) {
+    throw new Error(`final control must exist exactly once in initial HTML: ${id}`);
+  }
 }
-if (layout.includes("vcf-search-card") || layout.includes("oldStack.replaceWith")) {
-  throw new Error("the workbench still builds and replaces a legacy control layout");
+const sections = Array.from(initialMarkup.matchAll(/class="vcf-section-title">([^<]+)/g), match => match[1]);
+if (sections.join(",") !== "分析,VCF 搜尋,多組 VCF,防守,延伸搜尋,棋盤操作") {
+  throw new Error("initial calculation sections are missing or out of order");
+}
+for (const [title, ids] of [
+  ["VCF 搜尋", ["btn-fast-vcf", "btn-shortest-vcf", "vcf-calculation-settings-card"]],
+  ["多組 VCF", ["btn-multi-vcf", "vcf-multi-settings-card"]],
+  ["防守", ["btn-block-vcf", "btn-block-vcf-all"]],
+  ["延伸搜尋", ["btn-level3", "btn-add-black", "btn-add-white"]],
+  ["棋盤操作", ["btn-stop", "btn-continue", "btn-clear-vcf", "btn-clear"]],
+]) {
+  const section = initialMarkup.split(`class="vcf-section-title">${title}</h3>`)[1].split('class="vcf-section-title">')[0];
+  for (const id of ids) if (!section.includes(`id="${id}"`)) throw new Error(`${id} is outside its initial section: ${title}`);
+}
+if (!initialMarkup.includes('viewBox="0 0 520 520"') || !initialMarkup.includes('d="M22 22V498M22 22H498"')) {
+  throw new Error("the board grid must be visible before the engine script loads");
+}
+for (const file of [
+  "makevcf-layout.js", "makevcf-generator-integrated.js", "makevcf-generator-options.js",
+  "rapfi/rapfi-bitboard-dashboard.js", "rapfi/rapfi-workbench-header.js", "rapfi/vcf-record-tools.js",
+  "makevcf-generator-summary.js", "makevcf-generator-status-detail.js", "makevcf-generator-progress.js", "makevcf-mobile.js",
+]) {
+  const source = read(file);
+  if (/createElement\("(?:style|section|button|label)"\)|innerHTML\s*=|insertAdjacentElement/.test(source)) {
+    throw new Error(`${file} must bind the initial interface without rebuilding it`);
+  }
+}
+if (layout.includes("vcf-interface-pending") || layout.includes("vcf-interface-ready")) {
+  throw new Error("the interface must not be hidden while a second layout is assembled");
 }
 
 for (const token of [
-  'boardCard.appendChild(annotationCard)',
-  'recordCommentInput.id = "vcf-record-comment-input"',
+  'const recordCommentInput = document.getElementById("vcf-record-comment-input")',
   'renderRecordNextMoveMarkers',
   'vcf-record-next-move-layer',
   'VCFWorkbenchRecord?.navigateStep?.(-1)',
@@ -604,12 +620,6 @@ for (const token of [
 ]) if (!header.includes(token)) throw new Error(`YXDB LZ4 export contract missing: ${token}`);
 
 for (const token of [
-  'id = "vcf-workspace-mode"',
-  'document.getElementById("vcf-workspace-mode-slot")',
-  'workspaceModeSlot.appendChild(panel)',
-  'data-new-mode="record"',
-  'data-new-mode="puzzle"',
-  'data-commit-puzzle',
   '儲存格式：VCF 題目容器',
 ]) if (!header.includes(token)) throw new Error(`workspace mode UI contract missing: ${token}`);
 if (header.includes("boardCard.insertBefore(panel, boardWrap)") || header.includes("boardCard.prepend(panel)")) {
@@ -618,7 +628,6 @@ if (header.includes("boardCard.insertBefore(panel, boardWrap)") || header.includ
 for (const token of [
   'lowerName.endsWith(".vcf.json")',
   'VCFWorkbenchRecord?.importPuzzle?.(payload)',
-  'input.accept = ".db,.lib,.vcf.json,.vcfp,application/json,application/octet-stream"',
 ]) if (!layout.includes(token)) throw new Error(`VCF puzzle import contract missing: ${token}`);
 if (header.includes('\\${currentRule}') || header.includes('\\${savedRule}')) {
   throw new Error("escaped template literal regression remains in Rapfi workbench record state");
@@ -639,9 +648,9 @@ for (const forbiddenToken of [
 }
 const entry = read("index.html");
 for (const token of [
-  'makevcf-layout.js?v=20260923-calculation-layout1',
-  'rapfi/rapfi-workbench-header.js?v=20261008-yxdb-lz4-frame1',
-  'rapfi/vcf-record-tools.js?v=20261007-copy-record1',
+  'makevcf-layout.js?v=20261008-static-workbench1',
+  'rapfi/rapfi-workbench-header.js?v=20261008-static-workbench1',
+  'rapfi/vcf-record-tools.js?v=20261008-static-workbench1',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
   'global.VCFWorkbenchRecord?.ensureActive?.()',
@@ -751,7 +760,6 @@ for (const token of [
   'JSON.stringify({ ...state, version: SETTINGS_VERSION })',
 ]) if (!recordToolsMarkerToggle.includes(token)) throw new Error(`direct board edit contract missing: ${token}`);
 for (const token of [
-  'markerInput.classList.add("vcf-record-marker-control")',
   'const markerControlsVisible = state.editMode && state.markerMode',
   'markerInput.hidden = !markerControlsVisible',
   'button.hidden = !markerControlsVisible',

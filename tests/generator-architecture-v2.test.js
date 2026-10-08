@@ -107,6 +107,6 @@ for (const token of ["vcf-question-bank", "vcf-question-bank-ready", "Supabase"]
   if (generatorLayout.includes(token)) throw new Error(`removed question-bank layout contract remains: ${token}`);
 }
 
-if (!scripts.includes("makevcf-layout.js?v=20260923-calculation-layout1")) throw new Error("canonical UI owner is not loaded");
+if (!scripts.includes("makevcf-layout.js?v=20261008-static-workbench1")) throw new Error("canonical UI owner is not loaded");
 
 console.log("Generator final architecture checks passed");

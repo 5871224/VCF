@@ -711,72 +711,8 @@
   const HISTORY_LIMIT = 200;
   let lastFreshAssignment = { index: -1, time: 0 };
 
-  const style = document.createElement("style");
-  style.id = "vcf-image-move-order-style";
-  style.textContent = `
-    .vcf-image-order-canvas-wrap{position:relative;width:100%}
-    .vcf-image-order-canvas-wrap>.import-canvas{position:relative;z-index:1}
-    #vcf-image-order-overlay{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
-    #vcf-image-order-panel{margin:0 auto 8px;width:min(100%,780px);padding:9px;border:1px solid #d8c48a;border-radius:6px;background:#fffdf5}
-    #vcf-image-order-panel[hidden]{display:none}
-    .vcf-image-order-controls{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:center}
-    .vcf-image-order-controls label{display:inline-flex;gap:5px;align-items:center;font-size:13px}
-    .vcf-image-order-history{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;padding:5px}
-    .vcf-image-order-history svg{width:20px;height:20px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-    #vcf-image-order-current{width:72px;padding:7px 6px;border:1px solid #aaa;border-radius:4px;text-align:center}
-    #vcf-image-order-status{margin:7px 0;font-size:12px;line-height:1.5;text-align:center;color:#65552f}
-    #vcf-image-order-status.is-error{color:#a0462a;font-weight:600}
-    .vcf-image-order-table-wrap{max-height:230px;overflow:auto;border:1px solid #ddd3b8;border-radius:5px;background:#fff}
-    #vcf-image-order-table{width:100%;border-collapse:collapse;font-size:12px}
-    #vcf-image-order-table th,#vcf-image-order-table td{padding:5px 7px;border-bottom:1px solid #eee6d2;text-align:center}
-    #vcf-image-order-table thead th{position:sticky;top:0;background:#f7efd8;z-index:1}
-    #vcf-image-order-table tbody tr{cursor:pointer}
-    #vcf-image-order-table tbody tr:hover{background:#eef5ff}
-    #vcf-image-order-table tbody tr.is-selected{background:#dcecff;outline:1px solid #6b9bd2}
-    #vcf-image-order-table tbody tr.is-missing td:first-child{font-weight:700;color:#b25d00}
-    #vcf-image-order-table tbody tr.is-invalid{background:#fff0ef;color:#a3342b}
-    @media(max-width:600px){
-      #vcf-image-order-panel{padding:7px}
-      .vcf-image-order-controls button{padding:7px 9px}
-      #vcf-image-order-table th,#vcf-image-order-table td{padding:6px 4px}
-    }
-  `;
-  document.head.appendChild(style);
-
-  const toggleButton = document.createElement("button");
-  toggleButton.id = "btn-import-move-order";
-  toggleButton.type = "button";
-  toggleButton.textContent = "加上手順";
-  toggleButton.disabled = true;
-  toggleButton.title = "先完成黑白子辨識後，才能加入手順";
-  importToolbar.insertBefore(toggleButton, applyButton);
-
-  const panel = document.createElement("div");
-  panel.id = "vcf-image-order-panel";
-  panel.hidden = true;
-  panel.innerHTML = `
-    <div class="vcf-image-order-controls">
-      <label>目前手順 <input id="vcf-image-order-current" type="number" min="1" max="999" step="1" value="1"></label>
-      <button id="vcf-image-order-undo" class="vcf-image-order-history" type="button" aria-label="回上一步" title="回上一步" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7 4 12l5 5"/><path d="M5 12h8a7 7 0 0 1 7 7"/></svg>
-      </button>
-      <button id="vcf-image-order-redo" class="vcf-image-order-history" type="button" aria-label="回下一步" title="回下一步" disabled>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 7 5 5-5 5"/><path d="M19 12h-8a7 7 0 0 0-7 7"/></svg>
-      </button>
-      <button id="vcf-image-order-insert-1" type="button" disabled>插入 1</button>
-      <button id="vcf-image-order-insert-2" type="button" disabled>插入 2</button>
-      <button id="vcf-image-order-compact" type="button">整理缺號</button>
-      <button id="vcf-image-order-clear-selected" type="button" disabled>清除所選</button>
-    </div>
-    <div id="vcf-image-order-status">先從下表點選要開始的手順，再點預覽中的棋子。</div>
-    <div class="vcf-image-order-table-wrap">
-      <table id="vcf-image-order-table">
-        <thead><tr><th>手順</th><th>狀態</th><th>位置</th></tr></thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  `;
-  importPanel.insertBefore(panel, importCanvases);
+  const toggleButton = document.getElementById("btn-import-move-order");
+  const panel = document.getElementById("vcf-image-order-panel");
 
   const currentInput = panel.querySelector("#vcf-image-order-current");
   const undoButton = panel.querySelector("#vcf-image-order-undo");
@@ -786,15 +722,9 @@
   const compactButton = panel.querySelector("#vcf-image-order-compact");
   const clearSelectedButton = panel.querySelector("#vcf-image-order-clear-selected");
   const orderStatus = panel.querySelector("#vcf-image-order-status");
-  const tableBody = panel.querySelector("tbody");
+  const tableBody = document.getElementById("vcf-image-order-table").querySelector("tbody");
 
-  const wrapper = document.createElement("div");
-  wrapper.className = "vcf-image-order-canvas-wrap";
-  sourceCanvas.parentNode.insertBefore(wrapper, sourceCanvas);
-  wrapper.appendChild(sourceCanvas);
-  const overlay = document.createElement("canvas");
-  overlay.id = "vcf-image-order-overlay";
-  wrapper.appendChild(overlay);
+  const overlay = document.getElementById("vcf-image-order-overlay");
   const overlayContext = overlay.getContext("2d");
 
   function readBoard() {
