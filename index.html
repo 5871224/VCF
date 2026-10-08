@@ -1189,7 +1189,18 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
             <label data-mark-text hidden>單字 <input id="vcf-record-marker-text" type="text" maxlength="2" value="A" aria-label="標記文字"></label>
             <span id="vcf-static-marker-help">點擊交點新增圓圈；右鍵刪除該交點標記</span>
           </div>
-          <div id="vcf-static-marker-palette" class="vcf-static-marker-palette" role="group" aria-label="標記顏色"></div>
+          <div id="vcf-static-marker-palette" class="vcf-static-marker-palette" role="group" aria-label="標記顏色">
+<button type="button" data-mark-color="0" title="紅" aria-label="紅" aria-pressed="true" style="background-color:#E53935" class="is-active"></button>
+<button type="button" data-mark-color="1" title="橙" aria-label="橙" aria-pressed="false" style="background-color:#F57C00"></button>
+<button type="button" data-mark-color="2" title="黃" aria-label="黃" aria-pressed="false" style="background-color:#FBC02D"></button>
+<button type="button" data-mark-color="3" title="綠" aria-label="綠" aria-pressed="false" style="background-color:#43A047"></button>
+<button type="button" data-mark-color="4" title="青" aria-label="青" aria-pressed="false" style="background-color:#00ACC1"></button>
+<button type="button" data-mark-color="5" title="藍" aria-label="藍" aria-pressed="false" style="background-color:#1E88E5"></button>
+<button type="button" data-mark-color="6" title="紫" aria-label="紫" aria-pressed="false" style="background-color:#8E24AA"></button>
+<button type="button" data-mark-color="7" title="粉紅" aria-label="粉紅" aria-pressed="false" style="background-color:#EC407A"></button>
+<button type="button" data-mark-color="8" title="黑" aria-label="黑" aria-pressed="false" style="background-color:#212121"></button>
+<button type="button" data-mark-color="9" title="白" aria-label="白" aria-pressed="false" style="background-color:#FFFFFF"></button>
+</div>
         </div>
         <div id="vcf-record-settings-panel" class="vcf-record-settings-panel" hidden>
           <label>手順減少值 <input id="vcf-record-number-reduce-value" type="number" min="0" max="999" step="1" value="0"></label>
