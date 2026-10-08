@@ -72,8 +72,11 @@
   function eraseAt(x, y) {
     const key = route();
     if (!key || !routes[key]) return false;
-    const next = routes[key].filter(item => !(item.x === x && item.y === y)
-      && !(item.type === "line" || item.type === "arrow") || !(item.tx === x && item.ty === y));
+    const next = routes[key].filter(item => {
+      const start = item.x === x && item.y === y;
+      const end = (item.type === "line" || item.type === "arrow") && item.tx === x && item.ty === y;
+      return !start && !end;
+    });
     if (next.length === routes[key].length) return false;
     if (next.length) routes[key] = next;
     else delete routes[key];
@@ -138,7 +141,11 @@
       body = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
       flag = 1;
     }
-    return Uint8Array.from([...MAGIC, flag, ...body]);
+    const output = new Uint8Array(MAGIC.length + 1 + body.length);
+    output.set(MAGIC, 0);
+    output[MAGIC.length] = flag;
+    output.set(body, MAGIC.length + 1);
+    return output;
   }
   async function decode(input) {
     const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
