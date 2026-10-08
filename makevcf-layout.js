@@ -738,10 +738,47 @@
   async function loadRecordBytes(rawBytes, fileName = "棋譜.db", options = {}) {
     const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes || 0);
     const lowerName = String(fileName || "").toLowerCase();
+    const looksVCFDB = lowerName.endsWith(".vcfdb") || (bytes.length >= 6 && [86,67,70,68,66,1].every((v,i) => bytes[i] === v));
     const looksPuzzle = lowerName.endsWith(".vcf.json") || lowerName.endsWith(".vcfp");
     const looksRenLib = lowerName.endsWith(".lib")
       || (bytes.length >= 8 && bytes[0] === 0xff && bytes[1] === 0x52 && bytes[2] === 0x65 && bytes[3] === 0x6e);
+    if (looksVCFDB) {
+      const annotations = window.VCFStaticAnnotations;
+      if (!annotations) throw new Error("VCFDB 標記模組尚未載入");
+      const doc = await annotations.decode(bytes);
+      const record = doc.record;
+      let loaded;
+      let nodeCount = 0;
+      if (record.kind === "puzzle") {
+        loaded = await window.VCFWorkbenchRecord?.importPuzzle?.(record.puzzle);
+        nodeCount = Object.keys(record.puzzle?.nodes || {}).length;
+      } else if (record.kind === "yxdb") {
+        if (typeof record.data !== "string" || !Array.isArray(record.history)
+          || record.history.length > 225 || ![0,1,2].includes(record.rule)
+          || !record.history.every(move => Number.isInteger(move) && move >= 0 && move < 225)
+          || !Number.isInteger(record.basePly) || record.basePly < 0 || record.basePly > record.history.length) {
+          throw new Error("VCFDB 棋譜資料不正確");
+        }
+        const dbBytes = annotations.unbase64(record.data);
+        const parsed = parseYXDB(dbBytes);
+        if (parsed.rule !== record.rule) throw new Error("VCFDB 規則與 YXDB 不一致");
+        loaded = await window.VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, record.history, record.basePly);
+        nodeCount = parsed.nodeCount;
+      }
+      if (!loaded) throw new Error("VCFDB 棋譜無法還原");
+      annotations.importData(doc.annotations || {});
+      const title = document.getElementById("vcf-record-title");
+      if (title) {
+        title.value = String(doc.title || "").slice(0, 250);
+        title.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      const currentPly = Math.max(0, Number(window.VCFRapfiDB?.ply?.() || 0) - Number(record.basePly || 0));
+      reportRecordImport("VCFDB", fileName, nodeCount, currentPly);
+      return { format: "VCFDB", nodeCount, rootCount: 1, currentPly };
+    }
+
     document.getElementById("btn-clear-vcf")?.click();
+    window.VCFStaticAnnotations?.reset?.();
 
     if (looksPuzzle) {
       if (bytes.length > 16 * 1024 * 1024) throw new Error("VCF 題目容器超過 16 MB 上限");
