@@ -17,9 +17,6 @@
 
   let authUser = null;
   let googleClientId = "";
-  let indexModulePromise = null;
-  let indexModule = null;
-  let indexedMeta = null;
 
   class ByteWriter {
     constructor(initial = 1024) {
@@ -308,8 +305,7 @@
     if (token) {
       try { await fetch(`${API_URL}?action=auth_logout`, { method: "POST", mode: "cors", cache: "no-store", headers: authHeaders() }); } catch (_) {}
     }
-    setToken(""); authUser = null; indexedMeta = null;
-    refreshAuthUI();
+    setToken(""); authUser = null;     refreshAuthUI();
     status("已登出 Google 帳號。");
   }
 
@@ -353,73 +349,14 @@
     return jsonResponse(response);
   }
 
-  async function ensureIndexModule() {
-    if (indexModule) return indexModule;
-    if (!indexModulePromise) {
-      if (typeof global.VCFYxdbIndexModule !== "function") throw new Error("YXDB WASM 模組尚未載入");
-      indexModulePromise = global.VCFYxdbIndexModule({
-        locateFile: file => new URL(`rapfi/engine/${file}`, location.href).href,
-      }).then(module => {
-        module._yxdbLoad = module.cwrap("vcfYxdbLoadFrame", "number", ["number", "number"]);
-        module._yxdbQueryBoard = module.cwrap("vcfYxdbQueryBoard", "number", ["number", "number"]);
-        module._yxdbTextPtr = module.cwrap("vcfYxdbResultTextPtr", "number", []);
-        module._yxdbTextLength = module.cwrap("vcfYxdbResultTextLength", "number", []);
-        module._yxdbRecordCount = module.cwrap("vcfYxdbRecordCount", "number", []);
-        module._yxdbRawSize = module.cwrap("vcfYxdbRawSize", "number", []);
-        module._yxdbIndexSlots = module.cwrap("vcfYxdbIndexSlots", "number", []);
-        indexModule = module;
-        return module;
-      });
-    }
-    return indexModulePromise;
-  }
-  async function loadIntoIndex(bytes, meta = {}) {
-    const module = await ensureIndexModule();
-    const ptr = module._malloc(bytes.length);
-    try {
-      module.HEAPU8.set(bytes, ptr);
-      const count = module._yxdbLoad(ptr, bytes.length);
-      if (count < 0) throw new Error(`YXDB WASM 解析失敗（${count}）`);
-      indexedMeta = { ...meta, recordCount: count, rawSize: module._yxdbRawSize(), indexSlots: module._yxdbIndexSlots() };
-      global.VCFCloudYXDB.currentBytes = bytes;
-      global.VCFCloudYXDB.currentMeta = indexedMeta;
-      refreshQueryButton();
-      return indexedMeta;
-    } finally { module._free(ptr); }
-  }
   async function load(id) {
     const result = await fetchRecord(id);
-    await loadIntoIndex(result.bytes, result.meta);
     const importer = global.VCFRecordImportAPI;
     if (!importer?.loadBytes) throw new Error("棋譜載入模組尚未就緒，請重新整理頁面後再試");
     const title = String(result.meta?.title || "").trim();
     const imported = await importer.loadBytes(result.bytes, title ? `${title}.db` : `雲端棋譜-${id}.db`, { openAtEnd: true });
-    return { ...result, imported, indexedMeta };
+    return { ...result, imported };
   }
-  function readBoard() {
-    const source = global._getArr?.() || [];
-    const board = new Uint8Array(BOARD_CELLS);
-    for (let i = 0; i < BOARD_CELLS; i++) {
-      const value = Number(source[i]) || 0;
-      board[i] = value === 1 || value === 2 ? value : 0;
-    }
-    return board;
-  }
-  async function queryCurrentBoard() {
-    if (!indexedMeta) throw new Error("請先從「雲端棋譜」載入一個 YXDB");
-    const module = await ensureIndexModule();
-    const board = readBoard();
-    const ptr = module._malloc(BOARD_CELLS);
-    try {
-      module.HEAPU8.set(board, ptr);
-      const found = module._yxdbQueryBoard(ptr, currentRule());
-      if (!found) return { found: false, text: "", meta: indexedMeta };
-      const textPtr = module._yxdbTextPtr(), textLength = module._yxdbTextLength();
-      const text = textLength > 0 ? textDecoder.decode(module.HEAPU8.slice(textPtr, textPtr + textLength)) : "";
-      return { found: true, text, meta: indexedMeta };
-    } finally { module._free(ptr); }
-  }
-
   function formatBytes(v) {
     const n = Number(v) || 0;
     if (n < 1024) return `${n} B`;
@@ -570,13 +507,12 @@
       info.lastElementChild.textContent = `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
       const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
       const loadButton = document.createElement("button"); loadButton.textContent = "載入棋譜";
-      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${record.title || `棋譜 #${record.id}`}」：${loaded.imported?.nodeCount || indexedMeta.recordCount} 個局面；WASM 索引 ${indexedMeta.recordCount} 局面`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
+      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${record.title || `棋譜 #${record.id}`}」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
       const dl = document.createElement("button"); dl.textContent = "下載 .db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `vcf-cloud-${record.id}.db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
       const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${record.title || `棋譜 #${record.id}`}」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
       actions.append(loadButton, dl, del); row.append(info, actions); container.appendChild(row);
     }
   }
-  function refreshQueryButton() { const b = document.getElementById("bb-cloud-query"); if (b) b.disabled = !authUser || !indexedMeta; }
   function refreshAuthUI() {
     const login = document.getElementById("vcf-google-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
     const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open"), adminButton = document.getElementById("bb-cloud-admin");
@@ -590,7 +526,6 @@
     }
     if (openButton) openButton.disabled = !authUser;
     if (adminButton) adminButton.hidden = !isAdminUser(authUser);
-    refreshQueryButton();
   }
   function renderGoogleButton() {
     const target = document.getElementById("vcf-google-login");
@@ -610,8 +545,7 @@
     const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
     const adminButton = document.createElement("button"); adminButton.id = "bb-cloud-admin"; adminButton.className = "bb-cloud-btn"; adminButton.textContent = "管理帳號"; adminButton.hidden = true;
-    const queryButton = document.createElement("button"); queryButton.id = "bb-cloud-query"; queryButton.className = "bb-cloud-btn"; queryButton.textContent = "查目前盤面"; queryButton.disabled = true;
-    panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(adminButton, exportStatus || null); panel.insertBefore(queryButton, exportStatus || null);
+    panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(adminButton, exportStatus || null);
     auth.querySelector("#bb-cloud-logout").addEventListener("click", () => logout());
     saveButton.addEventListener("click", async () => {
       saveButton.disabled = true; status("正在建立 LZ4 YXDB……");
@@ -623,19 +557,12 @@
     });
     openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
     adminButton.addEventListener("click", () => { if (!isAdminUser(authUser)) return; const dialog = ensureAdminDialog(); dialog.showModal(); refreshAdminDialog(dialog); });
-    queryButton.addEventListener("click", async () => {
-      queryButton.disabled = true;
-      try {
-        const result = await queryCurrentBoard();
-        status(result.found ? `YXDB 命中${result.text ? `：${result.text}` : "（無註解）"}` : "目前盤面在這份 YXDB 中找不到。");
-      } catch (e) { status(e.message || String(e)); } finally { refreshQueryButton(); }
-    });
     refreshAuthUI(); return true;
   }
 
   const api = {
     API_URL, ADMIN_EMAIL, isAdminUser, xxhash32, lz4CompressBlock, createLZ4Frame, buildRawYXDBFromTree, createCurrentYXDB,
-    publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, loadIntoIndex, queryCurrentBoard, listUsers, setUserStatus, setUserRole, deleteUser,
+    publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, listUsers, setUserStatus, setUserRole, deleteUser,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
