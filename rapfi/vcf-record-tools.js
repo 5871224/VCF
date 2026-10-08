@@ -63,10 +63,14 @@
   const photoButton = document.getElementById("btn-record-photo");
   const editButton = document.getElementById("btn-record-edit");
   const markerButton = document.getElementById("btn-record-marker");
-  const markAButton = document.getElementById("btn-record-mark-a");
-  const markStarButton = document.getElementById("btn-record-mark-star");
-  const markArrowButton = document.getElementById("btn-record-mark-arrow");
-  const clearMarkTextButton = document.getElementById("btn-record-mark-clear");
+  const annotation = global.VCFStaticAnnotations;
+  const markerTools = document.getElementById("vcf-static-marker-tools");
+  const markerPalette = document.getElementById("vcf-static-marker-palette");
+  const fillCheckbox = document.getElementById("vcf-mark-fill");
+  const markerHelp = document.getElementById("vcf-static-marker-help");
+  let selectedTool = "circle";
+  let selectedColor = 0;
+  let pendingStart = null;
   const deleteBranchButton = document.getElementById("btn-record-delete-branch");
   const numbersButton = document.getElementById("btn-record-numbers");
   const settingsButton = document.getElementById("btn-record-settings");
@@ -99,6 +103,8 @@
 
   const markerLayer = ensureLayer("vcf-record-marker-layer");
   const handLayer = ensureLayer("vcf-record-hand-layer");
+  const staticLayer = ensureLayer("vcf-static-annotation-layer");
+  board.insertBefore(staticLayer, handLayer);
 
   function rapfiHexCoord(char) {
     if (/^[0-9]$/.test(char)) return char.charCodeAt(0) - 48;
@@ -174,6 +180,63 @@
       text.setAttribute("fill", "#6b3b00");
       text.textContent = String(item.text);
       markerLayer.appendChild(text);
+    }
+    renderStaticMarkers();
+  }
+
+  function svgElement(tag, attrs) {
+    const node = document.createElementNS(NS, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+    return node;
+  }
+
+  function renderStaticMarkers() {
+    staticLayer.replaceChildren();
+    if (!annotation) return;
+    const marks = annotation.list();
+    const defs = svgElement("defs", {});
+    annotation.COLORS.forEach((color, i) => {
+      const marker = svgElement("marker", { id: "vcf-static-arrow-" + i, markerWidth: 7, markerHeight: 7, refX: 6, refY: 3.5, orient: "auto", markerUnits: "strokeWidth" });
+      marker.appendChild(svgElement("path", { d: "M0 0L7 3.5L0 7Z", fill: color }));
+      defs.appendChild(marker);
+    });
+    staticLayer.appendChild(defs);
+    const pos = mark => ({ x: PAD + mark.x * CELL, y: PAD + mark.y * CELL });
+    for (const mark of marks.filter(mark => mark.type === "line" || mark.type === "arrow")) {
+      const from = pos(mark);
+      const to = { x: PAD + mark.tx * CELL, y: PAD + mark.ty * CELL };
+      const line = svgElement("line", {
+        x1: from.x, y1: from.y, x2: to.x, y2: to.y,
+        stroke: annotation.COLORS[mark.color], "stroke-width": 3, "stroke-linecap": "round",
+        ...(mark.type === "arrow" ? { "marker-end": "url(#vcf-static-arrow-" + mark.color + ")" } : {}),
+      });
+      staticLayer.appendChild(line);
+    }
+    for (const mark of marks.filter(mark => mark.type === "circle")) {
+      const { x, y } = pos(mark);
+      staticLayer.appendChild(svgElement("circle", {
+        cx: x, cy: y, r: 16, stroke: annotation.COLORS[mark.color],
+        "stroke-width": 2.5, fill: mark.filled ? annotation.COLORS[mark.color] : "none",
+        "fill-opacity": mark.filled ? 0.3 : 0,
+      }));
+    }
+    for (const mark of marks.filter(mark => mark.type === "text")) {
+      const { x, y } = pos(mark);
+      const label = svgElement("text", {
+        x, y, "text-anchor": "middle", "dominant-baseline": "central",
+        "font-size": 14, "font-weight": 800, fill: annotation.COLORS[mark.color],
+        stroke: mark.color === 9 ? "#171717" : "#fff7ed",
+        "stroke-opacity": .9, "stroke-width": .7, "paint-order": "stroke",
+      });
+      label.textContent = mark.text;
+      staticLayer.appendChild(label);
+    }
+    if (pendingStart) {
+      staticLayer.appendChild(svgElement("circle", {
+        cx: PAD + pendingStart.x * CELL, cy: PAD + pendingStart.y * CELL,
+        r: 18, fill: "none", stroke: annotation.COLORS[selectedColor],
+        "stroke-width": 2, "stroke-dasharray": "3 3",
+      }));
     }
   }
 
@@ -267,12 +330,8 @@
     titleToggleButton.classList.toggle("is-active", state.showTitle);
     commentToggleButton.classList.toggle("is-active", state.showComment);
     const markerControlsVisible = state.editMode && state.markerMode;
-    markerInput.hidden = !markerControlsVisible;
+    markerTools.hidden = !markerControlsVisible;
     markerInput.disabled = !markerControlsVisible;
-    for (const button of [markAButton, markStarButton, markArrowButton, clearMarkTextButton]) {
-      button.hidden = !markerControlsVisible;
-      button.disabled = !markerControlsVisible;
-    }
     document.documentElement.dataset.vcfRecordTitle = state.showTitle ? "1" : "0";
     document.documentElement.dataset.vcfRecordComment = state.showComment ? "1" : "0";
     const forbidden = document.getElementById("show-forbidden");
@@ -301,32 +360,82 @@
     };
   }
 
-  function addOrReplaceMarker(index) {
-    if (index < 0 || index >= BOARD_CELLS) return;
-    const markerText = markerInput.value.trim();
-    if (!markerText) {
-      status("請先輸入標記文字");
+  function refreshMarkerTools() {
+    markerTools.querySelectorAll("[data-mark-tool]").forEach(button => {
+      button.classList.toggle("is-active", button.dataset.markTool === selectedTool);
+    });
+    markerTools.querySelector("[data-mark-circle]").hidden = selectedTool !== "circle";
+    markerTools.querySelector("[data-mark-text]").hidden = selectedTool !== "text";
+    const tips = {
+      circle: "點擊交點新增圓圈；右鍵刪除該交點標記",
+      text: "輸入單一文字後點擊交點；右鍵刪除",
+      line: pendingStart ? "請點擊線條終點；右鍵取消起點" : "先點起點，再點終點",
+      arrow: pendingStart ? "請點擊箭頭終點；右鍵取消起點" : "先點起點，再點終點",
+      erase: "點擊任一交點移除該交點相關標記",
+    };
+    markerHelp.textContent = tips[selectedTool];
+    markerPalette.querySelectorAll("[data-mark-color]").forEach(button => {
+      button.classList.toggle("is-active", Number(button.dataset.markColor) === selectedColor);
+      button.setAttribute("aria-pressed", Number(button.dataset.markColor) === selectedColor ? "true" : "false");
+    });
+    renderStaticMarkers();
+  }
+  annotation?.COLORS.forEach((color, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.markColor = String(index);
+    button.title = ["紅", "橙", "黃", "綠", "青", "藍", "紫", "粉紅", "黑", "白"][index];
+    button.setAttribute("aria-label", button.title);
+    button.style.backgroundColor = color;
+    button.addEventListener("click", () => { selectedColor = index; refreshMarkerTools(); });
+    markerPalette.appendChild(button);
+  });
+  markerTools.addEventListener("click", event => {
+    const button = event.target.closest("[data-mark-tool]");
+    if (!button) return;
+    selectedTool = button.dataset.markTool;
+    pendingStart = null;
+    refreshMarkerTools();
+  });
+  markerInput.addEventListener("input", () => {
+    markerInput.value = Array.from(markerInput.value).slice(0, 1).join("");
+  });
+  function applyMarker(index) {
+    if (index < 0 || !annotation) return;
+    const x = index % BOARD_SIZE;
+    const y = Math.floor(index / BOARD_SIZE);
+    if (selectedTool === "erase") {
+      if (!annotation.eraseAt(x, y)) status("此交點沒有可刪除的標記");
       return;
     }
-    const current = parseRecordText(currentRecordText());
-    const x = index % BOARD_SIZE;
-    const y = Math.floor(index / BOARD_SIZE);
-    const existing = current.markers.find(item => item.x === x && item.y === y);
-    if (existing) existing.text = markerText;
-    else current.markers.push({ x, y, text: markerText });
-    replaceCurrentRecordText(buildRecordText(current.markers, current.comment));
-    renderMarkers();
+    if (selectedTool === "line" || selectedTool === "arrow") {
+      if (!pendingStart) {
+        pendingStart = { x, y };
+        refreshMarkerTools();
+        return;
+      }
+      if (pendingStart.x === x && pendingStart.y === y) {
+        status("起點和終點不能相同");
+        return;
+      }
+      annotation.setMark({ type: selectedTool, x: pendingStart.x, y: pendingStart.y, tx: x, ty: y, color: selectedColor });
+      pendingStart = null;
+      refreshMarkerTools();
+      return;
+    }
+    const mark = { type: selectedTool, x, y, color: selectedColor };
+    if (selectedTool === "circle") mark.filled = fillCheckbox.checked;
+    else {
+      mark.text = Array.from(markerInput.value).slice(0, 1).join("");
+      if (!mark.text) { status("請先輸入單一文字"); return; }
+    }
+    annotation.setMark(mark);
   }
-
   function removeMarker(index) {
-    if (index < 0 || index >= BOARD_CELLS) return;
-    const current = parseRecordText(currentRecordText());
-    const x = index % BOARD_SIZE;
-    const y = Math.floor(index / BOARD_SIZE);
-    const next = current.markers.filter(item => item.x !== x || item.y !== y);
-    if (next.length === current.markers.length) return;
-    replaceCurrentRecordText(buildRecordText(next, current.comment));
-    renderMarkers();
+    if (pendingStart) {
+      pendingStart = null;
+      refreshMarkerTools();
+    } else if (index >= 0 && annotation) annotation.eraseAt(index % BOARD_SIZE, Math.floor(index / BOARD_SIZE));
   }
 
   function appendPass() {
@@ -367,7 +476,7 @@
     if (state.markerMode) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (point.index >= 0) addOrReplaceMarker(point.index);
+      if (point.index >= 0) applyMarker(point.index);
       return;
     }
     if (point.passCorner) {
@@ -419,7 +528,7 @@
 
   editButton.addEventListener("click", () => {
     state.editMode = !state.editMode;
-    if (!state.editMode) state.markerMode = false;
+    if (!state.editMode) { state.markerMode = false; pendingStart = null; }
     persistSettings();
     syncUI();
     status(state.editMode ? "編輯模式：可落新子；左下角可 PASS" : "瀏覽模式：左鍵次一手，右鍵前一手");
@@ -428,15 +537,12 @@
   markerButton.addEventListener("click", () => {
     if (!state.editMode) state.editMode = true;
     state.markerMode = !state.markerMode;
+    pendingStart = null;
     persistSettings();
     syncUI();
-    status(state.markerMode ? "標記模式：左鍵新增／修改，右鍵刪除標記" : "已離開標記模式");
+    refreshMarkerTools();
+    status(state.markerMode ? "標記模式：選類型與顏色後點棋盤，右鍵可刪除" : "已離開標記模式");
   });
-
-  markAButton.addEventListener("click", () => { markerInput.value = "A"; markerInput.focus(); });
-  markStarButton.addEventListener("click", () => { markerInput.value = "★"; markerInput.focus(); });
-  markArrowButton.addEventListener("click", () => { markerInput.value = "→"; markerInput.focus(); });
-  clearMarkTextButton.addEventListener("click", () => { markerInput.value = ""; markerInput.focus(); });
 
   copyRecordButton.addEventListener("click", async () => {
     const { text, pointCount } = currentRecordCoordinateText();
@@ -619,13 +725,16 @@
   photoButton.addEventListener("click", screenshot);
 
   global.addEventListener("vcf-record-state-changed", event => {
+    pendingStart = null;
     renderMarkers(event.detail?.recordText || "");
     renderHandNumbers();
   });
+  global.addEventListener("vcf-static-annotations-changed", () => renderStaticMarkers());
   global.addEventListener("vcf-board-changed", () => queueMicrotask(renderHandNumbers));
   global.addEventListener("vcf-workspace-mode-changed", syncUI);
   document.getElementById("show-forbidden")?.addEventListener("change", syncUI);
 
   persistSettings();
   syncUI();
+  refreshMarkerTools();
 })(window);
