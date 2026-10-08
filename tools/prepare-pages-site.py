@@ -42,6 +42,7 @@ RAPFI_FILES = [
     "rapfi-workbench-header.js",
     "vcf-rapfi-db.js",
     "vcf-record-tools.js",
+    "vcf-static-annotations.js",
 ]
 
 
