@@ -1207,6 +1207,11 @@
       workspace() {
         return { mode: workspaceMode, puzzlePhase, attacker: puzzleAttacker, setupTool: puzzleSetupTool };
       },
+      annotationRoute() {
+        const service = db();
+        if (!workspaceMode || !rapfiDbActive || !exact || !service?.isReady) return "";
+        return currentRule + ":" + workspaceMode + ":" + service.history().join(",");
+      },
       startWorkspace(mode) {
         const service = db();
         if (!rapfiDbActive || !service?.isReady || (mode !== WORKSPACE_RECORD && mode !== WORKSPACE_PUZZLE)) return false;
@@ -1221,6 +1226,7 @@
         exact = true;
         selectedNextByRoute.clear();
         persistedDbBase64 = "";
+        global.VCFStaticAnnotations?.reset?.();
         emitWorkspaceChanged();
         return applyCurrentBoard(true, mode === WORKSPACE_RECORD ? "new-record" : "new-puzzle");
       },
@@ -1474,6 +1480,7 @@
           puzzleRootBoard = nextRoot;
         }
         selectedNextByRoute.clear();
+        global.VCFStaticAnnotations?.transform?.(normalized);
         return applyCurrentBoard(false, "record-transform");
       },
       invalidate() { notify(); return true; },
@@ -1522,7 +1529,7 @@
       const isPuzzle = state.mode === "puzzle";
       const isSetup = isPuzzle && state.puzzlePhase === "setup";
       badge.textContent = state.mode === "record" ? "打譜模式" : isPuzzle ? (isSetup ? "題目模式・擺題" : "題目模式・解答") : "尚未選擇";
-      format.textContent = state.mode === "record" ? "儲存格式：Rapfi YXDB" : isPuzzle ? "儲存格式：VCF 題目容器" : "請先選擇模式";
+      format.textContent = state.mode === "record" ? "可匯出標準 YXDB 或 VCFDB" : isPuzzle ? "可匯出 VCFDB 或 VCF 題目" : "請先選擇模式";
       puzzleControls.hidden = !isPuzzle;
       setupTools.hidden = !isSetup;
       attacker.disabled = !isSetup;
@@ -1620,17 +1627,48 @@
       const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
       const mode = workspace.mode;
       const puzzle = mode === "puzzle";
-      formatSelect.hidden = puzzle;
+      formatSelect.hidden = !mode;
+      for (const option of formatSelect.options) {
+        option.disabled = puzzle ? (option.value !== "vcfdb" && option.value !== "puzzle")
+          : (option.value === "puzzle");
+        option.hidden = option.disabled;
+      }
+      if (puzzle && formatSelect.value !== "vcfdb" && formatSelect.value !== "puzzle") formatSelect.value = "vcfdb";
+      if (!puzzle && formatSelect.value === "puzzle") formatSelect.value = "yxdb";
       exportButton.textContent = puzzle ? "匯出題目" : "匯出棋譜";
       exportButton.disabled = !mode || (puzzle && workspace.puzzlePhase !== "tree");
     };
-    exportButton.addEventListener("click", () => {
+    exportButton.addEventListener("click", async () => {
       exportButton.disabled = true;
       exportStatus.textContent = "正在建立檔案……";
       try {
         const stamp = timestampName();
         const mode = global.VCFWorkbenchRecord?.workspace?.()?.mode;
-        if (mode === "puzzle") {
+        if (formatSelect.value === "vcfdb" && (mode === "record" || mode === "puzzle")) {
+          const annotations = global.VCFStaticAnnotations;
+          if (!annotations) throw new Error("標記資料模組未載入");
+          let record;
+          if (mode === "puzzle") {
+            const puzzle = global.VCFWorkbenchRecord?.exportPuzzle?.();
+            if (!puzzle) throw new Error("題目尚未開始編輯解答");
+            record = { kind: "puzzle", puzzle };
+          } else {
+            const result = global.VCFWorkbenchRecord?.exportYXDB?.();
+            if (!result?.bytes?.length) throw new Error("Rapfi 棋譜尚未就緒");
+            const snapshot = global.VCFWorkbenchRecord.snapshot();
+            record = {
+              kind: "yxdb", data: annotations.base64(result.bytes),
+              rule: Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2),
+              history: (snapshot.history || []).map(item => Number(item.index ?? item.move ?? item)),
+              basePly: Number(snapshot.basePly || 0),
+            };
+          }
+          const title = document.getElementById("vcf-record-title")?.value || "";
+          const bytes = await annotations.encode({ record, title });
+          downloadBytes(bytes, "vcf-" + stamp + ".vcfdb");
+          exportStatus.textContent = "已匯出 VCFDB（含全部靜態標記，" + bytes.length.toLocaleString() + " bytes）";
+        } else if (mode === "puzzle") {
+          if (global.VCFStaticAnnotations?.count?.()) throw new Error("含進階標記的題目請使用 VCFDB 匯出，避免遺失標記");
           const puzzle = global.VCFWorkbenchRecord?.exportPuzzle?.();
           if (!puzzle) throw new Error("VCF 題目尚未就緒");
           const bytes = new TextEncoder().encode(JSON.stringify(puzzle, null, 2));
@@ -1639,11 +1677,13 @@
         } else if (mode !== "record") {
           throw new Error("請先選擇打譜模式或題目模式");
         } else if (formatSelect.value === "lib") {
+          if (global.VCFStaticAnnotations?.count?.()) throw new Error("含進階標記的棋譜請使用 VCFDB 匯出，避免遺失標記");
           const data = activeExportData();
           const result = createRenLib(data);
           downloadBytes(result.bytes, `vcf-${stamp}.lib`);
           exportStatus.textContent = `已匯出 RenLib（${result.bytes.length.toLocaleString()} bytes）`;
         } else {
+          if (global.VCFStaticAnnotations?.count?.()) throw new Error("含進階標記的棋譜請使用 VCFDB 匯出，避免遺失標記");
           const result = global.VCFWorkbenchRecord?.exportYXDB?.();
           if (!result?.bytes?.length) throw new Error("Rapfi 棋譜尚未就緒");
           downloadBytes(result.bytes, `vcf-${stamp}.db`);
