@@ -997,6 +997,7 @@
       if (!rapfiDbActive || !service?.isReady) return false;
       const board = normalizeBoard(boardValue || []);
       const setup = setupMovesForBoard(board, Number(options.sideToMove));
+      global.VCFStaticAnnotations?.reset?.();
       service.clear(currentRule);
       for (const move of setup) if (!service.replayMove(move, false)) return false;
       service.ensureCurrent();
@@ -1021,6 +1022,7 @@
       })) : [];
       if (!replayBoard(normalized)) return false;
       for (let i = 0; i < normalized.length; i++) if (normalized[i].stone !== (i % 2 === 0 ? BLACK : WHITE)) return false;
+      global.VCFStaticAnnotations?.reset?.();
       service.clear(currentRule);
       service.ensureCurrent();
       if (options.rootRecordText) service.setDisplayText(String(options.rootRecordText));
@@ -1304,6 +1306,7 @@
         if (!rapfiDbActive || !service?.isReady) return false;
         service.clear(currentRule);
         service.ensureCurrent();
+        global.VCFStaticAnnotations?.reset?.();
         basePly = 0;
         if (workspaceMode === WORKSPACE_PUZZLE) {
           puzzlePhase = PUZZLE_SETUP;
