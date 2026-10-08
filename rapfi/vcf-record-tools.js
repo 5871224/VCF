@@ -380,15 +380,11 @@
     });
     renderStaticMarkers();
   }
-  annotation?.COLORS.forEach((color, index) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.markColor = String(index);
-    button.title = ["紅", "橙", "黃", "綠", "青", "藍", "紫", "粉紅", "黑", "白"][index];
-    button.setAttribute("aria-label", button.title);
-    button.style.backgroundColor = color;
-    button.addEventListener("click", () => { selectedColor = index; refreshMarkerTools(); });
-    markerPalette.appendChild(button);
+  markerPalette.addEventListener("click", event => {
+    const button = event.target.closest("[data-mark-color]");
+    if (!button) return;
+    selectedColor = Number(button.dataset.markColor);
+    refreshMarkerTools();
   });
   markerTools.addEventListener("click", event => {
     const button = event.target.closest("[data-mark-tool]");
