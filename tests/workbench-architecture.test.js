@@ -616,7 +616,7 @@ if (header.includes('打譜模式目前手順含 PASS，無法匯出 YXDB')) {
 for (const token of [
   'const rawBytes = service.snapshotYXDB();',
   'const bytes = wrapLZ4Frame(rawBytes);',
-  'return { bytes, rawSize: rawBytes.length, recordCount: service.recordCount() };',
+  'return { bytes, rawBytes, rawSize: rawBytes.length, recordCount: service.recordCount() };',
 ]) if (!header.includes(token)) throw new Error(`YXDB LZ4 export contract missing: ${token}`);
 
 for (const token of [
