@@ -8,6 +8,7 @@
   const MAX_JSON = 8 * 1024 * 1024;
   const te = new TextEncoder();
   const td = new TextDecoder("utf-8", { fatal: true });
+  const legacyTextDecoder = new TextDecoder("utf-8"); // Older YXDB files may use a legacy record charset.
 
   const u16 = (v, o) => v[o] | (v[o+1] << 8);
   const u32 = (v, o) => (v[o] | (v[o+1]<<8) | (v[o+2]<<16) | (v[o+3]<<24)) >>> 0;
@@ -123,7 +124,7 @@
     let matched = null;
     for (const record of records) {
       if (record.keyLen < 3 || bytes[record.keyStart+1] !== 15 || bytes[record.keyStart+2] !== 15) continue;
-      const text = td.decode(bytes.subarray(record.valueStart+5, record.end));
+      const text = legacyTextDecoder.decode(bytes.subarray(record.valueStart+5, record.end));
       const match = suffixMatch(text);
       if (!match) continue;
       if (matched) throw new Error("YXDB 出現多份 VCF 標記資料");
