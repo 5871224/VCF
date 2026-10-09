@@ -334,7 +334,8 @@
     const response = await fetch(`${API_URL}?${params}`, {
       method: "POST", mode: "cors", cache: "no-store", headers: authHeaders({ "Content-Type": "application/octet-stream" }), body: result.bytes,
     });
-    return { ...(await jsonResponse(response)), ...result };
+    const saved = await jsonResponse(response);
+    return { ...saved, recordCount: result.recordCount, compressedSize: result.compressedSize, annotationCount };
   }
   async function list() {
     if (!authUser) throw new Error("請先使用 Google 登入");
@@ -524,7 +525,7 @@
       info.lastElementChild.textContent = `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
       const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
       const loadButton = document.createElement("button"); loadButton.textContent = "載入棋譜";
-      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${record.title || `棋譜 #${record.id}`}」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
+      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${record.title || `棋譜 #${record.id}`}」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
       const dl = document.createElement("button"); dl.textContent = "下載 .db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `vcf-cloud-${record.id}.db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
       const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${record.title || `棋譜 #${record.id}`}」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
       actions.append(loadButton, dl, del); row.append(info, actions); container.appendChild(row);
@@ -569,7 +570,7 @@
       try {
         const title = prompt("棋譜標題", "") ?? null; if (title === null) return;
         const result = await saveCurrent(title.trim());
-        status(`已存入你的帳號 #${result.id}：${result.recordCount} 局面 / ${formatBytes(result.compressedSize)}`);
+        status(`已存入你的帳號 #${result.id}：${result.recordCount} 局面${result.annotationCount ? `、${result.annotationCount} 個標記` : ''} / ${formatBytes(result.compressedSize)}`);
       } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
     openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
