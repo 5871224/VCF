@@ -833,6 +833,7 @@
       nodeCount: parsed.nodeCount,
       rootCount: parsed.rootCount,
       currentPly,
+      annotationCount: metadata ? window.VCFStaticAnnotations.count() : 0,
     };
   }
 
