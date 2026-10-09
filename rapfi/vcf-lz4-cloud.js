@@ -255,6 +255,7 @@
       nodeCount: recordCount,
       rawSize: Math.max(0, Number(exported.rawSize || 0)) || bytes.length,
       compressedSize: bytes.length,
+      rawBytes: exported.rawBytes,
     };
   }
 
@@ -312,8 +313,23 @@
   async function saveCurrent(title = "") {
     if (!authUser) throw new Error("請先使用 Google 登入");
     if (global.VCFWorkbenchRecord?.workspace?.()?.mode !== "record") throw new Error("雲端 YXDB 只能儲存打譜模式");
-    if (global.VCFStaticAnnotations?.count?.()) throw new Error("此棋譜有進階標記；請先匯出 .vcfdb，現有雲端 YXDB 尚未支援進階標記");
     const result = createCurrentYXDB();
+    const annotationCount = global.VCFStaticAnnotations?.count?.() || 0;
+    if (annotationCount) {
+      const codec = global.VCFCloudAnnotationCodec;
+      const annotations = global.VCFStaticAnnotations;
+      if (!codec || !annotations || !result.rawBytes) throw new Error("雲端標記編碼器尚未就緒，請重新整理頁面");
+      const snapshot = global.VCFWorkbenchRecord?.snapshot?.();
+      if (!snapshot?.exact) throw new Error("目前棋譜不是完整手順，無法寫入雲端標記");
+      const history = (snapshot.history || []).map(item => Number(item.index ?? item.move ?? item));
+      const patched = await codec.embed(result.rawBytes, {
+        version: 1, annotations: annotations.exportData(),
+        history, basePly: Number(snapshot.basePly || 0),
+      });
+      result.bytes = createLZ4Frame(patched);
+      result.rawSize = patched.length;
+      result.compressedSize = result.bytes.length;
+    }
     const params = new URLSearchParams({ action: "save", title: String(title || ""), record_count: String(result.recordCount), raw_size: String(result.rawSize) });
     const response = await fetch(`${API_URL}?${params}`, {
       method: "POST", mode: "cors", cache: "no-store", headers: authHeaders({ "Content-Type": "application/octet-stream" }), body: result.bytes,
@@ -385,7 +401,7 @@
     let dialog = document.getElementById("vcf-cloud-dialog");
     if (dialog) return dialog;
     dialog = document.createElement("dialog"); dialog.id = "vcf-cloud-dialog";
-    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端 YXDB 棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-list></div></div>';
+    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-list></div></div>';
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close()); document.body.appendChild(dialog); return dialog;
   }
   async function adminRequest(action, body = null) {
@@ -523,7 +539,7 @@
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
       saveButton.disabled = !authUser || !recordMode;
-      saveButton.title = recordMode ? "" : "題目模式使用 .vcf.json，不儲存為 YXDB";
+      saveButton.title = recordMode ? "支援標準 YXDB 及圓圈、文字、線條、箭頭雲端儲存" : "目前雲端只支援打譜模式；題目模式請匯出 .vcfdb";
     }
     if (openButton) openButton.disabled = !authUser;
     if (adminButton) adminButton.hidden = !isAdminUser(authUser);
@@ -549,7 +565,7 @@
     panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(adminButton, exportStatus || null);
     auth.querySelector("#bb-cloud-logout").addEventListener("click", () => logout());
     saveButton.addEventListener("click", async () => {
-      saveButton.disabled = true; status("正在建立 LZ4 YXDB……");
+      saveButton.disabled = true; status("正在建立雲端棋譜及標記……");
       try {
         const title = prompt("棋譜標題", "") ?? null; if (title === null) return;
         const result = await saveCurrent(title.trim());
