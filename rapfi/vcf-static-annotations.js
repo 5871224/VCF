@@ -175,6 +175,6 @@
     return doc;
   }
   global.VCFStaticAnnotations = Object.freeze({
-    COLORS, route, list, setMark, eraseAt, reset, exportData, importData, count, transform, encode, decode, base64, unbase64,
+    COLORS, route, list, setMark, eraseAt, reset, exportData, importData, validateData: validateRoutes, count, transform, encode, decode, base64, unbase64,
   });
 })(window);
