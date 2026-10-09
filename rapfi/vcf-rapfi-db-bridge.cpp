@@ -242,17 +242,13 @@ void ensureCurrentRecord()
     }
 }
 
-bool replayMove(int move, bool createRecord, bool enforceForbidden)
+bool replayMove(int move, bool createRecord)
 {
     if (!ready())
         return false;
 
     Pos pos = toRapfiPos(move);
     if (pos != Pos::PASS && !g_board->isLegal(pos))
-        return false;
-
-    if (enforceForbidden && g_rule == RENJU && g_board->sideToMove() == BLACK
-        && pos != Pos::PASS && g_board->checkForbiddenPoint(pos))
         return false;
 
     g_board->move(g_rule, pos);
@@ -507,12 +503,12 @@ int vcfRapfiDbEnsureCurrent()
 
 int vcfRapfiDbReplayMove(int move, int createRecord)
 {
-    return replayMove(move, createRecord != 0, false) ? 1 : 0;
+    return replayMove(move, createRecord != 0) ? 1 : 0;
 }
 
 int vcfRapfiDbPlay(int move, int createRecord)
 {
-    return replayMove(move, createRecord != 0, true) ? 1 : 0;
+    return replayMove(move, createRecord != 0) ? 1 : 0;
 }
 
 int vcfRapfiDbUndo()
@@ -832,6 +828,16 @@ int main()
     assert(g_textResult.find("same canonical position") != std::string::npos);
     replayPath({112}, false);
     assert(vcfRapfiDbQueryChildren() >= 1);
+
+    // Board editing must allow a black forbidden point under Renju rules.
+    // Search and forbidden-point detection still apply the selected rule.
+    replayPath({110, 14, 111, 28, 112, 42, 113, 56, 115, 70}, true);
+    assert(vcfRapfiDbSideToMove() == 1);
+    assert(vcfRapfiDbIsForbidden(114) == 1); // Creates a six-stone overline.
+    assert(vcfRapfiDbPlay(114, 1) == 1);
+    assert(vcfRapfiDbBoardCell(114) == 1);
+    assert(vcfRapfiDbUndo() == 1);
+    assert(vcfRapfiDbIsForbidden(114) == 1);
 
     std::cout << "vcf-rapfi-db bridge self-test passed with "
               << vcfRapfiDbRecordCount() << " records\n";
