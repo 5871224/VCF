@@ -485,7 +485,7 @@ for (const token of [
   'notifyVcfResultChanged();',
 ]) if (!dashboardResultLifecycle.includes(token)) throw new Error(`VCF result lifecycle contract missing: ${token}`);
 const calculationEntry = read("index.html");
-if (!calculationEntry.includes('makevcf-layout.js?v=20261009')
+if (!calculationEntry.includes('makevcf-layout.js?v=20261009-cloud2')
     || !calculationEntry.includes('rapfi/rapfi-bitboard-dashboard.js?v=20261008-static-workbench1')) {
   throw new Error("calculation display scripts must be cache-busted");
 }
@@ -648,9 +648,9 @@ for (const forbiddenToken of [
 }
 const entry = read("index.html");
 for (const token of [
-  'makevcf-layout.js?v=20261009',
-  'rapfi/vcf-static-annotations.js?v=20261009',
-  'rapfi/rapfi-workbench-header.js?v=20261009',
+  'makevcf-layout.js?v=20261009-cloud2',
+  'rapfi/vcf-static-annotations.js?v=20261009-cloud2',
+  'rapfi/rapfi-workbench-header.js?v=20261009-cloud2',
   'rapfi/vcf-record-tools.js?v=20261009',
   'scheduleRapfiRecordDatabase',
   'Rapfi 棋盤啟用逾時',
