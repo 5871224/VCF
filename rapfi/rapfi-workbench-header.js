@@ -1392,7 +1392,7 @@
         const rawBytes = service.snapshotYXDB();
         if (!rawBytes?.length) return null;
         const bytes = wrapLZ4Frame(rawBytes);
-        return { bytes, rawSize: rawBytes.length, recordCount: service.recordCount() };
+        return { bytes, rawBytes, rawSize: rawBytes.length, recordCount: service.recordCount() };
       },
       ensureActive() { return activateRapfiDatabase(); },
       isActive() { return Boolean(rapfiDbActive && exact && db()?.isReady); },
