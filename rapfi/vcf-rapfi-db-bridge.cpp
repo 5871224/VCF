@@ -831,7 +831,7 @@ int main()
 
     // Board editing must allow a black forbidden point under Renju rules.
     // Search and forbidden-point detection still apply the selected rule.
-    replayPath({110, 14, 111, 28, 112, 42, 113, 56, 115, 70}, true);
+    replayPath({110, 0, 111, 2, 112, 4, 113, 6, 115, 8}, true);
     assert(vcfRapfiDbSideToMove() == 1);
     assert(vcfRapfiDbIsForbidden(114) == 1); // Creates a six-stone overline.
     assert(vcfRapfiDbPlay(114, 1) == 1);
