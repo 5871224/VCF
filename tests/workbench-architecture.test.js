@@ -719,6 +719,16 @@ for (const token of [
   'snapshotYXDB()',
   'restoreYXDB(value, rule = 2)',
 ]) if (!rapfiDbAdapter.includes(token)) throw new Error(`Rapfi DB adapter contract missing: ${token}`);
+// Editing may place black stones on Renju forbidden points; classification stays available.
+const ruleHeading = entry.indexOf('<div class="vcf-search-heading">');
+const ruleDropdown = entry.indexOf('id="vcf-rule-select"');
+const collapsedSettings = entry.indexOf('id="vcf-calculation-settings-card"');
+if (ruleHeading < 0 || ruleDropdown < ruleHeading || ruleDropdown > collapsedSettings) {
+  throw new Error("VCF rule selector must be visible in the VCF search heading, not collapsed settings");
+}
+if ((entry.match(/id="vcf-rule-select"/g) || []).length !== 1) {
+  throw new Error("VCF rule selector must have exactly one DOM owner");
+}
 const rapfiDbBridge = read("rapfi/vcf-rapfi-db-bridge.cpp");
 for (const token of [
   'DBClient',
@@ -733,6 +743,16 @@ for (const token of [
   'vcfRapfiDbDeleteCurrentAndChildren',
   'vcfRapfiDbCloneRule',
 ]) if (!rapfiDbBridge.includes(token)) throw new Error(`Rapfi DB bridge contract missing: ${token}`);
+for (const token of [
+  "assert(vcfRapfiDbIsForbidden(114) == 1);",
+  "assert(vcfRapfiDbPlay(114, 1) == 1);",
+  "assert(vcfRapfiDbBoardCell(114) == 1);",
+]) if (!rapfiDbBridge.includes(token)) {
+  throw new Error("Rapfi native forbidden-point editing test missing: " + token);
+}
+if (rapfiDbBridge.includes("enforceForbidden")) {
+  throw new Error("Rapfi board editing must not reject forbidden moves");
+}
 if (rapfiDbBridge.includes("g_storage->flush()")) {
   throw new Error("Rapfi DB Wasm snapshot must not use the crashing Emscripten filesystem stream");
 }
