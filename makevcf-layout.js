@@ -811,11 +811,21 @@
       };
     }
 
-    const parsed = parseYXDB(bytes);
+    const codec = window.VCFCloudAnnotationCodec;
+    const extracted = codec
+      ? await codec.extract(decompressLZ4Frame(bytes))
+      : { bytes: decompressLZ4Frame(bytes), metadata: null };
+    const metadata = extracted.metadata;
+    if (metadata && !window.VCFStaticAnnotations) throw new Error("標記模組尚未就緒");
+    if (metadata) window.VCFStaticAnnotations.validateData(metadata.annotations);
+    const parsed = parseYXDB(extracted.bytes);
     const target = options?.openAtEnd ? deepestParsedNode(parsed) : parsed.current;
-    const state = parsedImportState(target);
+    const state = metadata
+      ? { history: metadata.history, basePly: metadata.basePly }
+      : parsedImportState(target);
     const loaded = await window.VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, state.history, state.basePly);
     if (!loaded) throw new Error("YXDB 無法載入 Rapfi YXDBStorage");
+    if (metadata) window.VCFStaticAnnotations.importData(metadata.annotations);
     const currentPly = Math.max(0, state.history.length - state.basePly);
     reportRecordImport("YXDB", fileName || "棋譜.db", parsed.nodeCount, currentPly);
     return {
