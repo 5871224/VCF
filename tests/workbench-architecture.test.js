@@ -853,6 +853,27 @@ if (!startupSource) throw new Error("Rapfi startup runtime not found");
   process.exitCode = 1;
 });
 
+const cloudMarkCodec = read("rapfi/vcf-cloud-annotation-codec.js");
+for (const token of [
+  'async function embed(raw, data)', 'async function extract(raw)',
+  'vcf-cloud-marks-v1', 'function replaceText(bytes, record, text)',
+]) if (!cloudMarkCodec.includes(token)) throw new Error("YXDB cloud annotation codec missing: " + token);
+for (const token of [
+  'const patched = await codec.embed(result.rawBytes',
+  'result.bytes = createLZ4Frame(patched)',
+  'result.rawSize = patched.length',
+]) if (!cloudYXDB.includes(token)) throw new Error("Annotated cloud save is missing: " + token);
+for (const token of [
+  'await codec.extract(decompressLZ4Frame(bytes))',
+  'window.VCFStaticAnnotations.validateData(metadata.annotations)',
+  'window.VCFStaticAnnotations.importData(metadata.annotations)',
+]) if (!layout.includes(token)) throw new Error("Annotated cloud import is missing: " + token);
+if (cloudYXDB.includes("尚未支援進階標記")) throw new Error("old cloud annotation denial is still present");
+if (!entry.includes('rapfi/vcf-cloud-annotation-codec.js?v=20261009-cloud1'))
+  throw new Error("cloud annotation codec must load before the workbench");
+if (!staticSiteBuilderCloud.includes('"vcf-cloud-annotation-codec.js"'))
+  throw new Error("cloud annotation codec is missing from the static allowlist");
+
 const annotations = read("rapfi/vcf-static-annotations.js");
 for (const token of [
   'const COLORS = Object.freeze(', 'function validateRoutes(raw)', 'function transform(t)',
