@@ -700,6 +700,8 @@ body {
 .vcf-calc-panel{display:grid;gap:10px}
 .vcf-section{display:grid;gap:8px;padding:10px;border:1px solid #e7dec6;border-radius:10px;background:#fffefb}
 .vcf-section-title{margin:0;color:#65583d;font-size:12px;font-weight:800;letter-spacing:.03em}
+.vcf-search-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.vcf-search-heading .vcf-rule-select-label{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:4px 9px;border:1px solid #ddd2b5;border-radius:8px;background:#faf6e9;font-size:13px;font-weight:600;white-space:nowrap}
 .vcf-inline{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
 #analysis-box{display:flex!important;align-items:center;flex-wrap:wrap;gap:8px!important;font-size:13px!important}
 #analysis-box label,.vcf-inline>label,.vcf-settings-grid>label,#rule-box .vcf-rule-select-label{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:6px 10px;border:1px solid #ddd2b5;border-radius:8px;background:#faf6e9;font-size:13px;font-weight:600;white-space:nowrap}
@@ -1234,7 +1236,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
       </div>
       <section id="vcf-tab-panel-calculation" class="vcf-tab-panel vcf-calc-panel" role="tabpanel" aria-labelledby="vcf-tab-calculation">
         <section class="vcf-section"><h3 class="vcf-section-title">分析</h3><div class="vcf-inline"><div id="analysis-box">分析色：<label><input type="radio" name="acolor" value="1" checked> 黑</label><label><input type="radio" name="acolor" value="2"> 白</label></div></div></section>
-        <section class="vcf-section"><h3 class="vcf-section-title">VCF 搜尋</h3>
+        <section class="vcf-section"><div class="vcf-search-heading"><h3 class="vcf-section-title">VCF 搜尋</h3><label class="vcf-rule-select-label">規則 <select id="vcf-rule-select" aria-label="VCF 計算規則"><option value="2">有禁</option><option value="1">無禁</option><option value="0">自由</option></select></label></div>
           <div class="vcf-actions vcf-cols-3">
             <button id="btn-fast-vcf" type="button" title="依目前分析色搜尋第一組 VCF">速找 VCF</button>
             <button id="btn-shortest-vcf" type="button">最短 VCF</button>
@@ -1254,7 +1256,6 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
       <input id="vcf-simplify-route" type="checkbox">
       精簡手順
     </label>
-<label class="vcf-rule-select-label">規則 <select id="vcf-rule-select" aria-label="規則"><option value="2">有禁</option><option value="1">無禁</option><option value="0">自由</option></select></label>
 <label id="show-forbidden-label" hidden><input id="show-forbidden" type="checkbox"> 顯示禁手</label>
 </div></div>
         </section>
