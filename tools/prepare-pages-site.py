@@ -35,6 +35,8 @@ RAPFI_FILES = [
     "vcf-candidate-worker.js",
     "vcf-bitboard-main.js",
     "vcf-bitboard-worker.js",
+    "vcf-rapfi-vcf-worker.js",
+    "vcf-rapfi-vcf-benchmark.js",
     "vcf-bitboard-generator-compat.js",
     "rapfi-bitboard-dashboard.js",
     "vcf-shortest-vcf-ui.js",
@@ -81,6 +83,7 @@ def main() -> None:
         (ROOT / ".cache" / "vcf-pattern-engine", "vcf-pattern-engine.*"),
         (ROOT / ".cache" / "vcf-bitboard-engine", "vcf-bitboard-engine.*"),
         (ROOT / ".cache" / "vcf-rapfi-db", "vcf-rapfi-db.*"),
+        (ROOT / ".cache" / "rapfi-vcf-standalone", "rapfi-vcf-standalone.*"),
     ]
     for cache_dir, pattern in cache_patterns:
         matches = sorted(cache_dir.glob(pattern))
@@ -110,6 +113,7 @@ def main() -> None:
     html = (SITE / "index.html").read_text(encoding="utf-8")
     required_tokens = [
         "vcf-bitboard-main.js",
+        "vcf-rapfi-vcf-benchmark.js",
         "makevcf-generator-core.js",
         "rapfi-bitboard-dashboard.js",
         "vcf-shortest-vcf-ui.js",
