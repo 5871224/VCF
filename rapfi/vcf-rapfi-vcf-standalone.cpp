@@ -24,7 +24,6 @@ float ScalingFactor = 200.0f;
 namespace {
 constexpr int N = 15;
 constexpr int CELLS = N * N;
-constexpr uint32_t DEFAULT_NODES = 5000000;
 constexpr size_t MAX_TABLE = 262144;
 
 template<Rule R>
@@ -75,20 +74,20 @@ public:
         : board(b), nodeLimit(limit), maxPly(depth) {}
 
     bool run() { return attack(0, NONE, NONE); }
-    uint32_t nodes = 0;
+    uint64_t nodes = 0;
     uint32_t maxPlyVisited = 0;
     bool aborted = false;
     std::vector<uint8_t> route;
 
 private:
     Board &board;
-    const uint32_t nodeLimit;
+    const uint32_t nodeLimit; // 0 means no node limit; the dedicated Worker may be stopped manually.
     const int maxPly;
     std::unordered_map<HashKey, int> provenFailures;
 
     bool visit(int ply)
     {
-        if (nodes >= nodeLimit) { aborted = true; return false; }
+        if (nodeLimit != 0 && nodes >= nodeLimit) { aborted = true; return false; }
         nodes++;
         maxPlyVisited = std::max(maxPlyVisited, uint32_t(ply));
         return true;
@@ -200,16 +199,20 @@ int runRule(const uint8_t *cells, int attacker, uint32_t limit, int maxPly,
     auto board = std::make_unique<Board>(N, CandidateRange::FULL_BOARD);
     if (!loadPosition<R>(*board, cells, attacker == 1 ? BLACK : WHITE)) return -1;
     maxPly = std::max(1, std::min(maxPly, std::min(224, board->movesLeft())));
-    TacticalSearch<R> search(*board, limit ? limit : DEFAULT_NODES, maxPly);
+    TacticalSearch<R> search(*board, limit, maxPly);
     auto start = std::chrono::steady_clock::now();
     bool found = search.run();
     auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
         std::chrono::steady_clock::now() - start).count();
-    stats[0] = search.nodes;
-    stats[1] = uint32_t(std::min<int64_t>(micros, UINT32_MAX));
-    stats[2] = search.maxPlyVisited;
-    stats[3] = search.aborted ? 1U : 0U;
-    stats[4] = uint32_t(search.route.size());
+    // Preserve long-running unlimited search metrics without 32-bit counter overflow.
+    const uint64_t elapsedMicros = uint64_t(std::max<int64_t>(0, micros));
+    stats[0] = uint32_t(search.nodes);
+    stats[1] = uint32_t(search.nodes >> 32);
+    stats[2] = uint32_t(elapsedMicros);
+    stats[3] = uint32_t(elapsedMicros >> 32);
+    stats[4] = search.maxPlyVisited;
+    stats[5] = search.aborted ? 1U : 0U;
+    stats[6] = uint32_t(search.route.size());
     if (found)
         std::copy(search.route.begin(), search.route.end(), outMoves);
     return found ? 1 : 0;
@@ -222,7 +225,7 @@ extern "C" int rapfiStandaloneVCF(const uint8_t *cells, int attacker, int rule,
 {
     if (!cells || !outMoves || !outStats || (attacker != 1 && attacker != 2)
         || rule < 0 || rule > 2 || maxPly < 1 || maxPly > 224) return -1;
-    std::fill_n(outStats, 5, 0U);
+    std::fill_n(outStats, 7, 0U);
     switch (rule) {
     case 0: return runRule<FREESTYLE>(cells, attacker, maxNodes, maxPly, outMoves, outStats);
     case 1: return runRule<STANDARD>(cells, attacker, maxNodes, maxPly, outMoves, outStats);
@@ -238,10 +241,13 @@ int main()
 {
     uint8_t b[CELLS] {};
     uint8_t moves[CELLS] {};
-    uint32_t stats[5] {};
+    uint32_t stats[7] {};
     b[7 * 15 + 6] = b[7 * 15 + 7] = b[7 * 15 + 8] = b[7 * 15 + 9] = 1;
     const int found = rapfiStandaloneVCF(b, 1, 0, 100000, 21, moves, stats);
-    assert(found == 1 && stats[4] >= 1 && stats[0] > 0);
+    assert(found == 1 && stats[6] >= 1 && stats[0] > 0);
+    // Zero-node-limit now means truly unlimited (not the old default 5M).
+    const int unlimited = rapfiStandaloneVCF(b, 1, 0, 0, 21, moves, stats);
+    assert(unlimited == 1 && stats[6] >= 1 && stats[5] == 0);
     assert(moves[0] == 7 * 15 + 5 || moves[0] == 7 * 15 + 10);
     std::puts("Independent Rapfi VCF smoke test passed");
 }
