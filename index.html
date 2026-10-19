@@ -699,6 +699,11 @@ body {
 .vcf-tab-panel{min-width:0;padding:13px;border:1px solid var(--vcf-border,#d6c89f);border-radius:12px;background:var(--vcf-card,#fffdf7);box-shadow:0 3px 12px #4f3e1d12}
 .vcf-calc-panel{display:grid;gap:10px}
 .vcf-section{display:grid;gap:8px;padding:10px;border:1px solid #e7dec6;border-radius:10px;background:#fffefb}
+.rapfi-vcf-benchmark-note{font-size:12px;color:#665d4f;line-height:1.45}
+.rapfi-vcf-benchmark-results{display:grid;gap:7px;padding:10px;border-radius:8px;background:#f5f8f6;border:1px solid #d4e0d9}
+.rapfi-vcf-benchmark-metrics{display:flex;gap:8px;flex-wrap:wrap}
+.rapfi-vcf-benchmark-metrics>span{padding:5px 9px;border:1px solid #d8dedb;border-radius:6px;background:#fff;font-size:13px}
+#rapfi-vcf-benchmark-route{overflow-wrap:anywhere;font-family:ui-monospace,Consolas,monospace}
 .vcf-section-title{margin:0;color:#65583d;font-size:12px;font-weight:800;letter-spacing:.03em}
 .vcf-search-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
 .vcf-search-heading .vcf-rule-select-label{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:4px 9px;border:1px solid #ddd2b5;border-radius:8px;background:#faf6e9;font-size:13px;font-weight:600;white-space:nowrap}
@@ -1258,6 +1263,24 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
     </label>
 <label id="show-forbidden-label" hidden><input id="show-forbidden" type="checkbox"> 顯示禁手</label>
 </div></div>
+        </section>
+        <!-- Rapfi VCF benchmark is removable: no shared search state or Bitboard worker. -->
+        <section class="vcf-section" id="rapfi-vcf-benchmark-section" aria-label="獨立 Rapfi VCF 測速">
+          <h3 class="vcf-section-title">Rapfi VCF（獨立測速）</h3>
+          <div class="vcf-inline">
+            <button id="btn-rapfi-vcf-benchmark" type="button">Rapfi VCF 計算</button>
+            <span class="rapfi-vcf-benchmark-note">讀取目前盤面、分析色與規則；獨立 Rapfi WASM / Worker，不影響原計算結果。</span>
+          </div>
+          <div class="rapfi-vcf-benchmark-results" aria-live="polite">
+            <div id="rapfi-vcf-benchmark-status">尚未執行 Rapfi VCF</div>
+            <div class="rapfi-vcf-benchmark-metrics">
+              <span>耗時：<strong id="rapfi-vcf-benchmark-ms">—</strong></span>
+              <span>搜尋節點數：<strong id="rapfi-vcf-benchmark-nodes">—</strong></span>
+              <span>每秒搜尋節點數：<strong id="rapfi-vcf-benchmark-nps">—</strong></span>
+            </div>
+            <div>Rapfi 手順：<span id="rapfi-vcf-benchmark-route">—</span></div>
+            <div class="rapfi-vcf-benchmark-note">純引擎搜尋時間，不含 WASM 初始化與頁面繪製；節點定義可能與原引擎不同。Rapfi QVCF 為選擇性搜尋，未找到不代表完整無解證明。</div>
+          </div>
         </section>
         <section class="vcf-section"><h3 class="vcf-section-title">多組 VCF</h3>
           <div class="vcf-actions vcf-cols-4"><button id="btn-multi-vcf" type="button">多組 VCF</button><label class="vcf-setting-toggle vcf-multi-toggle"><input id="vcf-show-multi-settings" type="checkbox">多組設定</label></div>
@@ -4716,6 +4739,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <!-- 正式 HTML 已包含完整版面；各模組只綁定功能與狀態。 -->
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20261008-static-workbench1"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20261008-static-workbench1"></script>
+<script src="rapfi/vcf-rapfi-vcf-benchmark.js?v=20261019-rapfi-benchmark1"></script>
 <script src="rapfi/vcf-forbidden-overlay.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-open-four-stop.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-layout.js?v=20261009-cloud2"></script>

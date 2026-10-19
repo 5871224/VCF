@@ -46,6 +46,19 @@ rapfi-single-simd128.data
 
 實驗室只透過 Rapfi 已存在的文字協定取得結果，包括 `TRACEBOARD`、`YXSHOWFORBID`、`YXBLOCK`、`YXNBEST` 與 `YXSEARCHDEFEND`。沒有新增 Rapfi 匯出函式。
 
+## 獨立 Rapfi VCF 測速（可移除）
+
+與正式 Bitboard VCF 分離的 Rapfi 搜尋入口，只會在「計算 VCF」頁手動按下「Rapfi VCF 計算」後載入。
+
+- `rapfi/vcf-rapfi-vcf-benchmark.js`：讀取目前 Rapfi Board 的 225 格盤面、規則與分析色；維護專屬結果、耗時（ms）、搜尋節點數、NPS。
+- `rapfi/vcf-rapfi-vcf-worker.js`：完全獨立 Worker、動態載入獨立 Wasm、可立即停止。
+- `rapfi/vcf-rapfi-vcf-standalone.cpp`：依固定上游 Rapfi `Board`、`Pattern`、`MoveGen` 建構的 QVCF 專用遞迴搜尋與 Rapfi 禁手驗證，不連結本專案 Bitboard。
+- 部署時只編入上游 `core/hash.cpp`、`core/utils.cpp`、`game/pattern.cpp`、`game/board.cpp`、`game/movegen.cpp` 與獨立橋接；無需 NNUE 或 Rapfi Networks 權重檔。
+- 專屬建置檔 `rapfi-vcf-standalone.js/.wasm` 不與官方 Rapfi 的整套引擎 `rapfi-single-simd128` 共用執行環境，也不修改官方上游來源。
+- C++ 計時僅涵蓋搜尋（不含 wasm 初始化、靜態盤面重建、SVG 繪製）；節點計數定義為本搜尋展開的攻防候選，與既有 Bitboard 節點意義未必完全相同。
+- 當前為 Rapfi 式選擇性 QVCF：靜態盤面首層遍歷 Rapfi 全盤 VCF 候選、後續採用 Rapfi 的相鄰候選與組合型分支限制。因此「未找到」不能作為完整無解證明。取用目前計算頁設定的節點上限；原本設定不限節點時有 2,000 萬節點保護上限。
+- 必須保留上游 Rapfi GPLv3-or-later 授權要求；移除功能時只需刪除上述橋接、Worker、UI、編譯快取與入口，不會動到現有 Bitboard 核心或棋譜。
+  
 ## VCF 獨立 C++ Wasm 棋型引擎
 
 原始碼：

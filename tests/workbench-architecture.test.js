@@ -438,6 +438,39 @@ if (!pureStatsMain.includes("nodesPerSecond: elapsedMs > 0 ? nodeCount * 1000 / 
 if (!pureStatsHtml.includes('rapfi/vcf-shortest-vcf-ui.js?v=20261008-static-workbench1')) {
   throw new Error("pure engine stats scripts must be cache-busted");
 }
+// Optional standalone Rapfi VCF is genuinely independent of the existing Bitboard engine.
+const rapfiBenchmarkUI = read("rapfi/vcf-rapfi-vcf-benchmark.js");
+const rapfiBenchmarkWorker = read("rapfi/vcf-rapfi-vcf-worker.js");
+const rapfiBenchmarkNative = read("rapfi/vcf-rapfi-vcf-standalone.cpp");
+new Function(rapfiBenchmarkUI);
+new Function(rapfiBenchmarkWorker);
+for (const token of [
+  'id="btn-rapfi-vcf-benchmark"',
+  'id="rapfi-vcf-benchmark-ms"',
+  'id="rapfi-vcf-benchmark-nodes"',
+  'id="rapfi-vcf-benchmark-nps"',
+  'rapfi/vcf-rapfi-vcf-benchmark.js',
+]) if (!pureStatsHtml.includes(token)) throw new Error("standalone Rapfi metric UI missing: " + token);
+for (const token of ["VCFBitboard", "window.engineAPI", "_showVCF", "vcfRegisterSearchHandler", "vcfBbFind", "VCFRapfiDB"]) {
+  if (rapfiBenchmarkUI.includes(token) || rapfiBenchmarkWorker.includes(token) || rapfiBenchmarkNative.includes(token)) {
+    throw new Error("standalone Rapfi must not depend on shared search: " + token);
+  }
+}
+for (const token of ['#include "game/board.h"', '#include "game/movegen.h"', 'generateNeighbors<VCF>', 'std::chrono::steady_clock']) {
+  if (!rapfiBenchmarkNative.includes(token)) throw new Error("Rapfi source bridge missing: " + token);
+}
+if (!rapfiBenchmarkWorker.includes("RapfiVCFStandaloneModule") || !rapfiBenchmarkUI.includes("VCFWorkbenchRecord?.currentBoard?.()")) {
+  throw new Error("Rapfi standalone worker must use only its own WASM and readonly source board");
+}
+if (!staticSiteBuilder.includes('"vcf-rapfi-vcf-worker.js"')
+    || !staticSiteBuilder.includes('"rapfi-vcf-standalone.*"')) {
+  throw new Error("Rapfi standalone files must be in the build allowlist");
+}
+const deployYaml = read(".github/workflows/deploy-bd1.yml");
+if (!deployYaml.includes("Build standalone Rapfi VCF benchmark")
+    || !deployYaml.includes("_site/rapfi/engine/rapfi-vcf-standalone.wasm")) {
+  throw new Error("standalone Rapfi WASM build and deployment must be verified");
+}
 console.log("Workbench and repository architecture checks passed");
 
 // Rapfi DB-backed record model contract.
@@ -530,11 +563,12 @@ for (const id of [
   }
 }
 const sections = Array.from(initialMarkup.matchAll(/class="vcf-section-title">([^<]+)/g), match => match[1]);
-if (sections.join(",") !== "分析,VCF 搜尋,多組 VCF,防守,延伸搜尋,棋盤操作") {
+if (sections.join(",") !== "分析,VCF 搜尋,Rapfi VCF（獨立測速）,多組 VCF,防守,延伸搜尋,棋盤操作") {
   throw new Error("initial calculation sections are missing or out of order");
 }
 for (const [title, ids] of [
   ["VCF 搜尋", ["btn-fast-vcf", "btn-shortest-vcf", "vcf-calculation-settings-card"]],
+  ["Rapfi VCF（獨立測速）", ["btn-rapfi-vcf-benchmark", "rapfi-vcf-benchmark-ms", "rapfi-vcf-benchmark-nodes", "rapfi-vcf-benchmark-nps"]],
   ["多組 VCF", ["btn-multi-vcf", "vcf-multi-settings-card"]],
   ["防守", ["btn-block-vcf", "btn-block-vcf-all"]],
   ["延伸搜尋", ["btn-level3", "btn-add-black", "btn-add-white"]],
