@@ -258,6 +258,10 @@ int main()
     stone(8, 4, 2);
     stone(4, 5, 1);
     stone(4, 6, 1);
+    // Block two incidental diagonal open-four shortcuts from this setup,
+    // without occupying any of the planned 7-ply attack/defence points.
+    stone(9, 8, 2);
+    stone(5, 3, 2);
     uint8_t deepRoute[CELLS] {};
     uint32_t deepStats[7] {};
     const int deepFound = rapfiStandaloneVCF(deepBoard, 1, 0, 0, 7, deepRoute, deepStats);
