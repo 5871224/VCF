@@ -102,6 +102,14 @@ jobs:
           path: .cache/vcf-rapfi-db
           key: bd1-vcf-rapfi-db-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-db-bridge.cpp') }}
 
+      - name: Restore independent Rapfi VCF benchmark cache
+        if: steps.version.outputs.needs_sync == 'true'
+        id: rapfi-vcf-cache
+        uses: actions/cache@v4
+        with:
+          path: .cache/rapfi-vcf-standalone
+          key: bd1-rapfi-vcf-standalone-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-vcf-standalone.cpp') }}
+
       - name: Restore Emscripten SDK cache
         if: steps.version.outputs.needs_sync == 'true'
         id: emsdk-cache
@@ -111,7 +119,7 @@ jobs:
           key: bd1-emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-v1
 
       - name: Install Emscripten SDK
-        if: steps.version.outputs.needs_sync == 'true' && (steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.rapfi-db-cache.outputs.cache-hit != 'true')
+        if: steps.version.outputs.needs_sync == 'true' && (steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.rapfi-db-cache.outputs.cache-hit != 'true' || steps.rapfi-vcf-cache.outputs.cache-hit != 'true')
         shell: bash
         run: |
           set -euxo pipefail
@@ -235,6 +243,40 @@ jobs:
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-rapfi-db/vcf-rapfi-db.js
 
+      - name: Build standalone Rapfi VCF benchmark
+        if: steps.version.outputs.needs_sync == 'true' && steps.rapfi-vcf-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          source .emsdk/emsdk_env.sh
+          if [ ! -d .build/rapfi/.git ]; then
+            rm -rf .build/rapfi
+            mkdir -p .build
+            git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
+            git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
+            git -C .build/rapfi checkout --detach "$RAPFI_REF"
+          fi
+          mkdir -p .cache/rapfi-vcf-standalone
+          rapfi_root="$PWD/.build/rapfi/Rapfi"
+          sources=(
+            rapfi/vcf-rapfi-vcf-standalone.cpp
+            "$rapfi_root/core/hash.cpp"
+            "$rapfi_root/core/utils.cpp"
+            "$rapfi_root/game/pattern.cpp"
+            "$rapfi_root/game/board.cpp"
+            "$rapfi_root/game/movegen.cpp"
+          )
+          g++ "${sources[@]}" -I"$rapfi_root" -O2 -std=c++17 \
+            -ffunction-sections -fdata-sections -DVCF_RAPFI_VCF_STANDALONE_TEST_MAIN \
+            -Wl,--gc-sections -o /tmp/rapfi-vcf-standalone-test
+          /tmp/rapfi-vcf-standalone-test
+          em++ "${sources[@]}" -I"$rapfi_root" \
+            -O3 -flto -DNDEBUG -std=c++17 --no-entry \
+            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=RapfiVCFStandaloneModule \
+            -s ENVIRONMENT='worker,node' -s FILESYSTEM=0 -s ALLOW_MEMORY_GROWTH=1 \
+            -s "EXPORTED_FUNCTIONS=['_rapfiStandaloneVCF','_malloc','_free']" \
+            -o .cache/rapfi-vcf-standalone/rapfi-vcf-standalone.js
+
       - name: Verify source and built engines
         if: steps.version.outputs.needs_sync == 'true'
         shell: bash
@@ -268,6 +310,22 @@ jobs:
             .catch(error => { console.error(error); process.exit(1); });
           NODE
 
+          node - <<'NODE'
+          const createRapfi = require(require('path').resolve('.cache/rapfi-vcf-standalone/rapfi-vcf-standalone.js'));
+          createRapfi({ locateFile: file => require('path').resolve('.cache/rapfi-vcf-standalone', file) })
+            .then(module => {
+              const input = module._malloc(225), route = module._malloc(225), stats = module._malloc(20);
+              const board = new Uint8Array(225);
+              for (const col of [6, 7, 8, 9]) board[7 * 15 + col] = 1;
+              module.HEAPU8.set(board, input);
+              const result = module._rapfiStandaloneVCF(input, 1, 0, 100000, 21, route, stats);
+              if (result !== 1 || module.HEAPU32[(stats >>> 2) + 4] < 1)
+                throw new Error('Rapfi standalone VCF Wasm smoke test failed');
+              module._free(input); module._free(route); module._free(stats);
+              console.log('Rapfi standalone VCF Wasm smoke test passed');
+            }).catch(error => { console.error(error); process.exit(1); });
+          NODE
+
       - name: Prepare BD1 server site
         if: steps.version.outputs.needs_sync == 'true'
         shell: bash
@@ -285,6 +343,10 @@ jobs:
           test -s _site/deployment.json
           test -s _site/rapfi/vcf-bitboard-main.js
           test -s _site/rapfi/vcf-bitboard-worker.js
+          test -s _site/rapfi/vcf-rapfi-vcf-worker.js
+          test -s _site/rapfi/vcf-rapfi-vcf-benchmark.js
+          test -s _site/rapfi/engine/rapfi-vcf-standalone.js
+          test -s _site/rapfi/engine/rapfi-vcf-standalone.wasm
           test -s _site/rapfi/engine/rapfi-single-simd128.js
           test -s _site/rapfi/engine/rapfi-single-simd128.wasm
           test -s _site/rapfi/engine/rapfi-single-simd128.data
@@ -396,6 +458,10 @@ jobs:
           check_file index.html
           check_file rapfi/vcf-bitboard-main.js
           check_file rapfi/vcf-bitboard-worker.js
+          check_file rapfi/vcf-rapfi-vcf-worker.js
+          check_file rapfi/vcf-rapfi-vcf-benchmark.js
+          check_file rapfi/engine/rapfi-vcf-standalone.js
+          check_file rapfi/engine/rapfi-vcf-standalone.wasm
           check_file rapfi/engine/vcf-bitboard-engine.js
           check_file rapfi/engine/vcf-bitboard-engine.wasm
           check_file rapfi/engine/vcf-rapfi-db.js
