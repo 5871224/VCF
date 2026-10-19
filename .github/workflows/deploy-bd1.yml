@@ -315,13 +315,14 @@ jobs:
           const createRapfi = require(require('path').resolve('.cache/rapfi-vcf-standalone/rapfi-vcf-standalone.js'));
           createRapfi({ locateFile: file => require('path').resolve('.cache/rapfi-vcf-standalone', file) })
             .then(module => {
-              const input = module._malloc(225), route = module._malloc(225), stats = module._malloc(20);
+              const input = module._malloc(225), route = module._malloc(225), stats = module._malloc(28);
               const board = new Uint8Array(225);
               for (const col of [6, 7, 8, 9]) board[7 * 15 + col] = 1;
               module.HEAPU8.set(board, input);
-              const result = module._rapfiStandaloneVCF(input, 1, 0, 100000, 21, route, stats);
-              if (result !== 1 || module.HEAPU32[(stats >>> 2) + 4] < 1)
-                throw new Error('Rapfi standalone VCF Wasm smoke test failed');
+              // maxNodes=0: separate Rapfi VCF has no implicit time/node cap.
+              const result = module._rapfiStandaloneVCF(input, 1, 0, 0, 21, route, stats);
+              if (result !== 1 || module.HEAPU32[(stats >>> 2) + 6] < 1 || module.HEAPU32[(stats >>> 2) + 5] !== 0)
+                throw new Error('Rapfi standalone unlimited VCF Wasm smoke test failed');
               module._free(input); module._free(route); module._free(stats);
               console.log('Rapfi standalone VCF Wasm smoke test passed');
             }).catch(error => { console.error(error); process.exit(1); });
