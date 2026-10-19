@@ -44,8 +44,9 @@ jobs:
             "$rapfi_root/game/pattern.cpp"
             "$rapfi_root/game/board.cpp"
             "$rapfi_root/game/movegen.cpp"
+            "$rapfi_root/external/lz4/src/xxhash.c"
           )
-          g++ "${sources[@]}" -I"$rapfi_root" -O2 -std=c++17 \
+          g++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include" -O2 -std=c++17 \
             -ffunction-sections -fdata-sections -DVCF_RAPFI_VCF_STANDALONE_TEST_MAIN \
             -Wl,--gc-sections -o /tmp/rapfi-vcf-standalone-test
           /tmp/rapfi-vcf-standalone-test
