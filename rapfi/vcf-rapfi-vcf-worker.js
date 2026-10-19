@@ -3,9 +3,14 @@
 let rapfiModulePromise = null;
 function standaloneModule() {
   if (!rapfiModulePromise) {
-    importScripts(new URL("./engine/rapfi-vcf-standalone.js", self.location.href).href);
+    const rapfiAsset = name => {
+      const url = new URL("./engine/" + name, self.location.href);
+      url.searchParams.set("v", "20261019-rapfi-no-limit1");
+      return url.href;
+    };
+    importScripts(rapfiAsset("rapfi-vcf-standalone.js"));
     rapfiModulePromise = RapfiVCFStandaloneModule({
-      locateFile: name => new URL("./engine/" + name, self.location.href).href,
+      locateFile: rapfiAsset,
     }).catch(error => {
       rapfiModulePromise = null;
       throw error;
@@ -19,14 +24,14 @@ self.onmessage = async event => {
     if (!Number.isSafeInteger(id) || !Array.isArray(board) || board.length !== 225
         || !board.every(stone => Number.isInteger(stone) && stone >= 0 && stone <= 2)
         || (attacker !== 1 && attacker !== 2) || ![0, 1, 2].includes(rule)
-        || !Number.isSafeInteger(maxNodes) || maxNodes < 1 || maxNodes > 100000000
+        || !Number.isSafeInteger(maxNodes) || maxNodes < 0 || maxNodes > 100000000
         || !Number.isInteger(maxPly) || maxPly < 1 || maxPly > 224) {
       throw new Error("Rapfi VCF 輸入盤面或限制無效");
     }
     const wasm = await standaloneModule();
     const boardPtr = wasm._malloc(225);
     const movesPtr = wasm._malloc(225);
-    const statsPtr = wasm._malloc(20);
+    const statsPtr = wasm._malloc(28);
     if (!boardPtr || !movesPtr || !statsPtr) {
       if (boardPtr) wasm._free(boardPtr);
       if (movesPtr) wasm._free(movesPtr);
@@ -35,15 +40,19 @@ self.onmessage = async event => {
     }
     try {
       wasm.HEAPU8.set(board, boardPtr);
-      wasm.HEAPU32.fill(0, statsPtr >>> 2, (statsPtr >>> 2) + 5);
+      wasm.HEAPU32.fill(0, statsPtr >>> 2, (statsPtr >>> 2) + 7);
       const result = wasm._rapfiStandaloneVCF(boardPtr, attacker, rule, maxNodes, maxPly, movesPtr, statsPtr);
       if (result < 0) throw new Error("Rapfi VCF 無法建立這個盤面");
       const offset = statsPtr >>> 2;
-      const nodes = wasm.HEAPU32[offset];
-      const elapsedMicros = wasm.HEAPU32[offset + 1];
-      const maxPlySeen = wasm.HEAPU32[offset + 2];
-      const aborted = Boolean(wasm.HEAPU32[offset + 3]);
-      const routeLength = result === 1 ? wasm.HEAPU32[offset + 4] : 0;
+      // C++ counters are 64-bit so an unlimited run does not wrap after
+      // 2^32 nodes or ~71 minutes of search.
+      const fromWords = index =>
+        wasm.HEAPU32[offset + index] + wasm.HEAPU32[offset + index + 1] * 4294967296;
+      const nodes = fromWords(0);
+      const elapsedMicros = fromWords(2);
+      const maxPlySeen = wasm.HEAPU32[offset + 4];
+      const aborted = Boolean(wasm.HEAPU32[offset + 5]);
+      const routeLength = result === 1 ? wasm.HEAPU32[offset + 6] : 0;
       if (routeLength > 225) throw new Error("Rapfi VCF 回傳無效手順");
       const route = Array.from(wasm.HEAPU8.slice(movesPtr, movesPtr + routeLength));
       self.postMessage({ id, type: "result", found: result === 1,
