@@ -456,7 +456,7 @@ for (const token of ["VCFBitboard", "window.engineAPI", "_showVCF", "vcfRegister
     throw new Error("standalone Rapfi must not depend on shared search: " + token);
   }
 }
-for (const token of ['#include "game/board.h"', '#include "game/movegen.h"', 'generateNeighbors<VCF>', 'std::chrono::steady_clock']) {
+for (const token of ['#include "game/board.h"', '#include "game/movegen.h"', 'generate<VCF | RULE_RENJU>', 'std::chrono::steady_clock']) {
   if (!rapfiBenchmarkNative.includes(token)) throw new Error("Rapfi source bridge missing: " + token);
 }
 if (!rapfiBenchmarkWorker.includes("RapfiVCFStandaloneModule") || !rapfiBenchmarkUI.includes("VCFWorkbenchRecord?.currentBoard?.()")) {
