@@ -5,7 +5,7 @@ function standaloneModule() {
   if (!rapfiModulePromise) {
     const rapfiAsset = name => {
       const url = new URL("./engine/" + name, self.location.href);
-      url.searchParams.set("v", "20261019-rapfi-no-limit1");
+      url.searchParams.set("v", "20261019-rapfi-deep1");
       return url.href;
     };
     importScripts(rapfiAsset("rapfi-vcf-standalone.js"));
