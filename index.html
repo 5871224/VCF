@@ -1279,7 +1279,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
               <span>每秒搜尋節點數：<strong id="rapfi-vcf-benchmark-nps">—</strong></span>
             </div>
             <div>Rapfi 手順：<span id="rapfi-vcf-benchmark-route">—</span></div>
-            <div class="rapfi-vcf-benchmark-note">純引擎搜尋時間，不含 WASM 初始化與頁面繪製；節點定義可能與原引擎不同。本功能不設時間或節點上限，可按「停止 Rapfi VCF」隨時終止；搜尋在約 0.2 秒結束時，表示目前 QVCF 候選已搜尋完，不是計時器強制停止。Rapfi QVCF 為選擇性搜尋，未找到不代表完整無解證明。</div>
+            <div class="rapfi-vcf-benchmark-note">純引擎搜尋時間，不含 WASM 初始化與頁面繪製；節點定義可能與原引擎不同。本功能不設時間或節點上限，可按「停止 Rapfi VCF」隨時終止；每一攻方搜尋層都使用 Rapfi 全盤 VCF 候選，不再限制六層或限制附近四點／COMB 棋型；搜尋上限僅為盤面剩餘空格數。未找到不等同其他演算法也無解。</div>
           </div>
         </section>
         <section class="vcf-section"><h3 class="vcf-section-title">多組 VCF</h3>
@@ -4739,7 +4739,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <!-- 正式 HTML 已包含完整版面；各模組只綁定功能與狀態。 -->
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20261008-static-workbench1"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20261008-static-workbench1"></script>
-<script src="rapfi/vcf-rapfi-vcf-benchmark.js?v=20261019-rapfi-no-limit1"></script>
+<script src="rapfi/vcf-rapfi-vcf-benchmark.js?v=20261019-rapfi-deep1"></script>
 <script src="rapfi/vcf-forbidden-overlay.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-open-four-stop.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-layout.js?v=20261009-cloud2"></script>
