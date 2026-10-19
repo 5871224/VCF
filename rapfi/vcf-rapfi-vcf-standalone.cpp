@@ -262,6 +262,9 @@ int main()
     uint32_t deepStats[7] {};
     const int deepFound = rapfiStandaloneVCF(deepBoard, 1, 0, 0, 7, deepRoute, deepStats);
     assert(deepFound == 1);
+    std::fprintf(stderr, "deep smoke routeLength=%u deepest=%u nodes=%u route: ", deepStats[6], deepStats[4], deepStats[0]);
+    for (uint32_t i = 0; i < deepStats[6]; ++i) std::fprintf(stderr, " %u", unsigned(deepRoute[i]));
+    std::fprintf(stderr, "\\n");
     assert(deepStats[6] == 7 && deepStats[4] == 7);
     assert(deepRoute[0] == 7 * N + 6 && deepRoute[6] == 1 * N + 3);
     std::puts("Independent Rapfi VCF deep 7-ply regression passed");
