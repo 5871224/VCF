@@ -241,23 +241,23 @@ int main()
     const int unlimited = rapfiStandaloneVCF(b, 1, 0, 0, 21, moves, stats);
     assert(unlimited == 1 && stats[6] >= 1 && stats[5] == 0);
     assert(moves[0] == 7 * 15 + 5 || moves[0] == 7 * 15 + 10);
-    // Deliberately construct a 7-ply forced-win chain:
-    // g8-h8 (block), g5-g4 (block), d5-c5 (block), d2 (open four).
-    // Before playing the previous attack, no future move forms a four.
-    // This specifically regresses the old depth>=4 QVCF COMB and locality
-    // filter that silently discarded a valid later attack.
+    // Construct a 7-ply forced-win chain with separated rows/columns
+    // (and no accidental diagonal early open-four):
+    // h8-g8 (block), h5-h4 (block), e5-d5 (block), e8 (open four).
+    // Before a preceding attack is played, its subsequent move is only
+    // an open-three, not a four. This catches depth-dependent pruning.
     uint8_t deepBoard[CELLS] {};
     auto stone = [&](int x, int y, int color) { deepBoard[y * N + x] = uint8_t(color); };
-    for (int x : {3, 4, 5}) stone(x, 7, 1);
-    stone(2, 7, 2);
-    stone(6, 5, 1);
-    stone(6, 6, 1);
-    stone(6, 8, 2);
-    stone(4, 4, 1);
+    for (int x : {8, 9, 10}) stone(x, 7, 1);
+    stone(11, 7, 2);
+    stone(7, 5, 1);
+    stone(7, 6, 1);
+    stone(7, 8, 2);
     stone(5, 4, 1);
-    stone(7, 4, 2);
-    stone(3, 2, 1);
-    stone(3, 3, 1);
+    stone(6, 4, 1);
+    stone(8, 4, 2);
+    stone(4, 5, 1);
+    stone(4, 6, 1);
     uint8_t deepRoute[CELLS] {};
     uint32_t deepStats[7] {};
     const int deepFound = rapfiStandaloneVCF(deepBoard, 1, 0, 0, 7, deepRoute, deepStats);
@@ -266,7 +266,7 @@ int main()
     for (uint32_t i = 0; i < deepStats[6]; ++i) std::fprintf(stderr, " %u", unsigned(deepRoute[i]));
     std::fprintf(stderr, "\\n");
     assert(deepStats[6] == 7 && deepStats[4] == 7);
-    assert(deepRoute[0] == 7 * N + 6 && deepRoute[6] == 1 * N + 3);
+    assert(deepRoute[0] == 7 * N + 7 && deepRoute[6] == 7 * N + 4);
     std::puts("Independent Rapfi VCF deep 7-ply regression passed");
 }
 #endif
