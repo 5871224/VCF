@@ -470,7 +470,11 @@ if (!rapfiBenchmarkUI.includes("const maxNodes = 0;")
     || !rapfiBenchmarkWorker.includes("const nodes = fromWords(0);")
     || !rapfiBenchmarkWorker.includes("const elapsedMicros = fromWords(2);")
     || !pureStatsHtml.includes("不設時間或節點上限")
-    || !pureStatsHtml.includes("20261019-rapfi-no-limit1")) {
+    || !pureStatsHtml.includes("20261019-rapfi-deep1")
+    || !rapfiBenchmarkNative.includes("generate<VCF | RULE_RENJU>")
+    || rapfiBenchmarkNative.includes("generateNeighbors<VCF")
+    || rapfiBenchmarkNative.includes("RANGE_SQUARE2_LINE4")
+    || rapfiBenchmarkNative.includes("allowPlain")) {
   throw new Error("standalone Rapfi benchmark must have no time/node cutoff and use 64-bit counters");
 }
 if (!staticSiteBuilder.includes('"vcf-rapfi-vcf-worker.js"')
