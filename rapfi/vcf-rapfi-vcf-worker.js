@@ -3,9 +3,14 @@
 let rapfiModulePromise = null;
 function standaloneModule() {
   if (!rapfiModulePromise) {
-    importScripts(new URL("./engine/rapfi-vcf-standalone.js", self.location.href).href);
+    const rapfiAsset = name => {
+      const url = new URL("./engine/" + name, self.location.href);
+      url.searchParams.set("v", "20261019-rapfi-no-limit1");
+      return url.href;
+    };
+    importScripts(rapfiAsset("rapfi-vcf-standalone.js"));
     rapfiModulePromise = RapfiVCFStandaloneModule({
-      locateFile: name => new URL("./engine/" + name, self.location.href).href,
+      locateFile: rapfiAsset,
     }).catch(error => {
       rapfiModulePromise = null;
       throw error;
