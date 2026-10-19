@@ -563,11 +563,12 @@ for (const id of [
   }
 }
 const sections = Array.from(initialMarkup.matchAll(/class="vcf-section-title">([^<]+)/g), match => match[1]);
-if (sections.join(",") !== "分析,VCF 搜尋,多組 VCF,防守,延伸搜尋,棋盤操作") {
+if (sections.join(",") !== "分析,VCF 搜尋,Rapfi VCF（獨立測速）,多組 VCF,防守,延伸搜尋,棋盤操作") {
   throw new Error("initial calculation sections are missing or out of order");
 }
 for (const [title, ids] of [
   ["VCF 搜尋", ["btn-fast-vcf", "btn-shortest-vcf", "vcf-calculation-settings-card"]],
+  ["Rapfi VCF（獨立測速）", ["btn-rapfi-vcf-benchmark", "rapfi-vcf-benchmark-ms", "rapfi-vcf-benchmark-nodes", "rapfi-vcf-benchmark-nps"]],
   ["多組 VCF", ["btn-multi-vcf", "vcf-multi-settings-card"]],
   ["防守", ["btn-block-vcf", "btn-block-vcf-all"]],
   ["延伸搜尋", ["btn-level3", "btn-add-black", "btn-add-white"]],
