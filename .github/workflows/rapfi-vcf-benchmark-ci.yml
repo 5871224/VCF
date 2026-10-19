@@ -1,0 +1,51 @@
+name: Standalone Rapfi VCF benchmark CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'rapfi/vcf-rapfi-vcf-standalone.cpp'
+      - 'rapfi/vcf-rapfi-vcf-benchmark.js'
+      - 'rapfi/vcf-rapfi-vcf-worker.js'
+      - 'index.html'
+      - 'tests/workbench-architecture.test.js'
+      - '.github/workflows/rapfi-vcf-benchmark-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894
+
+jobs:
+  native-and-isolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check independent JavaScript and architecture
+        run: |
+          node --check rapfi/vcf-rapfi-vcf-benchmark.js
+          node --check rapfi/vcf-rapfi-vcf-worker.js
+          npm run test:architecture
+      - name: Fetch pinned upstream Rapfi
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
+          git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
+          git -C .build/rapfi checkout --detach "$RAPFI_REF"
+      - name: Compile and run separate native Rapfi VCF smoke test
+        run: |
+          set -euxo pipefail
+          rapfi_root="$PWD/.build/rapfi/Rapfi"
+          sources=(
+            rapfi/vcf-rapfi-vcf-standalone.cpp
+            "$rapfi_root/core/hash.cpp"
+            "$rapfi_root/core/utils.cpp"
+            "$rapfi_root/game/pattern.cpp"
+            "$rapfi_root/game/board.cpp"
+            "$rapfi_root/game/movegen.cpp"
+          )
+          g++ "${sources[@]}" -I"$rapfi_root" -O2 -std=c++17 \
+            -ffunction-sections -fdata-sections -DVCF_RAPFI_VCF_STANDALONE_TEST_MAIN \
+            -Wl,--gc-sections -o /tmp/rapfi-vcf-standalone-test
+          /tmp/rapfi-vcf-standalone-test
