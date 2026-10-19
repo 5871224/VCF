@@ -11,7 +11,7 @@
   if (!button || !status || !msOutput || !nodesOutput || !npsOutput || !routeOutput) return;
 
   const workerURL = new URL("./vcf-rapfi-vcf-worker.js", document.currentScript.src);
-  workerURL.searchParams.set("v", "20261019-rapfi-no-limit1");
+  workerURL.searchParams.set("v", "20261019-rapfi-deep1");
   let worker = null;
   let runningId = 0;
   let nextId = 1;
@@ -96,7 +96,7 @@
             ? "已找到 VCF，搜尋自然結束"
             : data.aborted
               ? "搜尋已中止，結果未定"
-              : "Rapfi QVCF 候選已搜尋完畢，未找到（不是完整無解證明）";
+              : "Rapfi VCF 候選已搜尋完畢，未找到（不代表其他搜尋演算法亦無解）";
           status.textContent = modeText + "；分析" + (attacker === 1 ? "黑" : "白")
             + "、規則" + ({ 0: "自由", 1: "無禁", 2: "有禁" })[rule]
             + "；最深搜尋 " + number(data.maxPlySeen) + " 層；無時間／節點限制";
