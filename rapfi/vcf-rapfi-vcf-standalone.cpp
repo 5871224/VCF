@@ -73,7 +73,7 @@ public:
     explicit TacticalSearch(Board &b, uint32_t limit, int depth)
         : board(b), nodeLimit(limit), maxPly(depth) {}
 
-    bool run() { return attack(0, NONE, NONE); }
+    bool run() { return attack(0); }
     uint64_t nodes = 0;
     uint32_t maxPlyVisited = 0;
     bool aborted = false;
@@ -93,7 +93,7 @@ private:
         return true;
     }
 
-    bool attack(int ply, Pattern4 previousP4, Pattern4 olderP4)
+    bool attack(int ply)
     {
         if (aborted || ply >= maxPly || board.movesLeft() <= 0) return false;
         const Color self = board.sideToMove();
@@ -124,23 +124,15 @@ private:
             mustDefend = moves[0].pos;
         }
 
-        // Rapfi's QVCF policy: full candidate set for arbitrary imported roots;
-        // subsequent attacks use its exact neighbor offsets, progressively
-        // preferring combined threats at greater negative QVCF depth.
+        // Do not inherit Rapfi's quiescence QVCF neighbor/COMB pruning:
+        // at ply >= 4 they silently discard ordinary block-four attacks
+        // and prevent valid seven-ply-and-deeper forced sequences.
+        // Always use Rapfi's own full-board incremental VCF generator,
+        // for every attack ply (including Renju forbidden-point candidates).
         ScoredMove candidates[CELLS];
-        ScoredMove *end = candidates;
-        if (ply == 0) {
-            end = R == RENJU
-                ? generate<VCF | RULE_RENJU>(board, candidates)
-                : generate<VCF>(board, candidates);
-        } else {
-            Pos center = board.getLastActualMoveOfSide(self);
-            if (!center) return false;
-            bool allowPlain = (ply <= 2 || (previousP4 >= D_BLOCK4_PLUS && olderP4 >= D_BLOCK4_PLUS));
-            end = allowPlain
-                ? generateNeighbors<VCF>(board, candidates, center, RANGE_SQUARE2_LINE4.data(), RANGE_SQUARE2_LINE4.size())
-                : generateNeighbors<VCF | COMB>(board, candidates, center, RANGE_SQUARE2_LINE4.data(), RANGE_SQUARE2_LINE4.size());
-        }
+        ScoredMove *end = R == RENJU
+            ? generate<VCF | RULE_RENJU>(board, candidates)
+            : generate<VCF>(board, candidates);
         std::sort(candidates, end, [&](const ScoredMove &a, const ScoredMove &b) {
             const Pattern4 pa = board.cell(a.pos).pattern4[self];
             const Pattern4 pb = board.cell(b.pos).pattern4[self];
@@ -171,7 +163,7 @@ private:
                     } else if (visit(ply + 2)) {
                         route.push_back(uint8_t(indexOf(defense)));
                         play<R>(board, defense);
-                        winning = attack(ply + 2, threatType, previousP4);
+                        winning = attack(ply + 2);
                         undo<R>(board);
                         if (!winning) route.pop_back();
                     }
@@ -249,6 +241,29 @@ int main()
     const int unlimited = rapfiStandaloneVCF(b, 1, 0, 0, 21, moves, stats);
     assert(unlimited == 1 && stats[6] >= 1 && stats[5] == 0);
     assert(moves[0] == 7 * 15 + 5 || moves[0] == 7 * 15 + 10);
-    std::puts("Independent Rapfi VCF smoke test passed");
+    // Deliberately construct a 7-ply forced-win chain:
+    // g8-h8 (block), g5-g4 (block), d5-c5 (block), d2 (open four).
+    // Before playing the previous attack, no future move forms a four.
+    // This specifically regresses the old depth>=4 QVCF COMB and locality
+    // filter that silently discarded a valid later attack.
+    uint8_t deepBoard[CELLS] {};
+    auto stone = [&](int x, int y, int color) { deepBoard[y * N + x] = uint8_t(color); };
+    for (int x : {3, 4, 5}) stone(x, 7, 1);
+    stone(2, 7, 2);
+    stone(6, 5, 1);
+    stone(6, 6, 1);
+    stone(6, 8, 2);
+    stone(4, 4, 1);
+    stone(5, 4, 1);
+    stone(7, 4, 2);
+    stone(3, 2, 1);
+    stone(3, 3, 1);
+    uint8_t deepRoute[CELLS] {};
+    uint32_t deepStats[7] {};
+    const int deepFound = rapfiStandaloneVCF(deepBoard, 1, 0, 0, 7, deepRoute, deepStats);
+    assert(deepFound == 1);
+    assert(deepStats[6] == 7 && deepStats[4] == 7);
+    assert(deepRoute[0] == 7 * N + 6 && deepRoute[6] == 1 * N + 3);
+    std::puts("Independent Rapfi VCF deep 7-ply regression passed");
 }
 #endif
