@@ -11,6 +11,7 @@
   if (!button || !status || !msOutput || !nodesOutput || !npsOutput || !routeOutput) return;
 
   const workerURL = new URL("./vcf-rapfi-vcf-worker.js", document.currentScript.src);
+  workerURL.searchParams.set("v", "20261019-rapfi-no-limit1");
   let worker = null;
   let runningId = 0;
   let nextId = 1;
@@ -63,12 +64,9 @@
       if (![1, 2].includes(attacker) || ![0, 1, 2].includes(rule)) {
         throw new Error("請先選擇計算方及規則");
       }
-      const selectedMillions = Number(document.getElementById("vcf-multi-node-millions")?.value);
-      // The regular engine's zero means unlimited. This independent benchmark
-      // substitutes an explicit safety cap so a browser Worker cannot run forever.
-      const maxNodes = selectedMillions === 0 ? 20000000 :
-        Math.min(100000000, Math.max(1, Math.round(selectedMillions * 1000000)));
-      if (!Number.isFinite(maxNodes)) throw new Error("節點限制無效");
+      // 0 is the standalone Rapfi C++ ABI's explicit unlimited sentinel.
+      // Never inherit the normal Bitboard search time/node limits.
+      const maxNodes = 0;
 
       msOutput.textContent = "—";
       nodesOutput.textContent = "—";
@@ -95,13 +93,13 @@
           routeOutput.textContent = data.found && data.route.length ?
             data.route.map(toPoint).join(" ") : "—";
           const modeText = data.found
-            ? "找到 VCF"
+            ? "已找到 VCF，搜尋自然結束"
             : data.aborted
-              ? "搜尋達到節點限制，結果未定"
-              : "未找到（Rapfi QVCF 快速搜尋，不代表完整證明無解）";
+              ? "搜尋已中止，結果未定"
+              : "Rapfi QVCF 候選已搜尋完畢，未找到（不是完整無解證明）";
           status.textContent = modeText + "；分析" + (attacker === 1 ? "黑" : "白")
             + "、規則" + ({ 0: "自由", 1: "無禁", 2: "有禁" })[rule]
-            + "；上限 " + number(maxNodes) + " 節點";
+            + "；最深搜尋 " + number(data.maxPlySeen) + " 層；無時間／節點限制";
           hasResult = true;
           finish(false);
         };
