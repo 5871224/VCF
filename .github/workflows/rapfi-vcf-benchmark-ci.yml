@@ -17,6 +17,7 @@ permissions:
 
 env:
   RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894
+  EMSDK_VERSION: 3.1.74
 
 jobs:
   native-and-isolation:
