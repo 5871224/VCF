@@ -82,6 +82,15 @@ Board noise7() {
   b[12*15+12]=1; b[13*15+13]=2;
   return b;
 }
+Board branching(int rows) {
+  Board b {};
+  for (int k=0;k<rows;k++) {
+    const int y=1+2*k;
+    b[y*15+3]=2;
+    for (int x=4;x<=6;x++) b[y*15+x]=1;
+  }
+  return b;
+}
 Board open4() {
   Board b {};
   for (int x=5;x<=8;x++) b[7*15+x]=1;
@@ -131,8 +140,9 @@ int main() {
     {"deep7_renju", deep7(), 2},
     {"deep7_noise", noise7(), 0},
     {"open4_free", open4(), 0},
+    {"branching6_free", branching(6), 0},
+    {"branching7_free", branching(7), 0},
   };
-  double ratios[4][8] {};
   int valid=0, mismatches=0, incomplete=0;
   std::puts("BEGIN_VCF_BENCH mode=native compiler=O3_LTO warmups=2 trials=5 batch=6 maxDepth=15 maxNodes=40000");
   for (const auto& fixture:fixtures) {
@@ -164,9 +174,9 @@ int main() {
                   ratio,a.routeLength,c.routeLength);
       if (!match) mismatches++;
       if (!complete) incomplete++;
-      if (match && complete) { ratios[valid/8][valid%8]=ratio; valid++; }
+      if (match && complete) valid++;
     }
   }
-  std::printf("VCF_SUMMARY complete_matched=%d mismatches=%d incomplete=%d total=32\n",valid,mismatches,incomplete);
+  std::printf("VCF_SUMMARY complete_matched=%d mismatches=%d incomplete=%d total=48\n",valid,mismatches,incomplete);
   return 0;
 }
