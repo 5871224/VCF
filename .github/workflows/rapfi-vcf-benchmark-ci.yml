@@ -17,6 +17,7 @@ permissions:
 
 env:
   RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894
+  EMSDK_VERSION: 3.1.74
 
 jobs:
   native-and-isolation:
@@ -50,3 +51,54 @@ jobs:
             -ffunction-sections -fdata-sections -DVCF_RAPFI_VCF_STANDALONE_TEST_MAIN \
             -Wl,--gc-sections -o /tmp/rapfi-vcf-standalone-test
           /tmp/rapfi-vcf-standalone-test
+
+      - name: Benchmark Bitboard and Rapfi on identical positions and eight symmetries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source=Path("rapfi/vcf-rapfi-vcf-standalone.cpp").read_text()
+          replacements=[
+              ("    uint64_t nodes = 0;", "    uint64_t nodes = 0;\n    uint64_t attackNodes = 0;"),
+              ("        nodes++;\n        maxPlyVisited", "        nodes++;\n        if (ply & 1) attackNodes++;\n        maxPlyVisited"),
+              ("    stats[6] = uint32_t(search.route.size());", "    stats[6] = uint32_t(search.route.size());\n    stats[7] = uint32_t(search.attackNodes);\n    stats[8] = uint32_t(search.attackNodes >> 32);"),
+          ]
+          for old,new in replacements:
+              assert source.count(old)==1, "Rapfi instrumentation insertion changed: "+old
+              source=source.replace(old,new,1)
+          Path(".build/rapfi-vcf-instrumented.cpp").write_text(source)
+          PY
+          rapfi_root="$PWD/.build/rapfi/Rapfi"
+          g++ -O3 -flto -DNDEBUG -std=c++17 \
+            -I"$rapfi_root" -I"$rapfi_root/external/lz4/include" \
+            tests/vcf-speed-symmetry-bench.cpp \
+            rapfi/vcf-pattern-engine-optimized.cpp \
+            rapfi/vcf-bitboard-engine.cpp \
+            rapfi/vcf-bitboard-search-v2.cpp \
+            rapfi/vcf-bitboard-legacy-extra.cpp \
+            .build/rapfi-vcf-instrumented.cpp \
+            "$rapfi_root/core/hash.cpp" \
+            "$rapfi_root/core/utils.cpp" \
+            "$rapfi_root/game/pattern.cpp" \
+            "$rapfi_root/game/board.cpp" \
+            "$rapfi_root/game/movegen.cpp" \
+            "$rapfi_root/external/lz4/src/xxhash.c" \
+            -o /tmp/vcf-speed-symmetry-bench
+          /tmp/vcf-speed-symmetry-bench
+      - name: Restore production Bitboard WASM for real-module benchmark
+        id: perf-bit-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/vcf-bitboard-engine
+          key: bd1-vcf-bitboard-engine-v4-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
+      - name: Restore production Rapfi WASM for real-module benchmark
+        id: perf-rapfi-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/rapfi-vcf-standalone
+          key: bd1-rapfi-vcf-standalone-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-vcf-standalone.cpp') }}
+      - name: Benchmark production WASM in one Node runtime
+        run: |
+          test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.wasm
+          test -s .cache/rapfi-vcf-standalone/rapfi-vcf-standalone.wasm
+          node tests/vcf-speed-wasm-bench.js
