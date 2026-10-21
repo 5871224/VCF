@@ -50,3 +50,37 @@ jobs:
             -ffunction-sections -fdata-sections -DVCF_RAPFI_VCF_STANDALONE_TEST_MAIN \
             -Wl,--gc-sections -o /tmp/rapfi-vcf-standalone-test
           /tmp/rapfi-vcf-standalone-test
+
+      - name: Benchmark Bitboard and Rapfi on identical positions and eight symmetries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          source=Path("rapfi/vcf-rapfi-vcf-standalone.cpp").read_text()
+          replacements=[
+              ("    uint64_t nodes = 0;", "    uint64_t nodes = 0;\n    uint64_t attackNodes = 0;"),
+              ("        nodes++;\n        maxPlyVisited", "        nodes++;\n        if (ply & 1) attackNodes++;\n        maxPlyVisited"),
+              ("    stats[6] = uint32_t(search.route.size());", "    stats[6] = uint32_t(search.route.size());\n    stats[7] = uint32_t(search.attackNodes);\n    stats[8] = uint32_t(search.attackNodes >> 32);"),
+          ]
+          for old,new in replacements:
+              assert source.count(old)==1, "Rapfi instrumentation insertion changed: "+old
+              source=source.replace(old,new,1)
+          Path(".build/rapfi-vcf-instrumented.cpp").write_text(source)
+          PY
+          rapfi_root="$PWD/.build/rapfi/Rapfi"
+          g++ -O3 -flto -DNDEBUG -std=c++17 \
+            -I"$rapfi_root" -I"$rapfi_root/external/lz4/include" \
+            tests/vcf-speed-symmetry-bench.cpp \
+            rapfi/vcf-pattern-engine-optimized.cpp \
+            rapfi/vcf-bitboard-engine.cpp \
+            rapfi/vcf-bitboard-search-v2.cpp \
+            rapfi/vcf-bitboard-legacy-extra.cpp \
+            .build/rapfi-vcf-instrumented.cpp \
+            "$rapfi_root/core/hash.cpp" \
+            "$rapfi_root/core/utils.cpp" \
+            "$rapfi_root/game/pattern.cpp" \
+            "$rapfi_root/game/board.cpp" \
+            "$rapfi_root/game/movegen.cpp" \
+            "$rapfi_root/external/lz4/src/xxhash.c" \
+            -o /tmp/vcf-speed-symmetry-bench
+          /tmp/vcf-speed-symmetry-bench
