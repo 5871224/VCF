@@ -84,3 +84,20 @@ jobs:
             "$rapfi_root/external/lz4/src/xxhash.c" \
             -o /tmp/vcf-speed-symmetry-bench
           /tmp/vcf-speed-symmetry-bench
+      - name: Restore production Bitboard WASM for real-module benchmark
+        id: perf-bit-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/vcf-bitboard-engine
+          key: bd1-vcf-bitboard-engine-v4-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
+      - name: Restore production Rapfi WASM for real-module benchmark
+        id: perf-rapfi-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/rapfi-vcf-standalone
+          key: bd1-rapfi-vcf-standalone-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-vcf-standalone.cpp') }}
+      - name: Benchmark production WASM in one Node runtime
+        run: |
+          test -s .cache/vcf-bitboard-engine/vcf-bitboard-engine.wasm
+          test -s .cache/rapfi-vcf-standalone/rapfi-vcf-standalone.wasm
+          node tests/vcf-speed-wasm-bench.js
