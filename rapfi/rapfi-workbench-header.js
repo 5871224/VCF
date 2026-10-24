@@ -1747,6 +1747,13 @@
       invalidate() { notify(); return true; },
     };
 
+    global.addEventListener("vcf-static-annotations-changed", () => {
+      if (fiveDBDoc && !suspendPersistence) saveState(false);
+    });
+    documentTitle()?.addEventListener("input", () => {
+      if (fiveDBDoc && !suspendPersistence) saveState(false);
+    });
+
     global.addEventListener("vcf-rules-changed", () => {
       if (restoringRule || !rapfiDbActive || !db()?.isReady) return;
       const service = db();
