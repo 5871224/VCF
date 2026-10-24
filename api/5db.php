@@ -78,18 +78,30 @@ function storage5(): string {
     $configured = getenv('VCF_5DB_STORAGE_DIR');
     $parent = realpath(dirname($root));
     if (!$parent) fail5('無法定位站台私有目錄', 503);
-    if ((!is_string($configured) || trim($configured) === '')
-        && preg_match('/^(public_html|www|htdocs|httpdocs|wwwroot|html)$/i', basename($parent))) {
-        fail5('站台根目錄可能位於公開目錄內；請指定私有 VCF_5DB_STORAGE_DIR', 503);
+    // Shared hosts often place a subdomain DOCUMENT_ROOT inside public_html.
+    // The sibling of DOCUMENT_ROOT could then itself be publicly reachable.
+    // Walk up to the public web-root folder and use its parent instead.
+    $privateBase = $parent;
+    $publicRoot = null;
+    $cursor = $root;
+    while ($cursor !== dirname($cursor)) {
+        if (preg_match('/^(public_html|www|htdocs|httpdocs|wwwroot|html)$/i', basename($cursor))) {
+            $publicRoot = $cursor;
+            $privateBase = dirname($cursor);
+            break;
+        }
+        $cursor = dirname($cursor);
     }
     $path = is_string($configured) && trim($configured) !== ''
         ? rtrim(trim($configured), DIRECTORY_SEPARATOR)
-        : $parent.DIRECTORY_SEPARATOR.'vcf-5db-private';
+        : $privateBase.DIRECTORY_SEPARATOR.'vcf-5db-private';
     if (!str_starts_with($path, DIRECTORY_SEPARATOR)) fail5('私有目錄必須是絕對路徑', 503);
     if (!is_dir($path) && !@mkdir($path, 0700, true) && !is_dir($path))
         fail5('無法建立 5DB 私有儲存目錄，請設定 VCF_5DB_STORAGE_DIR', 503);
     $real = realpath($path);
-    if (!$real || $real === $root || str_starts_with($real, $root.DIRECTORY_SEPARATOR))
+    if (!$real || $real === $root || str_starts_with($real, $root.DIRECTORY_SEPARATOR)
+        || ($publicRoot !== null
+            && ($real === $publicRoot || str_starts_with($real, $publicRoot.DIRECTORY_SEPARATOR))))
         fail5('私有儲存目錄不能位於公開網站內', 503);
     return $real;
 }
