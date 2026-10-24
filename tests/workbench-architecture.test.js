@@ -30,7 +30,8 @@ has("layout",['async function loadRecordBytes(rawBytes, fileName = "棋譜.5db")
   "window.FiveDB.decode(rawBytes)","import5DBDocument?.(doc)",
   'return loadRecordBytes(bytes, file.name || "棋譜.5db");',"不支援舊版棋譜格式"]);
 lacks("layout",["window.VCFWorkbenchRecord?.importYXDB?.(",
-  "window.VCFWorkbenchRecord?.importRoutes?.("]);
+  "window.VCFWorkbenchRecord?.importRoutes?.(", "function parseYXDB(", "function parseRenLib(", "function decompressLZ4Frame("]);
+lacks("header",["importYXDB(", "importRoutes(", "exportYXDB()", "createRenLib(", "createYXDB(", "serializePuzzle(", "restoreYXDB(", "snapshotYXDB(", "vcf-puzzle-v1"]);
 lacks("marks",["encode, decode"]);
 has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "controller.abort()", "雲端棋譜讀取失敗：", "重新讀取", "global.FiveDB.encode(doc)",
  "global.FiveDB?.decode?.(bytes)",'cloud-\${id}.5db',
