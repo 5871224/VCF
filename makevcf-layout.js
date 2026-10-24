@@ -729,122 +729,32 @@
   }
 
   function reportRecordImport(format, fileName, nodeCount, currentPly) {
-    const text = `${format} ${fileName || "棋譜"}：已載入 Rapfi position DB，目前第 ${currentPly} 手，共 ${nodeCount} 個節點`;
+    const text = `${format} ${fileName || "棋譜"}：已載入原始方向的棋譜樹，目前第 ${currentPly} 手，共 ${nodeCount} 個節點`;
     if (typeof setStatus === "function") setStatus(text);
     const quickStatus = document.getElementById("bb-export-status");
     if (quickStatus) quickStatus.textContent = text;
   }
 
-  async function loadRecordBytes(rawBytes, fileName = "棋譜.db", options = {}) {
-    const bytes = rawBytes instanceof Uint8Array ? rawBytes : new Uint8Array(rawBytes || 0);
-    const lowerName = String(fileName || "").toLowerCase();
-    const looksVCFDB = lowerName.endsWith(".vcfdb") || (bytes.length >= 6 && [86,67,70,68,66,1].every((v,i) => bytes[i] === v));
-    const looksPuzzle = lowerName.endsWith(".vcf.json") || lowerName.endsWith(".vcfp");
-    const looksRenLib = lowerName.endsWith(".lib")
-      || (bytes.length >= 8 && bytes[0] === 0xff && bytes[1] === 0x52 && bytes[2] === 0x65 && bytes[3] === 0x6e);
-    if (looksVCFDB) {
-      const annotations = window.VCFStaticAnnotations;
-      if (!annotations) throw new Error("VCFDB 標記模組尚未載入");
-      const doc = await annotations.decode(bytes);
-      const record = doc.record;
-      let loaded;
-      let nodeCount = 0;
-      if (record.kind === "puzzle") {
-        loaded = await window.VCFWorkbenchRecord?.importPuzzle?.(record.puzzle);
-        nodeCount = Object.keys(record.puzzle?.nodes || {}).length;
-      } else if (record.kind === "yxdb") {
-        if (typeof record.data !== "string" || !Array.isArray(record.history)
-          || record.history.length > 225 || ![0,1,2].includes(record.rule)
-          || !record.history.every(move => Number.isInteger(move) && move >= 0 && move < 225)
-          || !Number.isInteger(record.basePly) || record.basePly < 0 || record.basePly > record.history.length) {
-          throw new Error("VCFDB 棋譜資料不正確");
-        }
-        const dbBytes = annotations.unbase64(record.data);
-        const parsed = parseYXDB(dbBytes);
-        if (parsed.rule !== record.rule) throw new Error("VCFDB 規則與 YXDB 不一致");
-        loaded = await window.VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, record.history, record.basePly);
-        nodeCount = parsed.nodeCount;
-      }
-      if (!loaded) throw new Error("VCFDB 棋譜無法還原");
-      annotations.importData(doc.annotations || {});
-      const title = document.getElementById("vcf-record-title");
-      if (title) {
-        title.value = String(doc.title || "").slice(0, 250);
-        title.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      const currentPly = Math.max(0, Number(window.VCFRapfiDB?.ply?.() || 0) - Number(record.basePly || 0));
-      reportRecordImport("VCFDB", fileName, nodeCount, currentPly);
-      return { format: "VCFDB", nodeCount, rootCount: 1, currentPly };
+  async function loadRecordBytes(rawBytes, fileName = "棋譜.5db") {
+    if (!/\.5db$/i.test(String(fileName || ""))) {
+      throw new Error("只接受 5DB 1.0（.5db），不支援舊版棋譜格式");
     }
-
-    document.getElementById("btn-clear-vcf")?.click();
-    window.VCFStaticAnnotations?.reset?.();
-
-    if (looksPuzzle) {
-      if (bytes.length > 16 * 1024 * 1024) throw new Error("VCF 題目容器超過 16 MB 上限");
-      let payload;
-      try { payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
-      catch (_) { throw new Error("VCF 題目容器不是有效的 UTF-8 JSON"); }
-      const loaded = await window.VCFWorkbenchRecord?.importPuzzle?.(payload);
-      if (!loaded) throw new Error("VCF 題目容器無法載入 Rapfi 工作台");
-      const nodeCount = Object.keys(payload?.nodes || {}).length;
-      const currentPly = Array.isArray(payload?.currentRoute) ? payload.currentRoute.length : 0;
-      reportRecordImport("VCF 題目", fileName || "題目.vcf.json", nodeCount, currentPly);
-      return { format: "VCF Puzzle", nodeCount, rootCount: 1, currentPly };
-    }
-
-    if (looksRenLib) {
-      const parsed = parseRenLib(bytes);
-      const routes = collectRenLibRoutes(parsed);
-      const openHistory = options?.openAtEnd
-        ? routes.reduce((best, route) => route.length > best.length ? route : best, [])
-        : [];
-      const rule = Number(document.querySelector('input[name="rules"]:checked')?.value ?? 2);
-      const loaded = await window.VCFWorkbenchRecord?.importRoutes?.(routes, rule, openHistory);
-      if (!loaded) throw new Error("RenLib 無法載入 Rapfi position DB");
-      reportRecordImport("RenLib", fileName || "棋譜.lib", parsed.nodeCount, openHistory.length);
-      return {
-        format: "RenLib",
-        nodeCount: parsed.nodeCount,
-        rootCount: parsed.rootCount,
-        currentPly: openHistory.length,
-      };
-    }
-
-    const codec = window.VCFCloudAnnotationCodec;
-    const extracted = codec
-      ? await codec.extract(decompressLZ4Frame(bytes))
-      : { bytes: decompressLZ4Frame(bytes), metadata: null };
-    const metadata = extracted.metadata;
-    if (metadata && !window.VCFStaticAnnotations) throw new Error("標記模組尚未就緒");
-    if (metadata) window.VCFStaticAnnotations.validateData(metadata.annotations);
-    const parsed = parseYXDB(extracted.bytes);
-    const target = options?.openAtEnd ? deepestParsedNode(parsed) : parsed.current;
-    const state = metadata
-      ? { history: metadata.history, basePly: metadata.basePly }
-      : parsedImportState(target);
-    const loaded = await window.VCFWorkbenchRecord?.importYXDB?.(parsed.storageBytes, parsed.rule, state.history, state.basePly);
-    if (!loaded) throw new Error("YXDB 無法載入 Rapfi YXDBStorage");
-    if (metadata) window.VCFStaticAnnotations.importData(metadata.annotations);
-    const currentPly = Math.max(0, state.history.length - state.basePly);
-    reportRecordImport("YXDB", fileName || "棋譜.db", parsed.nodeCount, currentPly);
-    return {
-      format: "YXDB",
-      nodeCount: parsed.nodeCount,
-      rootCount: parsed.rootCount,
-      currentPly,
-      annotationCount: metadata ? window.VCFStaticAnnotations.count() : 0,
-    };
+    const doc = window.FiveDB.decode(rawBytes);
+    const loaded = await window.VCFWorkbenchRecord?.import5DBDocument?.(doc);
+    if (!loaded) throw new Error("5DB 棋譜無法載入工作台");
+    const info = window.FiveDB.validate(doc);
+    reportRecordImport("5DB", fileName, info.nodeCount, doc.currentPath.length);
+    return { format: "5DB", nodeCount: info.nodeCount, currentPly: doc.currentPath.length };
   }
 
   async function loadRecordFile(file) {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    return loadRecordBytes(bytes, file.name || "棋譜.db", { openAtEnd: false });
+    return loadRecordBytes(bytes, file.name || "棋譜.5db");
   }
 
   window.VCFRecordImportAPI = {
-    loadBytes(bytes, fileName = "雲端棋譜.db", options = {}) {
-      return loadRecordBytes(bytes, fileName, options);
+    loadBytes(bytes, fileName = "雲端棋譜.5db") {
+      return loadRecordBytes(bytes, fileName);
     },
   };
 
