@@ -1367,6 +1367,7 @@
         if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_SETUP
           || !this.currentBoard().some(stone => Number(stone) !== EMPTY)) return false;
         puzzleRootBoard = Uint8Array.from(this.currentBoard());
+        initialize5DB(puzzleRootBoard, puzzleAttacker);
         puzzlePhase = PUZZLE_TREE;
         emitWorkspaceChanged();
         saveState(true);
@@ -1429,6 +1430,46 @@
       setHistory(nextHistory, nextExact = true, nextRootRecordText = "") {
         if (nextExact === false) return false;
         return replaceHistoryInternal(nextHistory, { source: "set-history", rootRecordText: nextRootRecordText, basePly: 0 });
+      },
+      export5DBDocument(title = "") {
+        if (!fiveDBDoc) throw new Error("請先建立棋譜");
+        capture5DBMarks();
+        fiveDBDoc.currentPath = fiveDBPath.slice();
+        const copy = JSON.parse(JSON.stringify(fiveDBDoc));
+        copy.title = String(title || documentTitle()?.value || "");
+        return copy;
+      },
+      async import5DBDocument(source) {
+        const service = db();
+        if (!service?.isReady || !global.FiveDB) return false;
+        global.FiveDB.validate(source);
+        if (source.width !== BOARD_SIZE || source.height !== BOARD_SIZE)
+          throw new Error("目前工作台固定 15×15，這份 5DB 棋譜為 " + source.width + "×" + source.height);
+        suspendPersistence = true;
+        try {
+          fiveDBDoc = JSON.parse(JSON.stringify(source));
+          fiveDBPath = [];
+          workspaceMode = source.mode;
+          puzzlePhase = source.mode === WORKSPACE_PUZZLE ? PUZZLE_TREE : PUZZLE_SETUP;
+          puzzleRootBoard = Uint8Array.from(source.board);
+          puzzleAttacker = source.nextSide;
+          exact = true;
+          rapfiDbActive = true;
+          selectedNextByRoute.clear();
+          persistedDbBase64 = "";
+          service.clear(currentRule);
+          if (!replay5DBPath(source.currentPath)) throw new Error("5DB 原始路線無法還原");
+          import5DBMarks();
+          const title = documentTitle();
+          if (title) {
+            title.value = String(source.title || "").slice(0, 250);
+            title.dispatchEvent(new Event("input", { bubbles: true }));
+          }
+          emitWorkspaceChanged();
+          return applyCurrentBoard(false, "5db-import", false);
+        } finally {
+          suspendPersistence = false;
+        }
       },
       async importYXDB(bytes, rule, history = [], importedBasePly = 0) {
         const service = db();
@@ -1512,11 +1553,39 @@
           || index < 0 || index >= BOARD_CELLS || Number(service.board()[index])) return false;
         const parentKey = routeKey();
         if (!service.play(index, true)) return false;
+        if (fiveDBDoc) {
+          capture5DBMarks();
+          const parent = fiveDBNode(fiveDBPath);
+          const side = service.sideToMove() === BLACK ? WHITE : BLACK;
+          let selected = parent.children.findIndex(child => child.move === index);
+          if (selected < 0) {
+            parent.children.push(blank5DBNode(index, side));
+            selected = parent.children.length - 1;
+          }
+          fiveDBPath.push(selected);
+          fiveDBDoc.currentPath = fiveDBPath.slice();
+        }
         selectedNextByRoute.set(parentKey, index);
         persistedDbBase64 = "";
         return applyCurrentBoard(true, source);
       },
       navigateStep(direction) {
+        if (fiveDBDoc) {
+          capture5DBMarks();
+          if (direction < 0) {
+            if (!fiveDBPath.length) return false;
+            fiveDBPath.pop();
+          } else {
+            const node = fiveDBNode(fiveDBPath);
+            const moves = node?.children || [];
+            if (!moves.length) return false;
+            const preferred = selectedNextByRoute.get(routeKey());
+            const selected = Math.max(0, moves.findIndex(child => child.move === preferred));
+            fiveDBPath.push(selected);
+          }
+          if (!replay5DBPath(fiveDBPath)) return false;
+          return applyCurrentBoard(false, "record-navigation");
+        }
         const service = db();
         if (!rapfiDbActive || !exact || !service?.isReady) return false;
         if (direction < 0) {
@@ -1535,6 +1604,28 @@
         return applyCurrentBoard(false, "record-navigation");
       },
       navigateBranch(direction) {
+        if (fiveDBDoc) {
+          capture5DBMarks();
+          if (direction < 0) {
+            if (!fiveDBPath.length) return false;
+            do {
+              fiveDBPath.pop();
+              const node = fiveDBNode(fiveDBPath);
+              if (!fiveDBPath.length || node.children.length > 1) break;
+            } while (fiveDBPath.length);
+          } else {
+            let node = fiveDBNode(fiveDBPath);
+            if (!node?.children?.length) return false;
+            do {
+              const preferred = selectedNextByRoute.get(routeKey());
+              const selected = Math.max(0, node.children.findIndex(child => child.move === preferred));
+              fiveDBPath.push(selected);
+              node = node.children[selected];
+            } while (node.children.length === 1);
+          }
+          if (!replay5DBPath(fiveDBPath)) return false;
+          return applyCurrentBoard(false, "record-navigation");
+        }
         const service = db();
         if (!rapfiDbActive || !exact || !service?.isReady) return false;
         if (direction < 0) {
@@ -1564,11 +1655,29 @@
         if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE || !rapfiDbActive || !exact || !service?.isReady) return false;
         const parentKey = routeKey();
         if (!service.play(PASS, true)) return false;
+        if (fiveDBDoc) {
+          capture5DBMarks();
+          const parent = fiveDBNode(fiveDBPath);
+          let selected = parent.children.findIndex(child => child.move === PASS);
+          if (selected < 0) { parent.children.push(blank5DBNode(PASS, service.sideToMove() === BLACK ? WHITE : BLACK)); selected = parent.children.length - 1; }
+          fiveDBPath.push(selected);
+          fiveDBDoc.currentPath = fiveDBPath.slice();
+        }
         selectedNextByRoute.set(parentKey, PASS);
         persistedDbBase64 = "";
         return applyCurrentBoard(true, "manual");
       },
       deleteCurrentAndFollowing() {
+        if (fiveDBDoc) {
+          if (!fiveDBPath.length) return false;
+          capture5DBMarks();
+          const removedIndex = fiveDBPath.pop();
+          const parent = fiveDBNode(fiveDBPath);
+          parent.children.splice(removedIndex, 1);
+          if (!replay5DBPath(fiveDBPath)) return false;
+          selectedNextByRoute.delete(routeKey());
+          return applyCurrentBoard(true, "record-edit");
+        }
         const service = db();
         if (!rapfiDbActive || !exact || !service?.isReady || service.ply() <= basePly) return false;
         if (!service.deleteCurrentAndChildren() || !service.undo()) return false;
@@ -1577,6 +1686,36 @@
         return applyCurrentBoard(true, "record-edit");
       },
       transform(transform) {
+        if (fiveDBDoc) {
+          const t = Number(transform);
+          if (!Number.isInteger(t) || t < 0 || t > 7) return false;
+          capture5DBMarks();
+          const transformedBoard = new Array(BOARD_CELLS).fill(0);
+          const change = index => transformMove(index, t);
+          for (let i = 0; i < BOARD_CELLS; i++) {
+            if (fiveDBDoc.board[i]) transformedBoard[change(i)] = fiveDBDoc.board[i];
+          }
+          fiveDBDoc.board = transformedBoard;
+          const stack = [fiveDBDoc.root];
+          while (stack.length) {
+            const node = stack.pop();
+            if (node.move >= 0) node.move = change(node.move);
+            node.text = transformRapfiRecordText(node.text, t);
+            node.marks = (node.marks || []).map(mark => {
+              const xy = transformXY(mark.x, mark.y, t);
+              const next = { ...mark, x: xy[0], y: xy[1] };
+              if (mark.type === "line" || mark.type === "arrow") {
+                const end = transformXY(mark.tx, mark.ty, t);
+                next.tx = end[0]; next.ty = end[1];
+              }
+              return next;
+            });
+            stack.push(...node.children);
+          }
+          if (!replay5DBPath(fiveDBPath)) return false;
+          import5DBMarks();
+          return applyCurrentBoard(true, "record-transform");
+        }
         const service = db();
         const normalized = Number(transform);
         if (!rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(normalized) || normalized < 0 || normalized > 7) return false;
