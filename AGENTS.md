@@ -56,7 +56,7 @@ makevcf-generator-core.js
 
 - 優先修改正式來源，不以額外修補層長期保留兩套互相覆蓋的邏輯。
 - 工作台跨模組行為統一使用 `rapfi/vcf-bitboard-generator-compat.js` 提供的具名 Registry／事件：`vcfSetRules`、`vcf-board-changed`、`vcfRegisterBusyHook`、`vcfRegisterStatusFormatter`、`vcfRegisterTrimGroupsProvider`、`vcfRegisterSearchHandler`。
-- Rapfi `Board`／`VCFWorkbenchRecord` 是唯一正式棋盤與棋譜資料來源；`index.html` 的 SVG board 只是 renderer，不得再保存或推導第二份可修改盤面。
+- `VCFWorkbenchRecord` 統一控制執行期 Rapfi `Board` 與原始座標 5DB 棋譜樹；SVG board 只負責顯示，不得另存可操作盤面。5DB 樹保存分支、註解與標記，不依賴 Rapfi canonical position 反推。
 - `_renderBoardArr` 與相容 `_setBoardArr` 只允許 Rapfi record 層用來重畫；題目產生器、圖片匯入、搜尋 UI 等功能模組必須用 `VCFWorkbenchRecord.playAt/replacePosition/replaceHistory/clearPosition`。
 - Bitboard Engine 是唯讀計算服務；搜尋前由目前 Rapfi Board 轉成 225 格／Bitboard，搜尋結果只能進計算展示 overlay，不得自動寫入 Rapfi DB 分支。
 - 功能模組不得重新指派 `setBusy`、`setStatus`、`doSearch`、`doAddVCF`、`engine.findVCF`、`engine.trimVCFGroups`、`pool.getLevelPoints`、`_setBoardArr` 或 `_clearBoard`；只有工作台 runtime 可建立一次正式 dispatcher。
@@ -71,6 +71,7 @@ makevcf-generator-core.js
 - BD1 基礎靜態 artifact 必須使用明確 allowlist 組裝，不得以 `cp -R` 將整個相容、原型、測試或 C++ 來源目錄部署到公開網站。
 - 搜尋限制、中止與部分結果必須可區分；不得把未完整結果描述為已證明。
 - C++、Wasm、Worker、主執行緒與題目產生器若共用資料格式或 ABI，必須在同一批變更更新並驗證。
+- 本機與雲端棋譜僅使用 5DB 1.0；不得新增舊版 VCFDB／YXDB／LIB 匯入支援。雲端使用 `/BD1/api/5db.php`，並經既有 Google 登入 API 驗證 token；檔案不得落在公開 DOCUMENT_ROOT。
 - 介面名稱、按鈕文字、選單值與文件用語必須一致。
 
 ## 5. 驗證
