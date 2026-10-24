@@ -43,17 +43,14 @@ async function main() {
   assert.equal(marks[0].x, 12);
   assert.equal(marks[0].y, 1);
   const original = store.exportData();
-  const bytes = await store.encode({ record: { kind: "puzzle", puzzle: { board: "1010" } }, title: "示範棋譜" });
-  assert.equal(Buffer.from(bytes.subarray(0,6)).toString(), "VCFDB\\x01".replace("\\x01", String.fromCharCode(1)));
-  const decoded = await store.decode(bytes);
-  assert.equal(decoded.title, "示範棋譜");
   store.reset();
   assert.equal(store.count(), 0);
-  store.importData(decoded.annotations);
-  assert.deepEqual(JSON.stringify(store.exportData()), JSON.stringify(original));
+  store.importData(original);
+  assert.equal(JSON.stringify(store.exportData()), JSON.stringify(original));
   assert.equal(store.list().length, 2);
-  await assert.rejects(store.decode(new Uint8Array([1,2,3])), /VCFDB/);
+  assert.equal(typeof store.encode, "undefined", "legacy VCFDB encoder must be removed");
+  assert.equal(typeof store.decode, "undefined", "legacy VCFDB decoder must be removed");
   assert.throws(() => store.importData({ "2:record:1": [{ type: "circle", x: 99, y: 0, color: 0 }] }), /無效/);
-  console.log("Static annotation and VCFDB codec tests passed");
+  console.log("Static annotation route, mark, and rotation tests passed");
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
