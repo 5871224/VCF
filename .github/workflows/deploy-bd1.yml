@@ -283,6 +283,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          php -l api/5db.php
           npm run test:architecture
           VCF_BITBOARD_ENGINE_DIR=.cache/vcf-bitboard-engine npm run test:runtime
           node - <<'NODE'
@@ -358,6 +359,8 @@ jobs:
           test -s _site/rapfi/engine/vcf-bitboard-engine.wasm
           test -s _site/rapfi/engine/vcf-rapfi-db.js
           test -s _site/rapfi/engine/vcf-rapfi-db.wasm
+          test -s _site/rapfi/5db-format.js
+          test -s _site/api/5db.php
           test -s _site/rapfi/vcf-lz4-cloud.js
 
       - name: Upload BD1
