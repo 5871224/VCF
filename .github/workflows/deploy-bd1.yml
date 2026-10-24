@@ -474,6 +474,18 @@ jobs:
           check_file rapfi/engine/vcf-rapfi-db.wasm
           check_file rapfi/vcf-5db-cloud.js
 
+          # A missing PHP route or PHP source served as text must fail deployment.
+          # Unauthenticated 5DB list requests must return structured 401 JSON.
+          api_body="$(mktemp)"
+          api_status="$(curl -k -sS --retry 2 --max-time 15 \
+            -H 'Cache-Control: no-cache' \
+            -o "$api_body" -w '%{http_code}' \
+            "https://587.renju.org.tw/BD1/api/5db.php?action=list&sync_verify=$VCF_SHA")"
+          echo "5DB cloud endpoint HTTP $api_status"
+          test "$api_status" = '401'
+          jq -e '.ok == false and (.error | type == "string")' "$api_body" >/dev/null
+          rm -f "$api_body"
+
           marker="$(mktemp)"
           curl -k -fLsS --retry 3 \
             -H 'Cache-Control: no-cache' \
