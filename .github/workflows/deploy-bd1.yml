@@ -361,7 +361,7 @@ jobs:
           test -s _site/rapfi/engine/vcf-rapfi-db.wasm
           test -s _site/rapfi/5db-format.js
           test -s _site/api/5db.php
-          test -s _site/rapfi/vcf-lz4-cloud.js
+          test -s _site/rapfi/vcf-5db-cloud.js
 
       - name: Upload BD1
         if: steps.version.outputs.needs_sync == 'true'
@@ -471,7 +471,7 @@ jobs:
           check_file rapfi/engine/vcf-bitboard-engine.wasm
           check_file rapfi/engine/vcf-rapfi-db.js
           check_file rapfi/engine/vcf-rapfi-db.wasm
-          check_file rapfi/vcf-lz4-cloud.js
+          check_file rapfi/vcf-5db-cloud.js
 
           marker="$(mktemp)"
           curl -k -fLsS --retry 3 \
