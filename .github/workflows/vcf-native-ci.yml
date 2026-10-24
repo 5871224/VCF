@@ -11,7 +11,7 @@ on:
       - 'rapfi/vcf-bitboard-search-*.inc'
       - 'rapfi/vcf-bitboard-legacy-extra.cpp'
       - 'rapfi/vcf-yxdb-index.cpp'
-      - 'rapfi/vcf-lz4-cloud.js'
+      - 'rapfi/vcf-5db-cloud.js'
       - 'rapfi/vcf-bitboard-main.js'
       - 'rapfi/vcf-bitboard-worker.js'
       - 'rapfi/vcf-shortest-vcf-ui.js'
@@ -68,7 +68,7 @@ jobs:
             rapfi/vcf-bitboard-worker.js \
             rapfi/vcf-shortest-vcf-ui.js \
             rapfi/rapfi-bitboard-dashboard.js \
-            rapfi/vcf-lz4-cloud.js; do
+            rapfi/vcf-5db-cloud.js; do
             node --check "$file"
           done
 
