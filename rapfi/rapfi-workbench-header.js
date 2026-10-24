@@ -600,6 +600,7 @@
 
   function installWorkbenchRecordState() {
     const STORAGE_KEY = "vcf_rapfi_workbench_v1";
+    const CURSOR_KEY = "vcf_5db_current_path_v1";
     const PUZZLE_FORMAT = "vcf-puzzle-v1";
     const WORKSPACE_RECORD = "record";
     const WORKSPACE_PUZZLE = "puzzle";
@@ -629,6 +630,7 @@
     // 5DB owns the original-coordinate tree. Rapfi only supplies the active board.
     let fiveDBDoc = null;
     let fiveDBPath = [];
+    let fiveDBSavedBase64 = "";
     const blank5DBNode = (move = -1, stone = 0) => ({ move, stone, text: "", marks: [], children: [] });
     const fiveDBNode = path => {
       let node = fiveDBDoc?.root;
@@ -642,6 +644,7 @@
         currentPath: [], root: blank5DBNode(),
       };
       fiveDBPath = [];
+      fiveDBSavedBase64 = "";
       selected5DBBranches.clear();
     };
     const capture5DBMarks = () => {
@@ -819,9 +822,12 @@
         if (fiveDBDoc) {
           capture5DBMarks();
           fiveDBDoc.currentPath = fiveDBPath.slice();
-          const document = { ...fiveDBDoc, title: String(documentTitle()?.value || fiveDBDoc.title || "") };
-          const bytes = global.FiveDB.encode(document);
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, data: bytesToBase64(bytes) }));
+          if (databaseChanged || !fiveDBSavedBase64) {
+            const doc = { ...fiveDBDoc, title: String(documentTitle()?.value || fiveDBDoc.title || "") };
+            fiveDBSavedBase64 = bytesToBase64(global.FiveDB.encode(doc));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, data: fiveDBSavedBase64 }));
+          }
+          localStorage.setItem(CURSOR_KEY, JSON.stringify(fiveDBPath));
           return true;
         }
         if (workspaceMode === WORKSPACE_PUZZLE) {
@@ -1157,7 +1163,18 @@
       }
       if (saved?.version === 3 && typeof saved.data === "string") {
         try {
-          return await global.VCFWorkbenchRecord.import5DBDocument(global.FiveDB.decode(base64ToBytes(saved.data)));
+          const restored = global.FiveDB.decode(base64ToBytes(saved.data));
+          let storedPath = null;
+          try { storedPath = JSON.parse(localStorage.getItem(CURSOR_KEY) || "null"); } catch (_) {}
+          if (Array.isArray(storedPath)) {
+            let cursor = restored.root, valid = true;
+            for (const branch of storedPath) {
+              if (!Number.isInteger(branch) || branch < 0 || branch >= cursor.children.length) { valid = false; break; }
+              cursor = cursor.children[branch];
+            }
+            if (valid) restored.currentPath = storedPath;
+          }
+          return await global.VCFWorkbenchRecord.import5DBDocument(restored);
         } catch (error) {
           console.warn("5DB 工作區無法還原，改用空白棋盤", error);
           localStorage.removeItem(STORAGE_KEY);
@@ -1465,6 +1482,7 @@
         try {
           fiveDBDoc = JSON.parse(JSON.stringify(source));
           fiveDBPath = [];
+          fiveDBSavedBase64 = "";
           selected5DBBranches.clear();
           let nodeOnSavedRoute = fiveDBDoc.root;
           const savedPrefix = [];
@@ -1768,10 +1786,10 @@
     };
 
     global.addEventListener("vcf-static-annotations-changed", () => {
-      if (fiveDBDoc && !suspendPersistence) saveState(false);
+      if (fiveDBDoc && !suspendPersistence) saveState(true);
     });
     documentTitle()?.addEventListener("input", () => {
-      if (fiveDBDoc && !suspendPersistence) saveState(false);
+      if (fiveDBDoc && !suspendPersistence) saveState(true);
     });
 
     global.addEventListener("vcf-rules-changed", () => {
