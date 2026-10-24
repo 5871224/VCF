@@ -78,6 +78,10 @@ function storage5(): string {
     $configured = getenv('VCF_5DB_STORAGE_DIR');
     $parent = realpath(dirname($root));
     if (!$parent) fail5('無法定位站台私有目錄', 503);
+    if ((!is_string($configured) || trim($configured) === '')
+        && preg_match('/^(public_html|www|htdocs|httpdocs|wwwroot|html)$/i', basename($parent))) {
+        fail5('站台根目錄可能位於公開目錄內；請指定私有 VCF_5DB_STORAGE_DIR', 503);
+    }
     $path = is_string($configured) && trim($configured) !== ''
         ? rtrim(trim($configured), DIRECTORY_SEPARATOR)
         : $parent.DIRECTORY_SEPARATOR.'vcf-5db-private';
