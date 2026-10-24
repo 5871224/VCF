@@ -46,7 +46,6 @@ RAPFI_FILES = [
     "vcf-record-tools.js",
     "5db-format.js",
     "vcf-static-annotations.js",
-    "vcf-cloud-annotation-codec.js",
 ]
 
 
