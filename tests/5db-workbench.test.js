@@ -157,7 +157,7 @@ function createWorkbench(savedDisk = null) {
   assert.equal(answer.phase, undefined);
   assert.equal(answer.root.children[0].stone, 2);
   assert.equal(answer.root.children[0].children[0].stone, 1);
-  assert.deepEqual(answer.currentPath, []);
+  assert.deepEqual(Array.from(answer.currentPath), []);
   assert.equal(restoredDraft.win.VCFWorkbenchRecord.currentBoard()[112], 0,
     "adding an answer must not place stones on the original puzzle board");
   assert.equal(restoredDraft.win.VCFWorkbenchRecord.setGeneratedPuzzleAnswer([112, 112], 2), false,
