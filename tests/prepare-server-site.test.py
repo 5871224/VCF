@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory() as raw_temp:
         'window.VCF_CLOUD_API_URL="/BD/api/yxdb.php"',
         "accounts.google.com/gsi/client",
         'window.VCF_5DB_API_URL="/BD1/api/5db.php"',
-        "rapfi/vcf-lz4-cloud.js?v=abc123",
+        "rapfi/vcf-5db-cloud.js?v=abc123",
     ):
         if token not in html:
             raise AssertionError(f"server site missing {token}")
@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory() as raw_temp:
     deployment = json.loads((site / "deployment.json").read_text(encoding="utf-8"))
     if deployment["revision"] != "abc123" or deployment["target"] != "BD1":
         raise AssertionError("deployment metadata is incorrect")
-    if not (site / "rapfi" / "vcf-lz4-cloud.js").is_file():
+    if not (site / "rapfi" / "vcf-5db-cloud.js").is_file():
         raise AssertionError("cloud UI was not copied")
     if not (site / "api" / "5db.php").is_file():
         raise AssertionError("5DB private cloud API was not copied")
