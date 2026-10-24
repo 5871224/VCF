@@ -38,7 +38,7 @@ def main() -> None:
     if not revision or not all(char.isalnum() or char in "._-" for char in revision):
         raise ValueError("revision contains unsupported characters")
 
-    copy_file(ROOT / "rapfi" / "vcf-lz4-cloud.js", site / "rapfi" / "vcf-lz4-cloud.js")
+    copy_file(ROOT / "rapfi" / "vcf-5db-cloud.js", site / "rapfi" / "vcf-5db-cloud.js")
     copy_file(ROOT / "api" / "5db.php", site / "api" / "5db.php")
 
     html = index.read_text(encoding="utf-8")
@@ -48,7 +48,7 @@ def main() -> None:
     block = f"""{MARKER}
 <script>window.VCF_CLOUD_API_URL={json.dumps(args.api_url, ensure_ascii=False)};window.VCF_5DB_API_URL="/BD1/api/5db.php";</script>
 <script src="https://accounts.google.com/gsi/client"></script>
-<script src="rapfi/vcf-lz4-cloud.js?v={version}"></script>
+<script src="rapfi/vcf-5db-cloud.js?v={version}"></script>
 """
     index.write_text(html.replace("</body>", block + "\n</body>", 1), encoding="utf-8", newline="\n")
 
