@@ -257,7 +257,7 @@
         capture5DBMarks();
         fiveDBDoc.currentPath = fiveDBPath.slice();
         if (documentChanged || !fiveDBSavedBase64) {
-          const doc = { ...fiveDBDoc, title: String(documentTitle()?.value || fiveDBDoc.title || "") };
+          const doc = { ...fiveDBDoc, title: String(documentTitle()?.value ?? fiveDBDoc.title ?? "") };
           fiveDBSavedBase64 = bytesToBase64(global.FiveDB.encode(doc));
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, data: fiveDBSavedBase64 }));
         }
@@ -610,12 +610,13 @@
         if (nextExact === false) return false;
         return replaceHistoryInternal(nextHistory, { source: "set-history", rootRecordText: nextRootRecordText, basePly: 0 });
       },
-      export5DBDocument(title = "") {
+      export5DBDocument() {
         if (!fiveDBDoc) throw new Error("請先建立棋譜");
         capture5DBMarks();
         fiveDBDoc.currentPath = fiveDBPath.slice();
         const copy = JSON.parse(JSON.stringify(fiveDBDoc));
-        copy.title = String(title || documentTitle()?.value || "");
+        // Embedded title is independent of any local/cloud file name.
+        copy.title = String(documentTitle()?.value ?? fiveDBDoc.title ?? "");
         return copy;
       },
       async import5DBDocument(source) {
@@ -998,8 +999,7 @@
       exportButton.disabled = true;
       exportStatus.textContent = "正在建立 5DB……";
       try {
-        const title = document.getElementById("vcf-record-title")?.value || "";
-        const documentData = global.VCFWorkbenchRecord.export5DBDocument(title);
+        const documentData = global.VCFWorkbenchRecord.export5DBDocument();
         const bytes = global.FiveDB.encode(documentData);
         downloadBytes(bytes, "5db-" + timestampName() + ".5db");
         exportStatus.textContent = "已匯出 5DB 1.0（" + bytes.length.toLocaleString() + " bytes）";

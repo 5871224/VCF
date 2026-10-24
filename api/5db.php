@@ -178,7 +178,8 @@ if ($action === 'get') {
     header('Content-Type: application/octet-stream');
     header('Content-Disposition: attachment; filename="cloud-'.$id.'.5db"');
     header('X-5DB-Id: '.$id);
-    header('X-5DB-Title: '.rawurlencode((string)$record['title']));
+    header('X-5DB-Title: '.rawurlencode((string)($record['title'] ?? '')));
+    header('X-5DB-File-Name: '.rawurlencode((string)($record['file_name'] ?? $record['title'] ?? '')));
     header('X-5DB-Record-Count: '.(int)$record['record_count']);
     header('X-5DB-Size: '.strlen($payload));
     header('Content-Length: '.strlen($payload));
@@ -197,6 +198,12 @@ if ($action === 'save') {
     $title = trim((string)($_GET['title'] ?? ''));
     if (strlen($title) > 1000 || preg_match_all('/./us', $title, $matches) === false
         || count($matches[0]) > 250) fail5('棋譜標題過長');
+    $fileName = trim((string)($_GET['file_name'] ?? ''));
+    if (preg_match('/\\.5db$/i', $fileName)) $fileName = substr($fileName, 0, -4);
+    if ($fileName === '' || strlen($fileName) > 1000
+        || preg_match('~[\\\\/:*?"<>|\\x00-\\x1f]~', $fileName)
+        || preg_match_all('/./us', $fileName, $fileChars) === false
+        || count($fileChars[0]) > 250) fail5('檔案名稱不合法');
     $id = (int)($manifest['next_id'] ?? 1);
     if ($id <= 0 || $id >= 2147483647) fail5('棋譜編號已達上限');
     $file = $dir.DIRECTORY_SEPARATOR.$id.'.5db';
@@ -208,7 +215,7 @@ if ($action === 'save') {
     }
     $now = gmdate('Y-m-d\TH:i:s\Z');
     $item = [
-        'id' => $id, 'title' => $title, 'record_count' => $nodeCount,
+        'id' => $id, 'file_name' => $fileName, 'title' => $title, 'record_count' => $nodeCount,
         'compressed_size' => strlen($payload), 'created_at' => $now, 'updated_at' => $now,
     ];
     $manifest['next_id'] = $id + 1;

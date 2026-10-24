@@ -86,7 +86,11 @@ function createWorkbench() {
   record.setCurrentRecordText("選定支線");
   win.VCFStaticAnnotations.setMark({type:"circle",x:6,y:6,color:1,filled:true});
   title.value="棋譜測試";
-  const saved=record.export5DBDocument();
+  const saved=record.export5DBDocument("另一個檔名");
+  assert.equal(saved.title, "棋譜測試", "file name cannot overwrite embedded title");
+  title.value = "";
+  assert.equal(record.export5DBDocument().title, "", "blank title must remain blank");
+  title.value = "棋譜測試";
   assert.equal(saved.root.children[0].children.length,2,"both branches must remain");
   assert.equal(saved.currentPath.length,2);
   const bytes=FiveDB.encode(saved);

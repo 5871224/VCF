@@ -84,14 +84,26 @@
     status("已登出 Google 帳號。");
   }
 
-  async function saveCurrent(title = "") {
+  function normalizeFileName(value, fallback = "") {
+    const name = String(value ?? "").trim().replace(/\.5db$/i, "");
+    if (!name) return fallback;
+    if (/[\\/:*?"<>|\u0000-\u001f]/.test(name) || name === "." || name === "..")
+      throw new Error("檔案名稱包含不允許的字元");
+    return name;
+  }
+  function defaultFileName() {
+    const d = new Date(), p = n => String(n).padStart(2, "0");
+    return `5db-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  }
+  async function saveCurrent(fileName = "") {
     if (!authUser) throw new Error("請先登入 Google 帳號");
     const record = global.VCFWorkbenchRecord;
     if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
-    const doc = record.export5DBDocument(title);
+    const doc = record.export5DBDocument();
     const bytes = global.FiveDB.encode(doc);
     const info = global.FiveDB.validate(doc);
-    const params = new URLSearchParams({ action: "save", title: String(title || "") });
+    const name = normalizeFileName(fileName, defaultFileName());
+    const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "" });
     const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
       method: "POST", cache: "no-store",
       headers: authHeaders({ "Content-Type": "application/octet-stream" }),
@@ -126,6 +138,7 @@
       bytes, meta: {
         id: recordId,
         title: decodeURIComponent(response.headers.get("X-5DB-Title") || ""),
+        fileName: decodeURIComponent(response.headers.get("X-5DB-File-Name") || ""),
         recordCount: Number(response.headers.get("X-5DB-Record-Count") || 0),
         compressedSize: bytes.length,
       },
@@ -313,13 +326,15 @@
     for (const record of records) {
       const row = document.createElement("div"); row.className = "vcf-cloud-row";
       const info = document.createElement("div"); info.innerHTML = `<div class="vcf-cloud-title"></div><div class="vcf-cloud-meta"></div>`;
-      info.firstElementChild.textContent = record.title || `棋譜 #${record.id}`;
-      info.lastElementChild.textContent = `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
+      const fileName = record.file_name || record.title || `棋譜-${record.id}`;
+      info.firstElementChild.textContent = fileName + ".5db";
+      info.lastElementChild.textContent = (record.file_name && record.title ? `棋譜標題：${record.title} · ` : "") +
+        `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
       const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
       const loadButton = document.createElement("button"); loadButton.textContent = "載入 5DB";
-      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${record.title || `棋譜 #${record.id}`}」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
-      const dl = document.createElement("button"); dl.textContent = "下載 .5db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `vcf-cloud-${record.id}.5db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
-      const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${record.title || `棋譜 #${record.id}`}」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
+      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${fileName}.5db」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
+      const dl = document.createElement("button"); dl.textContent = "下載 .5db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `${normalizeFileName(fileName, `棋譜-${record.id}`)}.5db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
+      const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${fileName}.5db」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
       actions.append(loadButton, dl, del); row.append(info, actions); container.appendChild(row);
     }
   }
@@ -359,8 +374,9 @@
     saveButton.addEventListener("click", async () => {
       saveButton.disabled = true; status("正在建立雲端棋譜及標記……");
       try {
-        const title = prompt("棋譜標題", "") ?? null; if (title === null) return;
-        const result = await saveCurrent(title.trim());
+        const fileName = prompt("檔案名稱（不影響棋譜標題）", defaultFileName());
+        if (fileName === null) return;
+        const result = await saveCurrent(fileName);
         status(`已存入你的帳號 #${result.id}：${result.recordCount} 局面${result.annotationCount ? `、${result.annotationCount} 個標記` : ''} / ${formatBytes(result.compressedSize)}`);
       } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
