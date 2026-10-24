@@ -1477,7 +1477,8 @@
             title.dispatchEvent(new Event("input", { bubbles: true }));
           }
           emitWorkspaceChanged();
-          return applyCurrentBoard(false, "5db-import", false);
+          suspendPersistence = false;
+          return applyCurrentBoard(true, "5db-import");
         } finally {
           suspendPersistence = false;
         }
