@@ -6,7 +6,8 @@
   const BLACK = 1;
   const WHITE = 2;
   const PASS = -1;
-  const API_URL = String(global.VCF_CLOUD_API_URL || "api/yxdb.php");
+  const API_URL = String(global.VCF_CLOUD_API_URL || "/BD/api/yxdb.php");
+  const FIVE_DB_API_URL = String(global.VCF_5DB_API_URL || "/BD1/api/5db.php");
   const AUTH_TOKEN_KEY = "vcf_google_auth_token_v1";
   const ADMIN_EMAIL = "5871224@gmail.com";
   const MAX_BLOCK = 64 * 1024;
@@ -311,69 +312,66 @@
   }
 
   async function saveCurrent(title = "") {
-    throw new Error("雲端後端目前只支援舊版 YXDB；5DB 雲端儲存尚未啟用，請先使用匯出 5DB。");
-    if (!authUser) throw new Error("請先使用 Google 登入");
-    if (global.VCFWorkbenchRecord?.workspace?.()?.mode !== "record") throw new Error("雲端 YXDB 只能儲存打譜模式");
-    const result = createCurrentYXDB();
-    const annotationCount = global.VCFStaticAnnotations?.count?.() || 0;
-    if (annotationCount) {
-      const codec = global.VCFCloudAnnotationCodec;
-      const annotations = global.VCFStaticAnnotations;
-      if (!codec || !annotations || !result.rawBytes) throw new Error("雲端標記編碼器尚未就緒，請重新整理頁面");
-      const snapshot = global.VCFWorkbenchRecord?.snapshot?.();
-      if (!snapshot?.exact) throw new Error("目前棋譜不是完整手順，無法寫入雲端標記");
-      const history = (snapshot.history || []).map(item => Number(item.index ?? item.move ?? item));
-      const patched = await codec.embed(result.rawBytes, {
-        version: 1, annotations: annotations.exportData(),
-        history, basePly: Number(snapshot.basePly || 0),
-      });
-      result.bytes = createLZ4Frame(patched);
-      result.rawSize = patched.length;
-      result.compressedSize = result.bytes.length;
-    }
-    const params = new URLSearchParams({ action: "save", title: String(title || ""), record_count: String(result.recordCount), raw_size: String(result.rawSize) });
-    const response = await fetch(`${API_URL}?${params}`, {
-      method: "POST", mode: "cors", cache: "no-store", headers: authHeaders({ "Content-Type": "application/octet-stream" }), body: result.bytes,
+    if (!authUser) throw new Error("請先登入 Google 帳號");
+    const record = global.VCFWorkbenchRecord;
+    if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
+    const doc = record.export5DBDocument(title);
+    const bytes = global.FiveDB.encode(doc);
+    const info = global.FiveDB.validate(doc);
+    const params = new URLSearchParams({ action: "save", title: String(title || "") });
+    const response = await fetch(`${FIVE_DB_API_URL}?${params}`, {
+      method: "POST", cache: "no-store",
+      headers: authHeaders({ "Content-Type": "application/octet-stream" }),
+      body: bytes,
     });
     const saved = await jsonResponse(response);
-    return { ...saved, recordCount: result.recordCount, compressedSize: result.compressedSize, annotationCount };
+    return { ...saved, recordCount: info.nodeCount, compressedSize: bytes.length, annotationCount: info.markCount };
   }
   async function list() {
-    if (!authUser) throw new Error("請先使用 Google 登入");
-    const response = await fetch(`${API_URL}?action=list`, { cache: "no-store", mode: "cors", headers: authHeaders() });
+    if (!authUser) throw new Error("請先登入 Google 帳號");
+    const response = await fetch(`${FIVE_DB_API_URL}?action=list`, {
+      cache: "no-store", headers: authHeaders(),
+    });
     return (await jsonResponse(response)).records || [];
   }
   async function fetchRecord(id) {
-    if (!authUser) throw new Error("請先使用 Google 登入");
-    const response = await fetch(`${API_URL}?action=get&id=${encodeURIComponent(Number(id))}`, { cache: "no-store", mode: "cors", headers: authHeaders() });
+    if (!authUser) throw new Error("請先登入 Google 帳號");
+    const recordId = Number(id);
+    if (!Number.isSafeInteger(recordId) || recordId < 1) throw new Error("棋譜編號無效");
+    const response = await fetch(`${FIVE_DB_API_URL}?action=get&id=${recordId}`, {
+      cache: "no-store", headers: authHeaders(),
+    });
     if (!response.ok) {
       if (response.status === 401) { setToken(""); authUser = null; refreshAuthUI(); }
       const payload = await response.json().catch(() => null);
       throw new Error(payload?.error || `HTTP ${response.status}`);
     }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const data = global.FiveDB?.decode?.(bytes);
+    if (!data) throw new Error("雲端棋譜不是有效的 5DB 1.0");
     return {
-      bytes: new Uint8Array(await response.arrayBuffer()),
-      meta: {
-        id: Number(response.headers.get("X-VCF-Id") || id),
-        title: decodeURIComponent(response.headers.get("X-VCF-Title") || ""),
-        recordCount: Number(response.headers.get("X-VCF-Record-Count") || 0),
-        rawSize: Number(response.headers.get("X-VCF-Raw-Size") || 0),
-        compressedSize: Number(response.headers.get("X-VCF-Compressed-Size") || 0),
+      bytes, meta: {
+        id: recordId,
+        title: decodeURIComponent(response.headers.get("X-5DB-Title") || ""),
+        recordCount: Number(response.headers.get("X-5DB-Record-Count") || 0),
+        compressedSize: bytes.length,
       },
     };
   }
   async function remove(id) {
-    if (!authUser) throw new Error("請先使用 Google 登入");
-    const response = await fetch(`${API_URL}?action=delete&id=${encodeURIComponent(Number(id))}`, { method: "POST", cache: "no-store", mode: "cors", headers: authHeaders() });
+    if (!authUser) throw new Error("請先登入 Google 帳號");
+    const recordId = Number(id);
+    if (!Number.isSafeInteger(recordId) || recordId < 1) throw new Error("棋譜編號無效");
+    const response = await fetch(`${FIVE_DB_API_URL}?action=delete&id=${recordId}`, {
+      method: "POST", cache: "no-store", headers: authHeaders(),
+    });
     return jsonResponse(response);
   }
-
   async function load(id) {
     const result = await fetchRecord(id);
     const importer = global.VCFRecordImportAPI;
-    if (!importer?.loadBytes) throw new Error("棋譜載入模組尚未就緒，請重新整理頁面後再試");
-    const title = String(result.meta?.title || "").trim();
-    const imported = await importer.loadBytes(result.bytes, title ? `${title}.db` : `雲端棋譜-${id}.db`, { openAtEnd: true });
+    if (!importer?.loadBytes) throw new Error("5DB 載入模組尚未就緒");
+    const imported = await importer.loadBytes(result.bytes, `cloud-${id}.5db`);
     return { ...result, imported };
   }
   function formatBytes(v) {
@@ -525,9 +523,9 @@
       info.firstElementChild.textContent = record.title || `棋譜 #${record.id}`;
       info.lastElementChild.textContent = `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
       const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
-      const loadButton = document.createElement("button"); loadButton.textContent = "載入棋譜";
+      const loadButton = document.createElement("button"); loadButton.textContent = "載入 5DB";
       loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${record.title || `棋譜 #${record.id}`}」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
-      const dl = document.createElement("button"); dl.textContent = "下載 .db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `vcf-cloud-${record.id}.db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
+      const dl = document.createElement("button"); dl.textContent = "下載 .5db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `vcf-cloud-${record.id}.5db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
       const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${record.title || `棋譜 #${record.id}`}」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
       actions.append(loadButton, dl, del); row.append(info, actions); container.appendChild(row);
     }
@@ -540,10 +538,10 @@
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
-      saveButton.disabled = true;
-      saveButton.title = "5DB 雲端後端尚未完成；目前請使用匯出 5DB";
+      saveButton.disabled = !authUser || !global.VCFWorkbenchRecord?.workspace?.()?.mode;
+      saveButton.title = "將完整 5DB 1.0 棋譜儲存到目前登入的 Google 帳號";
     }
-    if (openButton) { openButton.disabled = true; openButton.title = "舊版 YXDB 雲端棋譜不支援 5DB 直接讀取"; }
+    if (openButton) { openButton.disabled = !authUser; openButton.title = "查看此帳號的 5DB 1.0 棋譜"; }
     if (adminButton) adminButton.hidden = !isAdminUser(authUser);
   }
   function renderGoogleButton() {
@@ -561,7 +559,7 @@
     const exportStatus = panel.querySelector("#bb-export-status");
     const auth = document.createElement("div"); auth.id = "bb-cloud-auth";
     auth.innerHTML = '<div id="vcf-google-login"></div><span id="bb-cloud-user"></span><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
-    const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存（待支援 5DB）";
+    const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
     const adminButton = document.createElement("button"); adminButton.id = "bb-cloud-admin"; adminButton.className = "bb-cloud-btn"; adminButton.textContent = "管理帳號"; adminButton.hidden = true;
     panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(adminButton, exportStatus || null);
@@ -580,12 +578,12 @@
   }
 
   const api = {
-    API_URL, ADMIN_EMAIL, isAdminUser, xxhash32, lz4CompressBlock, createLZ4Frame, buildRawYXDBFromTree, createCurrentYXDB,
+    API_URL, FIVE_DB_API_URL, ADMIN_EMAIL, isAdminUser,
     publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, listUsers, setUserStatus, setUserRole, deleteUser,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
-  global.VCFCloudYXDB = api;
+  global.VCFCloud5DB = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof document === "undefined") return;
 
