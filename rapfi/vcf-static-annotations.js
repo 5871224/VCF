@@ -2,8 +2,6 @@
 (function initVCFStaticAnnotations(global) {
   const COLORS = Object.freeze(["#E53935", "#F57C00", "#FBC02D", "#43A047", "#00ACC1", "#1E88E5", "#8E24AA", "#EC407A", "#212121", "#FFFFFF"]);
   const KEY = "vcf_static_annotations_v1";
-  const MAGIC = [86, 67, 70, 68, 66, 1];
-  const MAX_FILE = 64 * 1024 * 1024;
   const MAX_ANNOTATIONS = 50000;
   let routes = Object.create(null);
 
@@ -124,57 +122,7 @@
     persist();
     return true;
   }
-  function base64(bytes) {
-    let s = "";
-    for (let i = 0; i < bytes.length; i += 8192) s += String.fromCharCode(...bytes.subarray(i,i+8192));
-    return global.btoa(s);
-  }
-  function unbase64(s) {
-    const data = global.atob(s);
-    return Uint8Array.from(data, char => char.charCodeAt(0));
-  }
-  async function encode(payload) {
-    const bytes = new TextEncoder().encode(JSON.stringify({ format: "vcfdb", version: 1, ...payload, annotations: exportData() }));
-    if (bytes.length > MAX_FILE) throw new Error("VCFDB 檔案超過 64 MB");
-    let body = bytes, flag = 0;
-    if (typeof CompressionStream !== "undefined") {
-      body = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer());
-      flag = 1;
-    }
-    const output = new Uint8Array(MAGIC.length + 1 + body.length);
-    output.set(MAGIC, 0);
-    output[MAGIC.length] = flag;
-    output.set(body, MAGIC.length + 1);
-    return output;
-  }
-  async function decode(input) {
-    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
-    if (bytes.length < 8 || bytes.length > MAX_FILE || !MAGIC.every((v,i) => bytes[i] === v)) throw new Error("不是支援的 VCFDB v1 檔案");
-    if (bytes[6] !== 0 && bytes[6] !== 1) throw new Error("不支援的 VCFDB 壓縮類型");
-    let body = bytes.subarray(7);
-    if (bytes[6] === 1) {
-      if (typeof DecompressionStream === "undefined") throw new Error("瀏覽器不支援 VCFDB gzip 解壓縮");
-      const reader = new Blob([body]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
-      const parts = [];
-      let length = 0;
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        length += chunk.value.byteLength;
-        if (length > MAX_FILE) { await reader.cancel(); throw new Error("VCFDB 解壓縮資料過大"); }
-        parts.push(chunk.value);
-      }
-      body = new Uint8Array(length);
-      let cursor = 0;
-      for (const part of parts) { body.set(part,cursor); cursor += part.length; }
-    }
-    if (body.length > MAX_FILE) throw new Error("VCFDB 資料超過上限");
-    const doc = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
-    if (doc.format !== "vcfdb" || doc.version !== 1 || !doc.record || !["yxdb","puzzle"].includes(doc.record.kind)) throw new Error("VCFDB 內容或版本不符");
-    validateRoutes(doc.annotations || {});
-    return doc;
-  }
   global.VCFStaticAnnotations = Object.freeze({
-    COLORS, route, list, setMark, eraseAt, reset, exportData, importData, validateData: validateRoutes, count, transform, encode, decode, base64, unbase64,
+    COLORS, route, list, setMark, eraseAt, reset, exportData, importData, validateData: validateRoutes, count, transform,
   });
 })(window);
