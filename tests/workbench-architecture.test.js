@@ -16,13 +16,16 @@ assert.ok(files.html.indexOf("rapfi/5db-format.js")<files.html.indexOf("rapfi/ra
 lacks("html",['value="vcfdb"','value="yxdb"','value="lib"',"vcf-cloud-annotation-codec.js"]);
 has("codec",["function validate(doc)","function encode(doc)","function decode(value)",
   "function checksum(bytes)","currentPath","nextSide","node.stone","node.marks",
-  "function checkMark(mark, width, height)","MAX_NODES","MAX_MARKS"]);
+  "function checkMark(mark, width, height)","MAX_NODES","MAX_MARKS",
+  'doc.phase === "setup"', "modeCode <= 2"]);
 // Check for actual legacy implementation calls, not words in comments.
 lacks("codec",["constructDBKey(", "canonicalPosition(", "YXDBStorage(", "parseYXDB("]);
 has("header",["let fiveDBDoc = null","let fiveDBPath = []","const replay5DBPath = path =>",
   "const import5DBMarks = () =>","const capture5DBMarks = () =>","fiveDBNode(fiveDBPath)",
   "global.FiveDB.encode(doc)","async import5DBDocument(source)",
   "export5DBDocument()","initialize5DB(","fiveDBDoc.currentPath",
+  "setGeneratedPuzzleAnswer(moves, attacker)", 'doc.phase = PUZZLE_SETUP',
+  'source.phase !== PUZZLE_SETUP',
   "fiveDBNode(fiveDBPath)?.children","fiveDBDoc = JSON.parse(JSON.stringify(source))",
   'global.FiveDB.encode(doc)','"record-transform"','"5db-import"',
   'downloadBytes(bytes, "5db-" + timestampName() + ".5db")']);

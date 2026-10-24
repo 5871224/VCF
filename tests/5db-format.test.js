@@ -37,6 +37,17 @@ for (const [width, height] of sizes) {
   const sample = { ...blank, width, height, board: Array(width * height).fill(0) };
   assert.deepEqual(decode(encode(sample)), sample);
 }
+// Setup-phase 5DB must remain editable after file/cloud/local restore.
+const setup = { ...blank, mode: "puzzle", phase: "setup", nextSide: 2 };
+setup.board[4] = 1;
+setup.board[5] = 2;
+const setupBytes = encode(setup);
+assert.equal(setupBytes[6], 2, "setup is encoded as a distinct mode");
+assert.deepEqual(decode(setupBytes), setup);
+assert.throws(() => encode({ ...setup, currentPath: [0] }), /擺盤階段|目前路線/);
+const invalidMode = Uint8Array.from(setupBytes);
+invalidMode[6] = 3;
+assert.throws(() => decode(invalidMode), /工作模式代碼/);
 const corrupt = Uint8Array.from(bytes);
 corrupt[corrupt.length-1] ^= 1;
 assert.throws(() => decode(corrupt), /校驗碼/);

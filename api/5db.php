@@ -131,7 +131,7 @@ function verify5(string $body): int {
     if ($len < 25 || $len > FIVE_DB_MAX_FILE || substr($body, 0, 4) !== '5DB1') fail5('只接受 5DB 1.0 二進位檔案');
     $width = ord($body[4]); $height = ord($body[5]);
     $mode = ord($body[6]); $side = ord($body[7]);
-    if (!$width || !$height || $mode > 1 || ($side !== 1 && $side !== 2)) fail5('5DB 標頭錯誤');
+    if (!$width || !$height || $mode > 2 || ($side !== 1 && $side !== 2)) fail5('5DB 標頭錯誤');
     $declared = unpack('V', substr($body, 8, 4))[1];
     $sum = unpack('V', substr($body, 12, 4))[1];
     $nodes = unpack('V', substr($body, 16, 4))[1];

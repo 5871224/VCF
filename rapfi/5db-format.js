@@ -81,6 +81,10 @@
     check(Number.isInteger(width) && width >= 1 && width <= 255
       && Number.isInteger(height) && height >= 1 && height <= 255, "棋盤尺寸不合法");
     check(doc.mode === "record" || doc.mode === "puzzle", "工作模式不合法");
+    check(doc.phase == null || (doc.mode === "puzzle" && doc.phase === "setup"), "題目編輯階段不合法");
+    if (doc.phase === "setup") {
+      check(doc.currentPath.length === 0 && doc.root.children.length === 0, "擺盤階段不可包含解答分支");
+    }
     check(validSide(doc.nextSide), "下一手顏色不合法");
     check(Array.isArray(doc.board) || ArrayBuffer.isView(doc.board), "初始盤面不合法");
     check(doc.board.length === width * height, "初始盤面尺寸不符");
@@ -156,7 +160,8 @@
     const body = w.finish();
     const h = new Writer();
     for (const byte of MAGIC) h.u8(byte);
-    h.u8(width); h.u8(height); h.u8(doc.mode === "record" ? 0 : 1); h.u8(doc.nextSide);
+    // Mode 2 means a puzzle draft still in setup; legacy 0/1 bytes remain unchanged.
+    h.u8(width); h.u8(height); h.u8(doc.mode === "record" ? 0 : doc.phase === "setup" ? 2 : 1); h.u8(doc.nextSide);
     h.u32(body.length); h.u32(checksum(body)); h.u32(nodeCount);
     h.bytes(body);
     return h.finish();
@@ -166,7 +171,9 @@
     check(b.length >= HEADER && b.length <= MAX_SIZE, "檔案大小不合法");
     const r = new Reader(b);
     for (const byte of MAGIC) check(r.u8() === byte, "不是 5DB 1.0 檔案");
-    const width = r.u8(), height = r.u8(), mode = r.u8() === 0 ? "record" : "puzzle", nextSide = r.u8();
+    const width = r.u8(), height = r.u8(), modeCode = r.u8(), nextSide = r.u8();
+    check(modeCode <= 2, "5DB 工作模式代碼不合法");
+    const mode = modeCode === 0 ? "record" : "puzzle";
     const bodySize = r.u32(), savedHash = r.u32(), nodeCount = r.u32();
     check(bodySize === b.length - HEADER && nodeCount >= 1 && nodeCount <= MAX_NODES, "檔案長度或節點數錯誤");
     check(checksum(b.subarray(HEADER)) === savedHash, "校驗碼不符");
@@ -210,6 +217,7 @@
     }
     check(readCount === nodeCount && data.at === data.bytes.length, "尾端資料異常");
     const doc = { width, height, mode, nextSide, title, board, currentPath, root };
+    if (modeCode === 2) doc.phase = "setup";
     validate(doc);
     return doc;
   }
