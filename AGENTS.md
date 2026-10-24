@@ -74,7 +74,16 @@ makevcf-generator-core.js
 - 本機與雲端棋譜僅使用 5DB 1.0；不得新增舊版 VCFDB／YXDB／LIB 匯入支援。雲端使用 `/BD1/api/5db.php`，並經既有 Google 登入 API 驗證 token；檔案不得落在公開 DOCUMENT_ROOT。
 - 介面名稱、按鈕文字、選單值與文件用語必須一致。
 
-## 5. 驗證
+## 5. 開發分支、測試與整批部署
+
+- **所有功能修改先在 `develop` 分支**完成，同一批程式、介面、測試、規格與建置設定集中整理，不得逐檔直接推送 `main`。
+- `develop` 的 push **只觸發 CI，不部署 BD1**。測試紅燈要在開發分支修正，不得跳過驗證。
+- 完成整批修改後開立 `develop → main` Pull Request；確定工作台測試、題目產生器、Native／Wasm 等相關 CI 全部通過，再以**一次 PR 合併**進入 `main`。
+- `main` push 才執行正式部署，部署內再次驗證必要測試、上傳 FTPS、驗證 `/BD1/deployment.json`。新的 `main` 提交不得中途取消正在進行的 FTPS 上傳。
+- 只有 GitHub Actions `Success` 且遠端 revision 等於部署 SHA，才能宣告上線。失敗時先看 GitHub Actions job logs，修正測試後重新驗證，不在 `main` 連續猜測式提交。
+- 開始新一批修改前要將 `develop` 同步到最新 `main`；緊急修復也須在分支先測試並透過單次 PR 合併。避免大量取消的部署紀錄。
+
+## 6. 驗證
 
 搜尋核心變更至少執行：
 
@@ -95,7 +104,7 @@ makevcf-generator-core.js
 部署變更後：
 
 - 確認 BD1 基礎 artifact 只有 allowlist 內的正式網頁資源，沒有 `rapfi/index.html`、桌面版、C++ 原始碼、測試原型或已刪除工具頁。
-- 確認 VCF `.github/workflows/deploy-bd1.yml` 在 `main` push 時直接於本 repository 建置、FTPS 上傳與線上雜湊驗證，不使用排程輪詢或跨 repository 觸發。
+- 確認 `develop` push 與 `main` PR 只執行測試；通過後集中合併到 `main`，才以一次部署建置、FTPS 上傳與遠端雜湊驗證，且不中途取消部署。
 - 確認 `/BD1/deployment.json` 的 revision 等於該次 VCF `github.sha`。
 
 ## 執行期驗證與熱路徑效能

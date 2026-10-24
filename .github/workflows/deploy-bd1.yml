@@ -10,7 +10,8 @@ permissions:
 
 concurrency:
   group: vcf-bd1-deploy
-  cancel-in-progress: true
+  # Never abort an in-flight FTPS upload halfway through.
+  cancel-in-progress: false
 
 env:
   RAPFI_REF: 3aedf3a2ab0ab710a9f3d00e57d5287ceb864894
