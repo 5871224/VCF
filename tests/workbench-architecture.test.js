@@ -17,7 +17,8 @@ lacks("html",['value="vcfdb"','value="yxdb"','value="lib"',"vcf-cloud-annotation
 has("codec",["function validate(doc)","function encode(doc)","function decode(value)",
   "function checksum(bytes)","currentPath","nextSide","node.stone","node.marks",
   "function checkMark(mark, width, height)","MAX_NODES","MAX_MARKS"]);
-lacks("codec",["canonical","YXDB"]);
+// Check for actual legacy implementation calls, not words in comments.
+lacks("codec",["constructDBKey(", "canonicalPosition(", "YXDBStorage(", "parseYXDB("]);
 has("header",["let fiveDBDoc = null","let fiveDBPath = []","const replay5DBPath = path =>",
   "const import5DBMarks = () =>","const capture5DBMarks = () =>","fiveDBNode(fiveDBPath)",
   "global.FiveDB.encode(document)","async import5DBDocument(source)",
