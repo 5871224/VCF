@@ -38,6 +38,8 @@ vm.runInNewContext(source,{window,document,localStorage,fetch,URLSearchParams,Ab
   assert.equal(url.searchParams.get("file_name"),"下載檔案名稱");
   assert.equal(url.searchParams.get("title"),"棋盤內的標題");
   assert.equal(FiveDB.decode(call.options.body).title,"棋盤內的標題");
+  assert.equal(call.options.headers["X-5DB-Preview"], "15x15:"+"0".repeat(225),
+    "save sends a tiny precomputed position instead of requiring a full file download");
   assert.equal(record.title,"棋盤內的標題","no mutation");
   await window.VCFCloud5DB.saveCurrent("另一名稱.5db");
   const next=new URL(calls.at(-1).url,"https://example.test");

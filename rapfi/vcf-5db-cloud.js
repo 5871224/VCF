@@ -8,13 +8,19 @@
 
   let authUser = null;
   let googleClientId = "";
+  const previewCache = new Map();
+  let activePreviewObserver = null;
+  let previewGeneration = 0;
 
   function isAdminUser(user) {
     return String(user?.email || "").trim().toLowerCase() === ADMIN_EMAIL;
   }
 
   function getToken() { try { return localStorage.getItem(AUTH_TOKEN_KEY) || ""; } catch (_) { return ""; } }
-  function setToken(token) { try { token ? localStorage.setItem(AUTH_TOKEN_KEY, token) : localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {} }
+  function setToken(token) {
+    previewCache.clear();
+    try { token ? localStorage.setItem(AUTH_TOKEN_KEY, token) : localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
+  }
   function authHeaders(extra = {}) {
     const token = getToken();
     return token ? { Authorization: `Bearer ${token}`, ...extra } : { ...extra };
@@ -102,11 +108,14 @@
     const doc = record.export5DBDocument();
     const bytes = global.FiveDB.encode(doc);
     const info = global.FiveDB.validate(doc);
+    const shot = global.FiveDB.preview(doc);
+    const thumbnail = shot.width <= 25 && shot.height <= 25
+      ? `${shot.width}x${shot.height}:${shot.board}` : "";
     const name = normalizeFileName(fileName, defaultFileName());
     const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "" });
     const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
       method: "POST", cache: "no-store",
-      headers: authHeaders({ "Content-Type": "application/octet-stream" }),
+      headers: authHeaders({ "Content-Type": "application/octet-stream", "X-5DB-Preview": thumbnail }),
       body: bytes,
     });
     const saved = await jsonResponse(response);
@@ -179,7 +188,7 @@
       #bb-cloud-auth{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 0}
       #bb-cloud-user{font-size:12px;color:#4f5d50}.bb-cloud-btn{min-height:36px;padding:7px 10px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}.bb-cloud-btn:disabled{opacity:.5;cursor:not-allowed}
       #vcf-google-login{min-height:36px}#vcf-cloud-dialog,#vcf-account-admin-dialog{width:min(760px,calc(100vw - 24px));max-height:min(78vh,720px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop,#vcf-account-admin-dialog::backdrop{background:rgb(0 0 0 / 35%)}
-      .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-title{font-weight:700}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:1fr}}
+      .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
     `;
     document.head.appendChild(style);
   }
@@ -299,7 +308,61 @@
     }
   }
 
+  function parsePreview(value) {
+    const match = /^(\\d{1,3})x(\\d{1,3}):([012]+)$/.exec(String(value || ""));
+    if (!match) return null;
+    const width = Number(match[1]), height = Number(match[2]);
+    if (width < 1 || height < 1 || width > 25 || height > 25 || match[3].length !== width * height) return null;
+    return { width, height, board: match[3] };
+  }
+  function makeBoardThumbnail(snapshot) {
+    const ns = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 160 160");
+    svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", `棋盤縮圖 ${snapshot.width}×${snapshot.height}`);
+    const shape = (tag, attrs) => {
+      const node = document.createElementNS(ns, tag);
+      for (const [name, value] of Object.entries(attrs)) node.setAttribute(name, String(value));
+      svg.appendChild(node);
+      return node;
+    };
+    shape("rect", { x: 0, y: 0, width: 160, height: 160, fill: "#edcf9d" });
+    const unit = 140 / Math.max(snapshot.width - 1, snapshot.height - 1, 1);
+    const ox = (160 - (snapshot.width - 1) * unit) / 2;
+    const oy = (160 - (snapshot.height - 1) * unit) / 2;
+    for (let x = 0; x < snapshot.width; x++) {
+      const sx = ox + x * unit;
+      shape("line", { x1: sx, y1: oy, x2: sx, y2: oy + (snapshot.height - 1) * unit, stroke: "#80643a", "stroke-width": .7 });
+    }
+    for (let y = 0; y < snapshot.height; y++) {
+      const sy = oy + y * unit;
+      shape("line", { x1: ox, y1: sy, x2: ox + (snapshot.width - 1) * unit, y2: sy, stroke: "#80643a", "stroke-width": .7 });
+    }
+    for (let index = 0; index < snapshot.board.length; index++) {
+      const stone = snapshot.board.charAt(index);
+      if (stone !== "1" && stone !== "2") continue;
+      shape("circle", {
+        cx: ox + (index % snapshot.width) * unit,
+        cy: oy + Math.floor(index / snapshot.width) * unit,
+        r: unit * .43,
+        fill: stone === "1" ? "#1c1c1c" : "#fdfdfb",
+        stroke: stone === "1" ? "#161616" : "#555047",
+        "stroke-width": stone === "1" ? .6 : 1.05,
+      });
+    }
+    return svg;
+  }
+  function showBoardThumbnail(element, raw) {
+    const snapshot = parsePreview(raw);
+    if (!snapshot) { element.textContent = "無法預覽"; return false; }
+    element.replaceChildren(makeBoardThumbnail(snapshot));
+    return true;
+  }
+
   async function refreshDialog(dialog) {
+    if (activePreviewObserver) { activePreviewObserver.disconnect(); activePreviewObserver = null; }
+    const generation = ++previewGeneration;
     const container = dialog.querySelector("[data-list]"); container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
     let records;
     try {
@@ -321,10 +384,18 @@
       status("5DB 雲端棋譜讀取失敗：" + message);
       return;
     }
+    if (generation !== previewGeneration) return;
     container.replaceChildren();
     if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">這個 Google 帳號目前沒有雲端棋譜。</div>'; return; }
+    const missingPreviews = [];
     for (const record of records) {
       const row = document.createElement("div"); row.className = "vcf-cloud-row";
+      const previewBox = document.createElement("div");
+      previewBox.className = "vcf-cloud-preview";
+      previewBox.textContent = "載入縮圖…";
+      const readyPreview = parsePreview(record.preview) ? record.preview : previewCache.get(record.id);
+      if (readyPreview) showBoardThumbnail(previewBox, readyPreview);
+      else missingPreviews.push({ record, previewBox });
       const info = document.createElement("div"); info.innerHTML = `<div class="vcf-cloud-title"></div><div class="vcf-cloud-meta"></div>`;
       const fileName = record.file_name || record.title || `棋譜-${record.id}`;
       info.firstElementChild.textContent = fileName + ".5db";
@@ -335,7 +406,44 @@
       loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${fileName}.5db」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
       const dl = document.createElement("button"); dl.textContent = "下載 .5db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `${normalizeFileName(fileName, `棋譜-${record.id}`)}.5db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
       const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${fileName}.5db」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
-      actions.append(loadButton, dl, del); row.append(info, actions); container.appendChild(row);
+      actions.append(loadButton, dl, del); row.append(previewBox, info, actions); container.appendChild(row);
+    }
+    // Existing 5DB entries have no preview metadata. Decode those files only
+    // when their thumbnails are visible; never fetch every record eagerly.
+    const queue = [];
+    let inFlight = 0;
+    const pump = () => {
+      while (inFlight < 2 && queue.length && generation === previewGeneration) {
+        const item = queue.shift();
+        inFlight++;
+        fetchRecord(item.record.id).then(result => {
+          if (generation !== previewGeneration) return;
+          const shot = global.FiveDB.preview(global.FiveDB.decode(result.bytes));
+          const encoded = shot.width <= 25 && shot.height <= 25 ? `${shot.width}x${shot.height}:${shot.board}` : "";
+          if (encoded) previewCache.set(item.record.id, encoded);
+          showBoardThumbnail(item.previewBox, encoded);
+        }).catch(() => {
+          if (generation === previewGeneration) item.previewBox.textContent = "無法預覽";
+        }).finally(() => { inFlight--; pump(); });
+      }
+    };
+    const add = item => { queue.push(item); pump(); };
+    if (typeof IntersectionObserver === "function") {
+      const awaiting = new Map(missingPreviews.map(item => [item.previewBox, item]));
+      const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const item = awaiting.get(entry.target);
+          if (!item) continue;
+          awaiting.delete(entry.target);
+          observer.unobserve(entry.target);
+          add(item);
+        }
+      }, { root: container, rootMargin: "100px" });
+      activePreviewObserver = observer;
+      for (const item of missingPreviews) observer.observe(item.previewBox);
+    } else {
+      for (const item of missingPreviews) add(item);
     }
   }
   function refreshAuthUI() {

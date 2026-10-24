@@ -1,6 +1,6 @@
 "use strict";
 const assert = require("node:assert/strict");
-const { encode, decode, validate } = require("../rapfi/5db-format.js");
+const { encode, decode, validate, preview } = require("../rapfi/5db-format.js");
 const root = {
   move: -1, stone: 0, text: "原始方向", marks: [
     { type: "circle", x: 1, y: 2, color: 0, filled: true },
@@ -25,6 +25,18 @@ assert.equal(Buffer.from(bytes.subarray(0,4)).toString(), "5DB1");
 const loaded = decode(bytes);
 assert.deepEqual(loaded, doc);
 assert.equal(validate(loaded).nodeCount, 4);
+const savedView = preview(loaded);
+assert.deepEqual(savedView, { width: 9, height: 9, board: (() => {
+  const b = loaded.board.slice();
+  b[0] = 1; b[1] = 1;
+  return b.join("");
+})() }, "thumbnail must show the saved current branch and keep exact coordinates");
+assert.equal(loaded.board[0], 0, "preview must not modify initial 5DB setup");
+const alternative = structuredClone(loaded);
+alternative.currentPath = [1];
+const bPreview = preview(alternative);
+assert.equal(bPreview.board[4], "2", "selected alternate branch must be rendered");
+assert.equal(bPreview.board[0], "0", "other branches must not leak into preview");
 assert.deepEqual(encode(loaded), bytes, "encode should be deterministic");
 const mirrored = structuredClone(doc);
 mirrored.board[10] = 0;

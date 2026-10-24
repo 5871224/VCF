@@ -16,7 +16,7 @@ assert.ok(files.html.indexOf("rapfi/5db-format.js")<files.html.indexOf("rapfi/ra
 lacks("html",['value="vcfdb"','value="yxdb"','value="lib"',"vcf-cloud-annotation-codec.js"]);
 has("codec",["function validate(doc)","function encode(doc)","function decode(value)",
   "function checksum(bytes)","currentPath","nextSide","node.stone","node.marks",
-  "function checkMark(mark, width, height)","MAX_NODES","MAX_MARKS",
+  "function checkMark(mark, width, height)","MAX_NODES","MAX_MARKS", "function preview(doc)",
   'doc.phase === "setup"', "modeCode <= 2"]);
 // Check for actual legacy implementation calls, not words in comments.
 lacks("codec",["constructDBKey(", "canonicalPosition(", "YXDBStorage(", "parseYXDB("]);
@@ -38,11 +38,12 @@ lacks("header",["importYXDB(", "importRoutes(", "exportYXDB()", "createRenLib(",
 lacks("marks",["encode, decode"]);
 lacks("header",["global.VCFRapfiFormats", "wrapLZ4Frame("]);
 has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "controller.abort()", "雲端棋譜讀取失敗：", "重新讀取", "global.FiveDB.encode(doc)",
- "global.FiveDB?.decode?.(bytes)",'cloud-\${id}.5db',
+ "global.FiveDB?.decode?.(bytes)", "makeBoardThumbnail(snapshot)", "IntersectionObserver", "previewCache",
+  "X-5DB-Preview", 'cloud-\${id}.5db',
  'file_name: name', "record.export5DBDocument()", '檔案名稱（不影響棋譜標題）',
  "auth_me","admin_user_delete","admin_user_role","admin_user_status"]);
 lacks("cloud",["VCFCloudYXDB","createLZ4Frame"]);
-has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT", "file_name' => $fileName",
+has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT", "HTTP_X_5DB_PREVIEW", "file_name' => $fileName",
   "auth_me","Authorization: Bearer","flock(","storage5(","DOCUMENT_ROOT", "publicRoot", "privateBase",
   "realpath(","FILTER_VALIDATE_EMAIL","LOCK_EX","action === 'save'","action === 'get'"]);
 has("builder",['"5db-format.js"']);

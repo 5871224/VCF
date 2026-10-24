@@ -132,6 +132,18 @@
     }
     return { width, height, nodeCount, markCount };
   }
+  // Compact saved-current-position snapshot used by the cloud list UI.
+  // It preserves exact orientation and does not modify the game document.
+  function preview(doc) {
+    const { width, height } = validate(doc);
+    const board = Array.from(doc.board);
+    let node = doc.root;
+    for (const branch of doc.currentPath) {
+      node = node.children[branch];
+      if (node.move >= 0) board[node.move] = node.stone;
+    }
+    return { width, height, board: board.join("") };
+  }
   function encode(doc) {
     const { width, height, nodeCount } = validate(doc);
     const w = new Writer();
@@ -221,7 +233,7 @@
     validate(doc);
     return doc;
   }
-  const api = Object.freeze({ encode, decode, validate });
+  const api = Object.freeze({ encode, decode, validate, preview });
   global.FiveDB = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);
