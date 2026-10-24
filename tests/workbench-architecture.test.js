@@ -22,7 +22,7 @@ lacks("codec",["constructDBKey(", "canonicalPosition(", "YXDBStorage(", "parseYX
 has("header",["let fiveDBDoc = null","let fiveDBPath = []","const replay5DBPath = path =>",
   "const import5DBMarks = () =>","const capture5DBMarks = () =>","fiveDBNode(fiveDBPath)",
   "global.FiveDB.encode(doc)","async import5DBDocument(source)",
-  "export5DBDocument(title","initialize5DB(","fiveDBDoc.currentPath",
+  "export5DBDocument()","initialize5DB(","fiveDBDoc.currentPath",
   "fiveDBNode(fiveDBPath)?.children","fiveDBDoc = JSON.parse(JSON.stringify(source))",
   'global.FiveDB.encode(doc)','"record-transform"','"5db-import"',
   'downloadBytes(bytes, "5db-" + timestampName() + ".5db")']);
@@ -36,9 +36,10 @@ lacks("marks",["encode, decode"]);
 lacks("header",["global.VCFRapfiFormats", "wrapLZ4Frame("]);
 has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "controller.abort()", "雲端棋譜讀取失敗：", "重新讀取", "global.FiveDB.encode(doc)",
  "global.FiveDB?.decode?.(bytes)",'cloud-\${id}.5db',
+ 'file_name: name', "record.export5DBDocument()", '檔案名稱（不影響棋譜標題）',
  "auth_me","admin_user_delete","admin_user_role","admin_user_status"]);
 lacks("cloud",["VCFCloudYXDB","createLZ4Frame"]);
-has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT",
+has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT", "file_name' => $fileName",
   "auth_me","Authorization: Bearer","flock(","storage5(","DOCUMENT_ROOT", "publicRoot", "privateBase",
   "realpath(","FILTER_VALIDATE_EMAIL","LOCK_EX","action === 'save'","action === 'get'"]);
 has("builder",['"5db-format.js"']);
