@@ -39,13 +39,14 @@ def main() -> None:
         raise ValueError("revision contains unsupported characters")
 
     copy_file(ROOT / "rapfi" / "vcf-lz4-cloud.js", site / "rapfi" / "vcf-lz4-cloud.js")
+    copy_file(ROOT / "api" / "5db.php", site / "api" / "5db.php")
 
     html = index.read_text(encoding="utf-8")
     if MARKER in html or "</body>" not in html:
         raise RuntimeError("server feature injection point is missing or duplicated")
     version = revision[:12]
     block = f"""{MARKER}
-<script>window.VCF_CLOUD_API_URL={json.dumps(args.api_url, ensure_ascii=False)};</script>
+<script>window.VCF_CLOUD_API_URL={json.dumps(args.api_url, ensure_ascii=False)};window.VCF_5DB_API_URL="/BD1/api/5db.php";</script>
 <script src="https://accounts.google.com/gsi/client"></script>
 <script src="rapfi/vcf-lz4-cloud.js?v={version}"></script>
 """
