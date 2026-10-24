@@ -10,7 +10,6 @@ on:
       - 'rapfi/vcf-bitboard-search-v2.cpp'
       - 'rapfi/vcf-bitboard-search-*.inc'
       - 'rapfi/vcf-bitboard-legacy-extra.cpp'
-      - 'rapfi/vcf-yxdb-index.cpp'
       - 'rapfi/vcf-5db-cloud.js'
       - 'rapfi/vcf-bitboard-main.js'
       - 'rapfi/vcf-bitboard-worker.js'
@@ -48,16 +47,6 @@ jobs:
 
       - name: Run production search self-tests
         run: /tmp/vcf-bitboard-engine-test
-
-      - name: Build and run YXDB binary-index self-test
-        shell: bash
-        run: |
-          set -euxo pipefail
-          g++ rapfi/vcf-yxdb-index.cpp \
-              -O3 -flto -DNDEBUG -std=c++17 \
-              -DVCF_YXDB_INDEX_TEST_MAIN \
-              -o /tmp/vcf-yxdb-index-test
-          /tmp/vcf-yxdb-index-test
 
       - name: Check JavaScript syntax
         shell: bash
@@ -100,8 +89,8 @@ jobs:
         run: |
           set -euxo pipefail
           source .build/emsdk/emsdk_env.sh
-          rm -rf /tmp/vcf-wasm-test /tmp/vcf-yxdb-test
-          mkdir -p /tmp/vcf-wasm-test /tmp/vcf-yxdb-test
+          rm -rf /tmp/vcf-wasm-test
+          mkdir -p /tmp/vcf-wasm-test
           em++ rapfi/vcf-pattern-engine.cpp \
                rapfi/vcf-bitboard-engine.cpp \
                rapfi/vcf-bitboard-search-v2.cpp \
@@ -117,19 +106,6 @@ jobs:
                -s "EXPORTED_FUNCTIONS=['_vcfBbFind','_vcfBbFindMode','_vcfBbFindModeV3','_vcfBbFindShortestOne','_vcfBbValidateRoute','_vcfBbRouteDefense','_vcfBbScanPoints','_vcfBbScanPointsMode','_vcfBbScanPointsModeV3','_vcfBbLegacyGetLevelPoint','_vcfBbLegacyTestLineFour','_vcfBbLegacyGetBlockFourPoint','_vcfBbLegacyIsFoul','_vcfBbLegacyGetLevelPointCompat','_vcfBbLegacyTestLineFourCompat','_vcfBbSelfTest','_vcfBbSearchV2SelfTest','_malloc','_free']" \
                -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
                -o /tmp/vcf-wasm-test/vcf-bitboard-engine.js
-
-          em++ rapfi/vcf-yxdb-index.cpp \
-               -O3 -flto -DNDEBUG -std=c++17 \
-               --no-entry \
-               -s WASM=1 \
-               -s MODULARIZE=1 \
-               -s EXPORT_NAME=VCFYxdbIndexModule \
-               -s ENVIRONMENT='web,worker,node' \
-               -s FILESYSTEM=0 \
-               -s ALLOW_MEMORY_GROWTH=1 \
-               -s "EXPORTED_FUNCTIONS=['_vcfYxdbLoadFrame','_vcfYxdbQueryKey','_vcfYxdbQueryBoard','_vcfYxdbResultTextPtr','_vcfYxdbResultTextLength','_vcfYxdbQueryKeyPtr','_vcfYxdbQueryKeyLength','_vcfYxdbRecordCount','_vcfYxdbRawSize','_vcfYxdbIndexSlots','_vcfYxdbLastError','_malloc','_free']" \
-               -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
-               -o /tmp/vcf-yxdb-test/vcf-yxdb-index.js
 
       - name: Run production Wasm ABI tests
         shell: bash
@@ -174,20 +150,6 @@ jobs:
             fs.appendFileSync(diagnostic, `${error.stack || error.message || String(error)}\n`);
             console.error(error); process.exit(1);
           });
-          NODE
-
-      - name: Run YXDB Wasm ABI smoke test
-        shell: bash
-        run: |
-          node - <<'NODE'
-          const path = require('path');
-          const create = require('/tmp/vcf-yxdb-test/vcf-yxdb-index.js');
-          create({ locateFile: file => path.join('/tmp/vcf-yxdb-test', file) }).then(module => {
-            for (const name of ['vcfYxdbLoadFrame','vcfYxdbQueryBoard','vcfYxdbResultTextPtr','vcfYxdbResultTextLength','vcfYxdbRecordCount']) {
-              if (typeof module.cwrap(name, 'number', []) !== 'function') throw new Error(`missing ${name}`);
-            }
-            console.log('YXDB Wasm ABI smoke test passed');
-          }).catch(error => { console.error(error); process.exit(1); });
           NODE
 
       - name: Run Worker runtime regressions

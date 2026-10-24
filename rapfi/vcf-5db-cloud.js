@@ -22,8 +22,28 @@
   async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
     if (response.status === 401) { setToken(""); authUser = null; refreshAuthUI(); }
-    if (!response.ok || payload?.ok === false) throw new Error(payload?.error || `HTTP ${response.status}`);
+    if (!response.ok || payload?.ok === false) {
+      throw new Error(payload?.error || `伺服器回應 HTTP ${response.status}`);
+    }
+    if (!payload || typeof payload !== "object") {
+      throw new Error(`雲端 API 回應格式不正確（HTTP ${response.status}），請檢查 PHP 是否正常執行`);
+    }
     return payload;
+  }
+  // A failed endpoint must never leave the cloud dialog on an endless spinner.
+  async function cloudFetch(url, options = {}, timeoutMs = 18000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error("5DB 雲端伺服器回應逾時，請檢查主機連線及登入驗證服務");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
   async function publicConfig() {
     const response = await fetch(`${API_URL}?action=public_config`, { cache: "no-store", mode: "cors" });
@@ -72,7 +92,7 @@
     const bytes = global.FiveDB.encode(doc);
     const info = global.FiveDB.validate(doc);
     const params = new URLSearchParams({ action: "save", title: String(title || "") });
-    const response = await fetch(`${FIVE_DB_API_URL}?${params}`, {
+    const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
       method: "POST", cache: "no-store",
       headers: authHeaders({ "Content-Type": "application/octet-stream" }),
       body: bytes,
@@ -82,7 +102,7 @@
   }
   async function list() {
     if (!authUser) throw new Error("請先登入 Google 帳號");
-    const response = await fetch(`${FIVE_DB_API_URL}?action=list`, {
+    const response = await cloudFetch(`${FIVE_DB_API_URL}?action=list`, {
       cache: "no-store", headers: authHeaders(),
     });
     return (await jsonResponse(response)).records || [];
@@ -91,7 +111,7 @@
     if (!authUser) throw new Error("請先登入 Google 帳號");
     const recordId = Number(id);
     if (!Number.isSafeInteger(recordId) || recordId < 1) throw new Error("棋譜編號無效");
-    const response = await fetch(`${FIVE_DB_API_URL}?action=get&id=${recordId}`, {
+    const response = await cloudFetch(`${FIVE_DB_API_URL}?action=get&id=${recordId}`, {
       cache: "no-store", headers: authHeaders(),
     });
     if (!response.ok) {
@@ -115,7 +135,7 @@
     if (!authUser) throw new Error("請先登入 Google 帳號");
     const recordId = Number(id);
     if (!Number.isSafeInteger(recordId) || recordId < 1) throw new Error("棋譜編號無效");
-    const response = await fetch(`${FIVE_DB_API_URL}?action=delete&id=${recordId}`, {
+    const response = await cloudFetch(`${FIVE_DB_API_URL}?action=delete&id=${recordId}`, {
       method: "POST", cache: "no-store", headers: authHeaders(),
     });
     return jsonResponse(response);
@@ -268,7 +288,27 @@
 
   async function refreshDialog(dialog) {
     const container = dialog.querySelector("[data-list]"); container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
-    const records = await list(); container.replaceChildren();
+    let records;
+    try {
+      records = await list();
+      if (!Array.isArray(records)) throw new Error("5DB 雲端列表內容不正確");
+    } catch (error) {
+      const message = error?.message || String(error);
+      container.replaceChildren();
+      const errorBox = document.createElement("div");
+      errorBox.className = "vcf-cloud-empty";
+      errorBox.setAttribute("role", "alert");
+      errorBox.textContent = "雲端棋譜讀取失敗：" + message;
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "bb-cloud-btn";
+      retry.textContent = "重新讀取";
+      retry.addEventListener("click", () => { void refreshDialog(dialog); });
+      container.append(errorBox, retry);
+      status("5DB 雲端棋譜讀取失敗：" + message);
+      return;
+    }
+    container.replaceChildren();
     if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">這個 Google 帳號目前沒有雲端棋譜。</div>'; return; }
     for (const record of records) {
       const row = document.createElement("div"); row.className = "vcf-cloud-row";

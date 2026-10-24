@@ -32,12 +32,12 @@ has("layout",['async function loadRecordBytes(rawBytes, fileName = "棋譜.5db")
 lacks("layout",["window.VCFWorkbenchRecord?.importYXDB?.(",
   "window.VCFWorkbenchRecord?.importRoutes?.("]);
 lacks("marks",["encode, decode"]);
-has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","global.FiveDB.encode(doc)",
+has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "controller.abort()", "雲端棋譜讀取失敗：", "重新讀取", "global.FiveDB.encode(doc)",
  "global.FiveDB?.decode?.(bytes)",'cloud-\${id}.5db',
  "auth_me","admin_user_delete","admin_user_role","admin_user_status"]);
 lacks("cloud",["VCFCloudYXDB","createLZ4Frame"]);
 has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT",
-  "auth_me","Authorization: Bearer","flock(","storage5(","DOCUMENT_ROOT",
+  "auth_me","Authorization: Bearer","flock(","storage5(","DOCUMENT_ROOT", "publicRoot", "privateBase",
   "realpath(","FILTER_VALIDATE_EMAIL","LOCK_EX","action === 'save'","action === 'get'"]);
 has("builder",['"5db-format.js"']);
 has("srvbuild",['ROOT / "api" / "5db.php"','VCF_5DB_API_URL="/BD1/api/5db.php"']);

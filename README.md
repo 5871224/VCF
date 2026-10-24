@@ -37,6 +37,12 @@ makevcf-generator-core.js
   → rapfi/engine/vcf-bitboard-engine.js / .wasm
 ```
 
+## 開發與發布
+
+先將同一批修改集中在 `develop`，推送時只會進行 CI 測試，不上傳 BD1。
+確認測試通過後，經 `develop → main` Pull Request 一次合併，才由 `main` 自動部署正式網站。
+進行中的 FTPS 部署不會被新提交中途取消；最終以 GitHub Actions 成功與 `/BD1/deployment.json` 版本一致為準。
+
 ## 文件
 
 - [VCF 分析工具正式規格](規格書.MD)：工作台、搜尋與題目產生器的唯一產品規格。
