@@ -33,6 +33,7 @@ lacks("layout",["window.VCFWorkbenchRecord?.importYXDB?.(",
   "window.VCFWorkbenchRecord?.importRoutes?.(", "function parseYXDB(", "function parseRenLib(", "function decompressLZ4Frame("]);
 lacks("header",["importYXDB(", "importRoutes(", "exportYXDB()", "createRenLib(", "createYXDB(", "serializePuzzle(", "restoreYXDB(", "snapshotYXDB(", "vcf-puzzle-v1"]);
 lacks("marks",["encode, decode"]);
+lacks("header",["global.VCFRapfiFormats", "wrapLZ4Frame("]);
 has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "controller.abort()", "雲端棋譜讀取失敗：", "重新讀取", "global.FiveDB.encode(doc)",
  "global.FiveDB?.decode?.(bytes)",'cloud-\${id}.5db',
  "auth_me","admin_user_delete","admin_user_role","admin_user_status"]);
