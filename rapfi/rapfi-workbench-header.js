@@ -624,6 +624,8 @@
     let puzzleRootBoard = new Uint8Array(BOARD_CELLS);
     let suspendPersistence = false;
     const selectedNextByRoute = new Map();
+    const selected5DBBranches = new Map();
+    const fiveDBBranchKey = path => "5db:" + path.join(",");
     // 5DB owns the original-coordinate tree. Rapfi only supplies the active board.
     let fiveDBDoc = null;
     let fiveDBPath = [];
@@ -640,6 +642,7 @@
         currentPath: [], root: blank5DBNode(),
       };
       fiveDBPath = [];
+      selected5DBBranches.clear();
     };
     const capture5DBMarks = () => {
       const node = fiveDBNode(fiveDBPath);
@@ -871,7 +874,9 @@
     const selectedNextMove = knownMoves => {
       const moves = Array.isArray(knownMoves) ? knownMoves : queryChildren();
       if (!moves.length) return null;
-      const selected = selectedNextByRoute.get(routeKey());
+      const selected = fiveDBDoc
+        ? selected5DBBranches.get(fiveDBBranchKey(fiveDBPath))
+        : selectedNextByRoute.get(routeKey());
       return moves.includes(selected) ? selected : moves[0];
     };
     const rememberSelectedNext = move => {
@@ -1568,6 +1573,7 @@
         if (!service.play(index, true)) return false;
         if (fiveDBDoc) {
           const parent = fiveDBNode(fiveDBPath);
+          selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), index);
           const side = service.sideToMove() === BLACK ? WHITE : BLACK;
           let selected = parent.children.findIndex(child => child.move === index);
           if (selected < 0) {
@@ -1586,12 +1592,14 @@
           capture5DBMarks();
           if (direction < 0) {
             if (!fiveDBPath.length) return false;
+            const previous = fiveDBNode(fiveDBPath);
             fiveDBPath.pop();
+            selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), previous.move);
           } else {
             const node = fiveDBNode(fiveDBPath);
             const moves = node?.children || [];
             if (!moves.length) return false;
-            const preferred = selectedNextByRoute.get(routeKey());
+            const preferred = selected5DBBranches.get(fiveDBBranchKey(fiveDBPath));
             const selected = Math.max(0, moves.findIndex(child => child.move === preferred));
             fiveDBPath.push(selected);
           }
@@ -1621,7 +1629,9 @@
           if (direction < 0) {
             if (!fiveDBPath.length) return false;
             do {
+              const previous = fiveDBNode(fiveDBPath);
               fiveDBPath.pop();
+              selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), previous.move);
               const node = fiveDBNode(fiveDBPath);
               if (!fiveDBPath.length || node.children.length > 1) break;
             } while (fiveDBPath.length);
@@ -1629,7 +1639,7 @@
             let node = fiveDBNode(fiveDBPath);
             if (!node?.children?.length) return false;
             do {
-              const preferred = selectedNextByRoute.get(routeKey());
+              const preferred = selected5DBBranches.get(fiveDBBranchKey(fiveDBPath));
               const selected = Math.max(0, node.children.findIndex(child => child.move === preferred));
               fiveDBPath.push(selected);
               node = node.children[selected];
@@ -1670,6 +1680,7 @@
         if (!service.play(PASS, true)) return false;
         if (fiveDBDoc) {
           const parent = fiveDBNode(fiveDBPath);
+          selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), PASS);
           let selected = parent.children.findIndex(child => child.move === PASS);
           if (selected < 0) { parent.children.push(blank5DBNode(PASS, service.sideToMove() === BLACK ? WHITE : BLACK)); selected = parent.children.length - 1; }
           fiveDBPath.push(selected);
