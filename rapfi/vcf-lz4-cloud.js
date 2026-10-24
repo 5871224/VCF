@@ -311,6 +311,7 @@
   }
 
   async function saveCurrent(title = "") {
+    throw new Error("雲端後端目前只支援舊版 YXDB；5DB 雲端儲存尚未啟用，請先使用匯出 5DB。");
     if (!authUser) throw new Error("請先使用 Google 登入");
     if (global.VCFWorkbenchRecord?.workspace?.()?.mode !== "record") throw new Error("雲端 YXDB 只能儲存打譜模式");
     const result = createCurrentYXDB();
@@ -539,10 +540,10 @@
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
-      saveButton.disabled = !authUser || !recordMode;
-      saveButton.title = recordMode ? "支援標準 YXDB 及圓圈、文字、線條、箭頭雲端儲存" : "目前雲端只支援打譜模式；題目模式請匯出 .vcfdb";
+      saveButton.disabled = true;
+      saveButton.title = "5DB 雲端後端尚未完成；目前請使用匯出 5DB";
     }
-    if (openButton) openButton.disabled = !authUser;
+    if (openButton) { openButton.disabled = true; openButton.title = "舊版 YXDB 雲端棋譜不支援 5DB 直接讀取"; }
     if (adminButton) adminButton.hidden = !isAdminUser(authUser);
   }
   function renderGoogleButton() {
@@ -560,7 +561,7 @@
     const exportStatus = panel.querySelector("#bb-export-status");
     const auth = document.createElement("div"); auth.id = "bb-cloud-auth";
     auth.innerHTML = '<div id="vcf-google-login"></div><span id="bb-cloud-user"></span><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
-    const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
+    const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存（待支援 5DB）";
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
     const adminButton = document.createElement("button"); adminButton.id = "bb-cloud-admin"; adminButton.className = "bb-cloud-btn"; adminButton.textContent = "管理帳號"; adminButton.hidden = true;
     panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(adminButton, exportStatus || null);
