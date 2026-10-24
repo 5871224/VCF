@@ -4,9 +4,9 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const FiveDB = require("../rapfi/5db-format.js");
 const script = fs.readFileSync("rapfi/rapfi-workbench-header.js", "utf8");
-function createWorkbench() {
+function createWorkbench(savedDisk = null) {
   let board = new Uint8Array(225), history = [];
-  const disk = new Map(), routes = new Map();
+  const disk = savedDisk || new Map(), routes = new Map();
   const title = { value: "", dispatchEvent() {}, addEventListener() {} };
   const service = {
     isReady: true,
@@ -123,5 +123,51 @@ function createWorkbench() {
   assert.deepEqual(Array.from(loaded.win.VCFWorkbenchRecord.currentBoard()),(()=>{
     const x=abnormal.slice();x[100]=2;return x;})());
   assert.equal(loaded.win.VCFWorkbenchRecord.export5DBDocument().root.children[0].stone,2);
-  console.log("5DB live workbench: branches, notes, marks, reload, orientation, irregular setup passed");
+
+  // Puzzle setup must roundtrip both file export and the automatic local snapshot.
+  const draft = createWorkbench();
+  await new Promise(setImmediate);
+  const puzzle = draft.win.VCFWorkbenchRecord;
+  assert.equal(puzzle.startWorkspace("puzzle"), true);
+  assert.equal(puzzle.placePuzzleSetupStone(85, 1), true);
+  assert.equal(puzzle.placePuzzleSetupStone(86, 2), true);
+  assert.equal(puzzle.setPuzzleAttacker(2), true);
+  assert.equal(puzzle.workspace().puzzlePhase, "setup");
+  const draftDoc = puzzle.export5DBDocument();
+  assert.equal(draftDoc.phase, "setup");
+  assert.equal(draftDoc.nextSide, 2);
+  assert.equal(draftDoc.board[85], 1);
+  const restoredDraft = createWorkbench();
+  await new Promise(setImmediate);
+  assert.equal(await restoredDraft.win.VCFWorkbenchRecord.import5DBDocument(
+    FiveDB.decode(FiveDB.encode(draftDoc))), true);
+  assert.equal(restoredDraft.win.VCFWorkbenchRecord.workspace().puzzlePhase, "setup");
+  assert.equal(restoredDraft.win.VCFWorkbenchRecord.placePuzzleSetupStone(87, 1), true);
+
+  const autosavedDraft = createWorkbench(draft.disk);
+  await new Promise(setImmediate);
+  assert.equal(autosavedDraft.win.VCFWorkbenchRecord.workspace().puzzlePhase, "setup");
+  assert.equal(autosavedDraft.win.VCFWorkbenchRecord.currentBoard()[85], 1);
+  assert.equal(autosavedDraft.win.VCFWorkbenchRecord.currentBoard()[86], 2);
+  assert.equal(autosavedDraft.win.VCFWorkbenchRecord.workspace().attacker, 2);
+
+  assert.equal(restoredDraft.win.VCFWorkbenchRecord.commitPuzzleSetup(), true);
+  assert.equal(restoredDraft.win.VCFWorkbenchRecord.setGeneratedPuzzleAnswer([112, 113, 114], 2), true);
+  const answer = restoredDraft.win.VCFWorkbenchRecord.export5DBDocument();
+  assert.equal(answer.phase, undefined);
+  assert.equal(answer.root.children[0].stone, 2);
+  assert.equal(answer.root.children[0].children[0].stone, 1);
+  assert.deepEqual(answer.currentPath, []);
+  assert.equal(restoredDraft.win.VCFWorkbenchRecord.currentBoard()[112], 0,
+    "adding an answer must not place stones on the original puzzle board");
+  assert.equal(restoredDraft.win.VCFWorkbenchRecord.setGeneratedPuzzleAnswer([112, 112], 2), false,
+    "invalid answer must not replace the previous solution");
+  const solved = createWorkbench();
+  await new Promise(setImmediate);
+  assert.equal(await solved.win.VCFWorkbenchRecord.import5DBDocument(
+    FiveDB.decode(FiveDB.encode(answer))), true);
+  assert.equal(solved.win.VCFWorkbenchRecord.workspace().puzzlePhase, "tree");
+  assert.equal(solved.win.VCFWorkbenchRecord.navigateStep(1), true);
+  assert.equal(solved.win.VCFWorkbenchRecord.currentBoard()[112], 2);
+  console.log("5DB live workbench: branches, marks, irregular setup, saved drafts and generated answers passed");
 })().catch(err=>{console.error(err);process.exitCode=1;});
