@@ -1425,10 +1425,10 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
 </main>
 <section id="bitboard-architecture-panel" class="bb-quick-actions">
   <a class="bb-lab-link" href="rapfi/lab.html">Rapfi 官方對照／棋型實驗室</a>
-  <select id="bb-export-format" aria-label="棋譜匯出格式"><option value="yxdb">Rapfi YXDB (.db)</option><option value="lib">RenLib (.lib)</option><option value="vcfdb">VCF 擴充棋譜 (.vcfdb)</option><option value="puzzle">VCF 題目 (.vcf.json)</option></select>
+  
   <button id="bb-export-file" type="button" disabled>匯出棋譜</button>
-  <button id="bb-import-record" class="bb-lab-link" type="button">讀取棋譜／題目</button>
-  <input id="bb-import-record-input" type="file" accept=".db,.lib,.vcfdb,.vcf.json,.vcfp,application/json,application/octet-stream" hidden>
+  <button id="bb-import-record" class="bb-lab-link" type="button">讀取 5DB</button>
+  <input id="bb-import-record-input" type="file" accept=".5db,application/octet-stream" hidden>
   <button id="bb-hard-refresh" type="button">強制重新整理</button>
   <span id="bb-export-status" aria-live="polite"></span>
 </section>
@@ -4742,10 +4742,11 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="rapfi/vcf-rapfi-vcf-benchmark.js?v=20261019-rapfi-deep1"></script>
 <script src="rapfi/vcf-forbidden-overlay.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-open-four-stop.js?v=20261008-static-workbench1"></script>
-<script src="makevcf-layout.js?v=20261009-cloud2"></script>
+<script src="makevcf-layout.js?v=20261024-5db1"></script>
 <script src="rapfi/vcf-static-annotations.js?v=20261009-cloud2"></script>
 <script src="rapfi/vcf-cloud-annotation-codec.js?v=20261009-cloud1"></script>
-<script src="rapfi/rapfi-workbench-header.js?v=20261009-cloud2"></script>
+<script src="rapfi/5db-format.js?v=20261024-5db1"></script>
+<script src="rapfi/rapfi-workbench-header.js?v=20261024-5db1"></script>
 <script src="rapfi/vcf-record-tools.js?v=20261009"></script>
 <script>
 (function scheduleRapfiRecordDatabase(global) {
