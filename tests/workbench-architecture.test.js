@@ -21,7 +21,7 @@ has("codec",["function validate(doc)","function encode(doc)","function decode(va
 lacks("codec",["constructDBKey(", "canonicalPosition(", "YXDBStorage(", "parseYXDB("]);
 has("header",["let fiveDBDoc = null","let fiveDBPath = []","const replay5DBPath = path =>",
   "const import5DBMarks = () =>","const capture5DBMarks = () =>","fiveDBNode(fiveDBPath)",
-  "global.FiveDB.encode(document)","async import5DBDocument(source)",
+  "global.FiveDB.encode(doc)","async import5DBDocument(source)",
   "export5DBDocument(title","initialize5DB(","fiveDBDoc.currentPath",
   "fiveDBNode(fiveDBPath)?.children","fiveDBDoc = JSON.parse(JSON.stringify(source))",
   'saveState(false)','"record-transform"','"5db-import"',
