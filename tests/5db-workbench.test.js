@@ -33,7 +33,6 @@ function createWorkbench() {
     children() { return []; },
     getDisplayText() { return ""; },
     setDisplayText() { return true; },
-    snapshotYXDB() { return new Uint8Array([0]); },
   };
   const win = {
     FiveDB, VCFRapfiDB: service, VCF_CLOUD_API_URL: "",

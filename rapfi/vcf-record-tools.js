@@ -479,7 +479,7 @@
       event.preventDefault();
       event.stopImmediatePropagation();
       if (appendPass()) status("已加入 PASS 一手");
-      else status("打譜模式固定使用可匯出 YXDB 的交替落子，不加入 PASS");
+      else status("打譜模式目前不提供手動 PASS");
       return;
     }
     if (point.index >= 0) {

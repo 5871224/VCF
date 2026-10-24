@@ -24,14 +24,16 @@ has("header",["let fiveDBDoc = null","let fiveDBPath = []","const replay5DBPath 
   "global.FiveDB.encode(doc)","async import5DBDocument(source)",
   "export5DBDocument(title","initialize5DB(","fiveDBDoc.currentPath",
   "fiveDBNode(fiveDBPath)?.children","fiveDBDoc = JSON.parse(JSON.stringify(source))",
-  'if (databaseChanged || !fiveDBSavedBase64)','"record-transform"','"5db-import"',
+  'global.FiveDB.encode(doc)','"record-transform"','"5db-import"',
   'downloadBytes(bytes, "5db-" + timestampName() + ".5db")']);
 has("layout",['async function loadRecordBytes(rawBytes, fileName = "棋譜.5db")',
   "window.FiveDB.decode(rawBytes)","import5DBDocument?.(doc)",
   'return loadRecordBytes(bytes, file.name || "棋譜.5db");',"不支援舊版棋譜格式"]);
 lacks("layout",["window.VCFWorkbenchRecord?.importYXDB?.(",
-  "window.VCFWorkbenchRecord?.importRoutes?.("]);
+  "window.VCFWorkbenchRecord?.importRoutes?.(", "function parseYXDB(", "function parseRenLib(", "function decompressLZ4Frame("]);
+lacks("header",["importYXDB(", "importRoutes(", "exportYXDB()", "createRenLib(", "createYXDB(", "serializePuzzle(", "restoreYXDB(", "snapshotYXDB(", "vcf-puzzle-v1"]);
 lacks("marks",["encode, decode"]);
+lacks("header",["global.VCFRapfiFormats", "wrapLZ4Frame("]);
 has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "controller.abort()", "雲端棋譜讀取失敗：", "重新讀取", "global.FiveDB.encode(doc)",
  "global.FiveDB?.decode?.(bytes)",'cloud-\${id}.5db',
  "auth_me","admin_user_delete","admin_user_role","admin_user_status"]);
