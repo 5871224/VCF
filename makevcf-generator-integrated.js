@@ -51,7 +51,10 @@
     }
   }
 
+  let displayedGeneratedResult = null;
+
   function invalidateGeneratedResult(message) {
+    displayedGeneratedResult = null;
     genCurrent = null;
     genShowAnswer = false;
     genShowNPoints = false;
@@ -85,15 +88,26 @@
     clearNPoints();
     window._clearVCF();
     window._clearAnalysis();
-    if (!result) return;
+    if (!result) { displayedGeneratedResult = null; return; }
 
-    const applied = window.VCFWorkbenchRecord?.replacePosition?.(result.board, {
-      sideToMove: result.attacker,
-      source: "generator",
-    });
-    if (!applied) {
-      genSetStatus("Rapfi 棋盤引擎尚未就緒，無法套用產生題目");
-      return;
+    // Toggling "show answer" or N-points must not recreate the puzzle or
+    // silently wipe its 5DB branches, comments and annotations.
+    if (result !== displayedGeneratedResult) {
+      const record = window.VCFWorkbenchRecord;
+      const applied = record?.replacePosition?.(result.board, {
+        sideToMove: result.attacker,
+        source: "generator",
+        phase: "tree",
+      });
+      if (!applied) {
+        genSetStatus("Rapfi 棋盤引擎尚未就緒，無法套用產生題目");
+        return;
+      }
+      if (!record?.setGeneratedPuzzleAnswer?.(Array.from(result.moves || []), result.attacker)) {
+        genSetStatus("題目盤面已套用，但解答路線無法寫入 5DB，請檢查題目手順");
+        return;
+      }
+      displayedGeneratedResult = result;
     }
     resetMainAnalysisState(result);
     if (genShowNPoints) showNPoints(result.nMask);

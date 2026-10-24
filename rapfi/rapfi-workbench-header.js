@@ -258,6 +258,7 @@
         fiveDBDoc.currentPath = fiveDBPath.slice();
         if (documentChanged || !fiveDBSavedBase64) {
           const doc = { ...fiveDBDoc, title: String(documentTitle()?.value ?? fiveDBDoc.title ?? "") };
+          if (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase === PUZZLE_SETUP) doc.phase = PUZZLE_SETUP;
           fiveDBSavedBase64 = bytesToBase64(global.FiveDB.encode(doc));
           localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, data: fiveDBSavedBase64 }));
         }
@@ -565,6 +566,39 @@
           phase: PUZZLE_SETUP,
         });
       },
+      setGeneratedPuzzleAnswer(moves, attacker) {
+        // Generated puzzle answers are saved as one 5DB branch, without
+        // changing the active board or its original setup stones.
+        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE ||
+            !fiveDBDoc || fiveDBPath.length || !Array.isArray(moves) || !moves.length) return false;
+        const firstSide = Number(attacker);
+        if (firstSide !== BLACK && firstSide !== WHITE) return false;
+        const board = Uint8Array.from(fiveDBDoc.board);
+        const validated = [];
+        let side = firstSide;
+        for (const raw of moves) {
+          const move = Number(raw);
+          if (!Number.isInteger(move) || move < 0 || move >= BOARD_CELLS || board[move] !== EMPTY) return false;
+          board[move] = side;
+          validated.push({ move, stone: side });
+          side = oppositeStone(side);
+        }
+        capture5DBMarks();
+        fiveDBDoc.nextSide = firstSide;
+        fiveDBDoc.root.children = [];
+        let node = fiveDBDoc.root;
+        for (const { move, stone } of validated) {
+          const child = blank5DBNode(move, stone);
+          node.children.push(child);
+          node = child;
+        }
+        selected5DBBranches.clear();
+        fiveDBPath = [];
+        fiveDBDoc.currentPath = [];
+        saveState(true);
+        notify();
+        return true;
+      },
       currentBoard() {
         const service = db();
         return rapfiDbActive && service?.isReady ? Array.from(service.board()) : Array.from(lastBoard);
@@ -617,6 +651,7 @@
         const copy = JSON.parse(JSON.stringify(fiveDBDoc));
         // Embedded title is independent of any local/cloud file name.
         copy.title = String(documentTitle()?.value ?? fiveDBDoc.title ?? "");
+        if (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase === PUZZLE_SETUP) copy.phase = PUZZLE_SETUP;
         return copy;
       },
       async import5DBDocument(source) {
@@ -639,7 +674,7 @@
             savedPrefix.push(index);
           }
           workspaceMode = source.mode;
-          puzzlePhase = source.mode === WORKSPACE_PUZZLE ? PUZZLE_TREE : PUZZLE_SETUP;
+          puzzlePhase = source.mode === WORKSPACE_PUZZLE && source.phase !== PUZZLE_SETUP ? PUZZLE_TREE : PUZZLE_SETUP;
           puzzleRootBoard = Uint8Array.from(source.board);
           puzzleAttacker = source.nextSide;
           exact = true;
