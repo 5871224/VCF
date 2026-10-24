@@ -1105,6 +1105,16 @@
       }
       basePly = Math.max(0, Math.min(service.ply(), Number(options.basePly || 0)));
       workspaceMode = WORKSPACE_RECORD;
+      const setupHistory = normalized.slice(0, basePly);
+      const setupBoard = replayBoard(setupHistory) || new Uint8Array(BOARD_CELLS);
+      initialize5DB(setupBoard, basePly % 2 === 0 ? BLACK : WHITE);
+      fiveDBDoc.root.text = String(options.rootRecordText || "");
+      for (const item of normalized.slice(basePly)) {
+        const parent = fiveDBNode(fiveDBPath);
+        parent.children.push({ move: item.index, stone: item.stone, text: item.recordText, marks: [], children: [] });
+        fiveDBPath.push(parent.children.length - 1);
+      }
+      fiveDBDoc.currentPath = fiveDBPath.slice();
       puzzlePhase = PUZZLE_SETUP;
       puzzleRootBoard = new Uint8Array(BOARD_CELLS);
       exact = true;
@@ -1416,6 +1426,7 @@
         service.clear(currentRule);
         service.ensureCurrent();
         global.VCFStaticAnnotations?.reset?.();
+        if (workspaceMode) initialize5DB();
         basePly = 0;
         if (workspaceMode === WORKSPACE_PUZZLE) {
           puzzlePhase = PUZZLE_SETUP;
@@ -1741,6 +1752,16 @@
       const service = db();
       const nextRule = normalizeRule(activeRule());
       if (nextRule === currentRule) { notify(); return; }
+      if (fiveDBDoc) {
+        capture5DBMarks();
+        currentRule = nextRule;
+        service.clear(currentRule);
+        if (!replay5DBPath(fiveDBPath)) return;
+        import5DBMarks();
+        selectedNextByRoute.clear();
+        applyCurrentBoard(true, "rule-change");
+        return;
+      }
       const moves = service.history();
       service.cloneRule(currentRule, nextRule);
       currentRule = nextRule;
