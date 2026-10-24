@@ -24,7 +24,7 @@ has("header",["let fiveDBDoc = null","let fiveDBPath = []","const replay5DBPath 
   "global.FiveDB.encode(doc)","async import5DBDocument(source)",
   "export5DBDocument(title","initialize5DB(","fiveDBDoc.currentPath",
   "fiveDBNode(fiveDBPath)?.children","fiveDBDoc = JSON.parse(JSON.stringify(source))",
-  'if (databaseChanged || !fiveDBSavedBase64)','"record-transform"','"5db-import"',
+  'global.FiveDB.encode(doc)','"record-transform"','"5db-import"',
   'downloadBytes(bytes, "5db-" + timestampName() + ".5db")']);
 has("layout",['async function loadRecordBytes(rawBytes, fileName = "棋譜.5db")',
   "window.FiveDB.decode(rawBytes)","import5DBDocument?.(doc)",

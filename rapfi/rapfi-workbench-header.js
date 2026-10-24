@@ -81,7 +81,7 @@
   }
 
   function installWorkbenchRecordState() {
-    const STORAGE_KEY = "vcf_5db_workbench_v1";
+    const STORAGE_KEY = "vcf_rapfi_workbench_v1";
     const CURSOR_KEY = "vcf_5db_current_path_v1";
     const WORKSPACE_RECORD = "record";
     const WORKSPACE_PUZZLE = "puzzle";
