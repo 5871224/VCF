@@ -2,7 +2,10 @@
 
 // The final workbench is native HTML; this module owns record import and calculation playback.
 (function initVCFWorkbenchControls() {
+  const BOARD_SIZE = 15;
+  const BOARD_CELLS = BOARD_SIZE * BOARD_SIZE;
   const BLACK = 1;
+  const WHITE = 2;
   const board = document.getElementById("board-svg");
   const recordCommentInput = document.getElementById("vcf-record-comment-input");
   const recordCommentMeta = document.getElementById("vcf-record-comment-meta");
