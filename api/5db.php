@@ -179,7 +179,8 @@ if ($action === 'save') {
     if (count($records) >= FIVE_DB_MAX_RECORDS || $total + strlen($payload) > FIVE_DB_MAX_ACCOUNT)
         fail5('雲端已達 200 份棋譜或 128 MB 容量上限', 413);
     $title = trim((string)($_GET['title'] ?? ''));
-    if (mb_strlen($title, 'UTF-8') > 250) fail5('棋譜標題過長');
+    if (strlen($title) > 1000 || preg_match_all('/./us', $title, $matches) === false
+        || count($matches[0]) > 250) fail5('棋譜標題過長');
     $id = (int)($manifest['next_id'] ?? 1);
     if ($id <= 0 || $id >= 2147483647) fail5('棋譜編號已達上限');
     $file = $dir.DIRECTORY_SEPARATOR.$id.'.5db';
