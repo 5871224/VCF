@@ -1465,6 +1465,14 @@
         try {
           fiveDBDoc = JSON.parse(JSON.stringify(source));
           fiveDBPath = [];
+          selected5DBBranches.clear();
+          let nodeOnSavedRoute = fiveDBDoc.root;
+          const savedPrefix = [];
+          for (const index of source.currentPath) {
+            selected5DBBranches.set(fiveDBBranchKey(savedPrefix), nodeOnSavedRoute.children[index].move);
+            nodeOnSavedRoute = nodeOnSavedRoute.children[index];
+            savedPrefix.push(index);
+          }
           workspaceMode = source.mode;
           puzzlePhase = source.mode === WORKSPACE_PUZZLE ? PUZZLE_TREE : PUZZLE_SETUP;
           puzzleRootBoard = Uint8Array.from(source.board);
