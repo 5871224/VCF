@@ -7,7 +7,7 @@ const script = fs.readFileSync("rapfi/rapfi-workbench-header.js", "utf8");
 function createWorkbench() {
   let board = new Uint8Array(225), history = [];
   const disk = new Map(), routes = new Map();
-  const title = { value: "", dispatchEvent() {} };
+  const title = { value: "", dispatchEvent() {}, addEventListener() {} };
   const service = {
     isReady: true,
     clear() { board = new Uint8Array(225); history = []; return true; },
@@ -65,7 +65,7 @@ function createWorkbench() {
     querySelector: q => q === 'input[name="rules"]:checked' ? { value: "2" } : null,
   };
   vm.runInNewContext(script, {
-    window: win, document, console, Uint8Array, TextEncoder, TextDecoder, URL,
+    window: win, document, localStorage: win.localStorage, console, Uint8Array, TextEncoder, TextDecoder, URL,
     queueMicrotask, btoa, atob, setTimeout, clearTimeout,
     CustomEvent: class CustomEvent { constructor(type,options){ this.type=type; this.detail=options?.detail; }},
     Event: class Event { constructor(type){this.type=type;} },
