@@ -192,6 +192,17 @@ if ($action === 'save') {
     $payload = file_get_contents('php://input');
     if (!is_string($payload)) fail5('無法讀取 5DB 檔案');
     $nodeCount = verify5($payload);
+    // The small list-only preview is derived from the already-validated
+    // document on the client; it is never used as a file path or game data.
+    $preview = (string)($_SERVER['HTTP_X_5DB_PREVIEW'] ?? '');
+    if ($preview !== '') {
+        if (strlen($preview) > 700
+            || !preg_match('/^([0-9]{1,3})x([0-9]{1,3}):([012]+)$/D', $preview, $parts)
+            || (int)$parts[1] !== ord($payload[4])
+            || (int)$parts[2] !== ord($payload[5])
+            || strlen($parts[3]) !== (int)$parts[1] * (int)$parts[2])
+            fail5('5DB 棋盤縮圖資料不合法');
+    }
     $total = array_sum(array_map(static fn($r) => (int)($r['compressed_size'] ?? 0), $records));
     if (count($records) >= FIVE_DB_MAX_RECORDS || $total + strlen($payload) > FIVE_DB_MAX_ACCOUNT)
         fail5('雲端已達 200 份棋譜或 128 MB 容量上限', 413);
@@ -217,6 +228,7 @@ if ($action === 'save') {
     $item = [
         'id' => $id, 'file_name' => $fileName, 'title' => $title, 'record_count' => $nodeCount,
         'compressed_size' => strlen($payload), 'created_at' => $now, 'updated_at' => $now,
+        'preview' => $preview,
     ];
     $manifest['next_id'] = $id + 1;
     $manifest['records'][(string)$id] = $item;
