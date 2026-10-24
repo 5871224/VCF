@@ -309,7 +309,7 @@
   }
 
   function parsePreview(value) {
-    const match = /^(\\d{1,3})x(\\d{1,3}):([012]+)$/.exec(String(value || ""));
+    const match = /^(\d{1,3})x(\d{1,3}):([012]+)$/.exec(String(value || ""));
     if (!match) return null;
     const width = Number(match[1]), height = Number(match[2]);
     if (width < 1 || height < 1 || width > 25 || height > 25 || match[3].length !== width * height) return null;
