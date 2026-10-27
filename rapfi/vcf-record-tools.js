@@ -368,7 +368,7 @@
     markerTools.querySelector("[data-mark-text]").hidden = selectedTool !== "text";
     const tips = {
       circle: "點擊交點新增圓圈；右鍵刪除該交點標記",
-      text: "輸入單一文字後點擊交點；右鍵刪除",
+      text: "輸入多個字，每點一個交點依序標上一字；右鍵刪除",
       line: pendingStart ? "請點擊線條終點；右鍵取消起點" : "先點起點，再點終點",
       arrow: pendingStart ? "請點擊箭頭終點；右鍵取消起點" : "先點起點，再點終點",
       erase: "點擊任一交點移除該交點相關標記",
@@ -392,9 +392,6 @@
     selectedTool = button.dataset.markTool;
     pendingStart = null;
     refreshMarkerTools();
-  });
-  markerInput.addEventListener("input", () => {
-    markerInput.value = Array.from(markerInput.value).slice(0, 1).join("");
   });
   function applyMarker(index) {
     if (index < 0 || !annotation) return;
@@ -420,12 +417,15 @@
       return;
     }
     const mark = { type: selectedTool, x, y, color: selectedColor };
-    if (selectedTool === "circle") mark.filled = fillCheckbox.checked;
-    else {
-      mark.text = Array.from(markerInput.value).slice(0, 1).join("");
-      if (!mark.text) { status("請先輸入單一文字"); return; }
+    if (selectedTool === "circle") {
+      mark.filled = fillCheckbox.checked;
+      annotation.setMark(mark);
+      return;
     }
-    annotation.setMark(mark);
+    const characters = Array.from(markerInput.value);
+    mark.text = characters[0] || "";
+    if (!mark.text) { status("請先輸入要標記的文字"); return; }
+    if (annotation.setMark(mark)) markerInput.value = characters.slice(1).join("");
   }
   function removeMarker(index) {
     if (pendingStart) {
