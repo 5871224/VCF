@@ -185,7 +185,7 @@
     if (document.getElementById("vcf-cloud-style")) return;
     const style = document.createElement("style"); style.id = "vcf-cloud-style";
     style.textContent = `
-      #bb-cloud-auth{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:4px 0}
+      #vcf-account-actions #bb-cloud-auth{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;padding:0}
       #bb-cloud-user{font-size:12px;color:#4f5d50}.bb-cloud-btn{min-height:36px;padding:7px 10px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}.bb-cloud-btn:disabled{opacity:.5;cursor:not-allowed}
       #vcf-google-login{min-height:36px}#vcf-cloud-dialog,#vcf-account-admin-dialog{width:min(760px,calc(100vw - 24px));max-height:min(78vh,720px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop,#vcf-account-admin-dialog::backdrop{background:rgb(0 0 0 / 35%)}
       .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
@@ -469,15 +469,17 @@
   }
   function installUI() {
     const panel = document.getElementById("bitboard-architecture-panel");
-    if (!panel || document.getElementById("bb-cloud-auth")) return false;
+    const accountSlot = document.getElementById("vcf-account-actions");
+    if (!panel || !accountSlot || document.getElementById("bb-cloud-auth")) return false;
     injectStyle();
     const exportStatus = panel.querySelector("#bb-export-status");
     const auth = document.createElement("div"); auth.id = "bb-cloud-auth";
-    auth.innerHTML = '<div id="vcf-google-login"></div><span id="bb-cloud-user"></span><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
+    auth.innerHTML = '<div id="vcf-google-login"></div><span id="bb-cloud-user"></span><button id="bb-cloud-admin" class="bb-cloud-btn" type="button" hidden>管理帳號</button><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
     const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
-    const adminButton = document.createElement("button"); adminButton.id = "bb-cloud-admin"; adminButton.className = "bb-cloud-btn"; adminButton.textContent = "管理帳號"; adminButton.hidden = true;
-    panel.insertBefore(auth, exportStatus || null); panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null); panel.insertBefore(adminButton, exportStatus || null);
+    const adminButton = auth.querySelector("#bb-cloud-admin");
+    accountSlot.appendChild(auth);
+    panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null);
     auth.querySelector("#bb-cloud-logout").addEventListener("click", () => logout());
     saveButton.addEventListener("click", async () => {
       saveButton.disabled = true; status("正在建立雲端棋譜及標記……");
