@@ -68,7 +68,6 @@
   const markerPalette = document.getElementById("vcf-static-marker-palette");
   const fillCheckbox = document.getElementById("vcf-mark-fill");
   const arrowCheckbox = document.getElementById("vcf-mark-arrow");
-  const markerHelp = document.getElementById("vcf-static-marker-help");
   let selectedTool = "circle";
   let selectedColor = 0;
   let pendingStart = null;
@@ -363,19 +362,13 @@
 
   function refreshMarkerTools() {
     markerTools.querySelectorAll("[data-mark-tool]").forEach(button => {
-      button.classList.toggle("is-active", button.dataset.markTool === selectedTool);
+      const active = button.dataset.markTool === selectedTool;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", String(active));
     });
     markerTools.querySelector("[data-mark-circle]").hidden = selectedTool !== "circle";
     markerTools.querySelector("[data-mark-text]").hidden = selectedTool !== "text";
     markerTools.querySelector("[data-mark-line]").hidden = selectedTool !== "line";
-    const lineLabel = arrowCheckbox.checked ? "箭頭" : "線條";
-    const tips = {
-      circle: "點擊交點新增圓圈；右鍵刪除該交點標記",
-      text: "輸入多個字，每點一個交點依序標上一字；右鍵刪除",
-      line: pendingStart ? `請點擊${lineLabel}終點；右鍵取消起點` : `先點${lineLabel}起點，再點終點`,
-      erase: "點擊任一交點移除該交點相關標記",
-    };
-    markerHelp.textContent = tips[selectedTool];
     markerPalette.querySelectorAll("[data-mark-color]").forEach(button => {
       button.classList.toggle("is-active", Number(button.dataset.markColor) === selectedColor);
       button.setAttribute("aria-pressed", Number(button.dataset.markColor) === selectedColor ? "true" : "false");
