@@ -67,6 +67,7 @@
   const markerTools = document.getElementById("vcf-static-marker-tools");
   const markerPalette = document.getElementById("vcf-static-marker-palette");
   const fillCheckbox = document.getElementById("vcf-mark-fill");
+  const arrowCheckbox = document.getElementById("vcf-mark-arrow");
   const markerHelp = document.getElementById("vcf-static-marker-help");
   let selectedTool = "circle";
   let selectedColor = 0;
@@ -366,11 +367,12 @@
     });
     markerTools.querySelector("[data-mark-circle]").hidden = selectedTool !== "circle";
     markerTools.querySelector("[data-mark-text]").hidden = selectedTool !== "text";
+    markerTools.querySelector("[data-mark-line]").hidden = selectedTool !== "line";
+    const lineLabel = arrowCheckbox.checked ? "箭頭" : "線條";
     const tips = {
       circle: "點擊交點新增圓圈；右鍵刪除該交點標記",
       text: "輸入多個字，每點一個交點依序標上一字；右鍵刪除",
-      line: pendingStart ? "請點擊線條終點；右鍵取消起點" : "先點起點，再點終點",
-      arrow: pendingStart ? "請點擊箭頭終點；右鍵取消起點" : "先點起點，再點終點",
+      line: pendingStart ? `請點擊${lineLabel}終點；右鍵取消起點` : `先點${lineLabel}起點，再點終點`,
       erase: "點擊任一交點移除該交點相關標記",
     };
     markerHelp.textContent = tips[selectedTool];
@@ -380,6 +382,7 @@
     });
     renderStaticMarkers();
   }
+  arrowCheckbox.addEventListener("change", refreshMarkerTools);
   markerPalette.addEventListener("click", event => {
     const button = event.target.closest("[data-mark-color]");
     if (!button) return;
@@ -401,7 +404,7 @@
       if (!annotation.eraseAt(x, y)) status("此交點沒有可刪除的標記");
       return;
     }
-    if (selectedTool === "line" || selectedTool === "arrow") {
+    if (selectedTool === "line") {
       if (!pendingStart) {
         pendingStart = { x, y };
         refreshMarkerTools();
@@ -411,7 +414,7 @@
         status("起點和終點不能相同");
         return;
       }
-      annotation.setMark({ type: selectedTool, x: pendingStart.x, y: pendingStart.y, tx: x, ty: y, color: selectedColor });
+      annotation.setMark({ type: arrowCheckbox.checked ? "arrow" : "line", x: pendingStart.x, y: pendingStart.y, tx: x, ty: y, color: selectedColor });
       pendingStart = null;
       refreshMarkerTools();
       return;

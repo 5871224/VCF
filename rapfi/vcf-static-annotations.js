@@ -61,8 +61,10 @@
     const mark = normalize(value);
     if (!key || !mark) return false;
     const existing = routes[key] || [];
-    const same = other => other.type === mark.type && other.x === mark.x && other.y === mark.y
-      && (mark.type !== "line" && mark.type !== "arrow" || (other.tx === mark.tx && other.ty === mark.ty));
+    const connector = mark.type === "line" || mark.type === "arrow";
+    const same = other => (connector ? (other.type === "line" || other.type === "arrow") : other.type === mark.type)
+      && other.x === mark.x && other.y === mark.y
+      && (!connector || (other.tx === mark.tx && other.ty === mark.ty));
     routes[key] = existing.filter(item => !same(item)).concat(mark);
     persist();
     return true;
