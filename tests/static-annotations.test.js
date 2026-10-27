@@ -59,7 +59,7 @@ async function main() {
   const markerInput = { value: "abc" };
   const messages = [];
   const context = {
-    annotation: store, markerInput, fillCheckbox: { checked: false },
+    annotation: store, markerInput, fillCheckbox: { checked: false }, arrowCheckbox: { checked: false },
     BOARD_SIZE: 15, selectedTool: "text", selectedColor: 1, pendingStart: null,
     refreshMarkerTools() {}, status(value) { messages.push(value); },
   };
@@ -93,10 +93,52 @@ async function main() {
   place(6);
   assert.equal(markerInput.value, "保留", "circle mode must not consume queued text");
   assert.equal(store.list().at(-1).type, "circle");
+  // Straight lines and arrows share one UI tool and differ only by the checkbox.
+  context.selectedTool = "line";
+  context.arrowCheckbox.checked = false;
+  place(30);
+  assert.equal(context.pendingStart.x, 0);
+  assert.equal(context.pendingStart.y, 2);
+  place(32);
+  assert.equal(store.list().at(-1).type, "line", "unchecked draws a straight line");
+  assert.equal(context.pendingStart, null);
+  context.arrowCheckbox.checked = true;
+  place(45);
+  place(47);
+  assert.equal(store.list().at(-1).type, "arrow", "checked draws an arrow");
+  assert.equal(context.pendingStart, null);
+  context.arrowCheckbox.checked = false;
+  place(45);
+  place(47);
+  assert.equal(store.list().at(-1).type, "line", "unchecking draws straight lines again");
+  assert.equal(store.list().filter(mark => (mark.type === "line" || mark.type === "arrow") && mark.y === 3).length, 1,
+    "switching the option replaces the same connector instead of overlaying it");
+  context.arrowCheckbox.checked = true;
+  place(60);
+  place(60);
+  assert.match(messages.at(-1), /起點和終點不能相同/);
+  assert.equal(context.pendingStart.y, 4, "invalid endpoint keeps starting point");
+  const legacy = store.exportData();
+  store.reset();
+  store.importData(legacy);
+  assert.equal(store.list().some(mark => mark.type === "arrow"), false, "latest shape is saved as line");
+  const oldFormat = JSON.parse(JSON.stringify(legacy));
+  const routeKey = "2:record:31";
+  oldFormat[routeKey].push({ type: "arrow", x: 8, y: 8, tx: 10, ty: 10, color: 3 });
+  store.importData(oldFormat);
+  assert.equal(store.list().at(-1).type, "arrow", "legacy arrow marks remain readable");
+
   const html = fs.readFileSync("index.html", "utf8");
   const inputTag = html.match(/<input id="vcf-record-marker-text"[^>]+>/)?.[0] || "";
   assert.ok(inputTag && !inputTag.includes("maxlength="), "marker text input accepts a long queue");
   assert.ok(!sourceUI.includes('markerInput.value = Array.from(markerInput.value).slice(0, 1)'), "typing must not truncate queued text");
-  console.log("Static annotation route, mark, rotation, and sequential text stamping tests passed");
+  assert.equal((html.match(/data-mark-tool="line"/g) || []).length, 1, "there is one line tool");
+  assert.ok(!html.includes('data-mark-tool="arrow"'), "standalone arrow tool has been removed");
+  assert.match(html, /data-mark-line hidden><input id="vcf-mark-arrow" type="checkbox"> 箭頭/, "line checkbox is in the marker options");
+  assert.ok(sourceUI.includes('markerTools.querySelector("[data-mark-line]").hidden = selectedTool !== "line"'),
+    "arrow toggle is only visible for the line tool");
+  assert.ok(sourceUI.includes('arrowCheckbox.addEventListener("change", refreshMarkerTools)'),
+    "changing arrow option refreshes tool help");
+  console.log("Static annotation route, marker queue, line/arrow option and legacy marker tests passed");
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
