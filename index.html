@@ -329,9 +329,19 @@ body {
 
 .vcf-app-header {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 4px 2px 2px;
+}
+
+.vcf-account-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 36px;
 }
 
 .vcf-app-header h1 {
@@ -1100,7 +1110,10 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
 <body>
 
 <main id="vcf-app-shell">
-  <header class="vcf-app-header"><h1>五子棋工作台</h1></header>
+  <header class="vcf-app-header">
+    <h1>五子棋工作台</h1>
+    <div id="vcf-account-actions" class="vcf-account-actions" aria-label="帳號操作"></div>
+  </header>
   <div id="vcf-workspace-mode-slot" class="vcf-workspace-mode-slot">
     <section id="vcf-workspace-mode" aria-label="工作模式">
       <div class="vcf-workspace-mode-row">
