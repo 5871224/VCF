@@ -60,7 +60,7 @@ async function main() {
   const messages = [];
   const context = {
     annotation: store, markerInput, fillCheckbox: { checked: false },
-    selectedTool: "text", selectedColor: 1, pendingStart: null,
+    BOARD_SIZE: 15, selectedTool: "text", selectedColor: 1, pendingStart: null,
     refreshMarkerTools() {}, status(value) { messages.push(value); },
   };
   const place = vm.runInNewContext(
