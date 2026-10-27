@@ -949,7 +949,8 @@
       const isPuzzle = state.mode === "puzzle";
       const isSetup = isPuzzle && state.puzzlePhase === "setup";
       badge.textContent = state.mode === "record" ? "打譜模式" : isPuzzle ? (isSetup ? "題目模式・擺題" : "題目模式・解答") : "尚未選擇";
-      format.textContent = state.mode ? "使用 5DB 1.0 儲存棋盤、分支與標記" : "請先選擇模式";
+      format.textContent = state.mode ? "" : "請先選擇模式";
+      format.hidden = Boolean(state.mode);
       puzzleControls.hidden = !isPuzzle;
       setupTools.hidden = !isSetup;
       attacker.disabled = !isSetup;

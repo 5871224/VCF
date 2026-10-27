@@ -449,7 +449,7 @@
   function refreshAuthUI() {
     const login = document.getElementById("vcf-google-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
     const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open"), adminButton = document.getElementById("bb-cloud-admin");
-    if (user) user.textContent = authUser ? `${authUser.name || authUser.email}${isAdminUser(authUser) ? "｜管理員" : ""}｜只顯示此帳號棋譜` : "未登入";
+    if (user) user.textContent = authUser ? `${authUser.name || authUser.email}${isAdminUser(authUser) ? "｜管理員" : ""}` : "未登入";
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
