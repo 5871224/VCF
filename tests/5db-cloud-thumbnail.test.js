@@ -17,8 +17,9 @@ class Element {
     if (html.includes('id="vcf-google-login"')) {
       const login = new Element(); login.id = "vcf-google-login";
       const user = new Element("span"); user.id = "bb-cloud-user";
+      const admin = new Element("button"); admin.id = "bb-cloud-admin";
       const logout = new Element("button"); logout.id = "bb-cloud-logout";
-      this.append(login, user, logout);
+      this.append(login, user, admin, logout);
     } else if (html.includes('data-list')) {
       const head = new Element(); const close = new Element("button");
       close.attrs["data-close"] = ""; head.append(close);
@@ -54,13 +55,15 @@ class Element {
   close() { this.open = false; }
 }
 const panel = new Element(); panel.id = "bitboard-architecture-panel";
+const accountSlot = new Element(); accountSlot.id = "vcf-account-actions";
 const document = {
   head: new Element("head"), body: new Element("body"),
   createElement: tag => new Element(tag),
   createElementNS: (_ns, tag) => new Element(tag),
   getElementById(id) {
     if (id === panel.id) return panel;
-    return panel.querySelector("#" + id) || this.body.querySelector("#" + id) || this.head.querySelector("#" + id);
+    if (id === accountSlot.id) return accountSlot;
+    return accountSlot.querySelector("#" + id) || panel.querySelector("#" + id) || this.body.querySelector("#" + id) || this.head.querySelector("#" + id);
   },
 };
 const documentFor = (title, moves) => {
@@ -114,6 +117,16 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
 }, {filename:"vcf-5db-cloud.js"});
 (async () => {
   await new Promise(setImmediate);
+  assert.equal(document.getElementById("bb-cloud-auth").parentNode, accountSlot,
+    "login, logout and account management belong to the top-right header");
+  assert.equal(panel.querySelector("#bb-cloud-auth"), null,
+    "account actions must not remain in the bottom quick-action panel");
+  assert.equal(document.getElementById("bb-cloud-admin").hidden, true,
+    "non-admin users must not see the management button");
+  assert.equal(document.getElementById("vcf-google-login").hidden, true,
+    "signed-in users must not see login");
+  assert.equal(document.getElementById("bb-cloud-logout").hidden, false,
+    "signed-in users can sign out in the header");
   await document.getElementById("bb-cloud-open").click();
   const dialog = document.getElementById("vcf-cloud-dialog");
   assert.equal(dialog.open, true);
