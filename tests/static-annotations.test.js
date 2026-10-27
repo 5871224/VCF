@@ -139,13 +139,13 @@ async function main() {
     "arrow toggle is only visible for the line tool");
   assert.ok(sourceUI.includes('arrowCheckbox.addEventListener("change", refreshMarkerTools)'),
     "changing arrow option refreshes controls");
-  const toolElements = [...html.matchAll(/<button type="button" data-mark-tool="(circle|line|text|erase)"([^>]*)>([\\s\\S]*?)<\\/button>/g)];
+  const toolElements = [...html.matchAll(/<button type="button" data-mark-tool="(circle|line|text|erase)"([^>]*)>(.*?)<\/button>/g)];
   assert.deepEqual(toolElements.map(x => x[1]), ["circle", "line", "text", "erase"], "order is circle, line, text, erase");
   for (const [, tool, attrs, body] of toolElements) {
     assert.match(attrs, /class="vcf-static-marker-icon-button(?: is-active)?"/, tool + " uses unified icon buttons");
     assert.ok(attrs.includes('title="') && attrs.includes('aria-label="') && attrs.includes('aria-pressed="'),
       tool + " has tooltip and accessible state");
-    assert.match(body, new RegExp('<img src="rapfi/record-svg/mark_' + tool + '\\\\.svg" alt=""'), tool + " renders SVG icon");
+    assert.ok(body.includes('<img src="rapfi/record-svg/mark_' + tool + '.svg" alt=""'), tool + " renders SVG icon");
     assert.ok(fs.existsSync("rapfi/record-svg/mark_" + tool + ".svg"), tool + " asset exists");
   }
   assert.match(inputTag, /value="ABCDEFGHIJKLMNOPQRSTUVWXYZ"/, "marker queue defaults to A through Z");
