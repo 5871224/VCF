@@ -71,18 +71,11 @@
   }
 
   function calculationGroupsFromEngine() {
-    const multi = typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups) && vcfGroups.length
-      ? vcfGroups
-      : null;
-    if (multi) {
-      return multi
-        .filter(route => route && typeof route.length === "number" && route.length)
-        .map(route => Array.from(route, move => Number(move)));
-    }
-    if (typeof lastVCFMoves !== "undefined" && lastVCFMoves && typeof lastVCFMoves.length === "number" && lastVCFMoves.length) {
-      return [Array.from(lastVCFMoves, move => Number(move))];
-    }
-    return [];
+    // 展示計算只使用多組 VCF；其他搜尋結果仍可繪圖，但不進入回放面板。
+    return typeof vcfGroups !== "undefined" && Array.isArray(vcfGroups)
+      ? vcfGroups.filter(route => route && typeof route.length === "number" && route.length)
+        .map(route => Array.from(route, move => Number(move)))
+      : [];
   }
 
   function resetCalculationDisplay({ clearOverlay = true } = {}) {
@@ -141,7 +134,7 @@
     if (state) {
       state.textContent = hasResult
         ? `${color}方 VCF｜第 ${calculationDisplay.groupIndex + 1}/${groups.length} 組｜第 ${calculationDisplay.ply}/${route.length} 手。橘框棋子只是計算覆蓋層，不會寫入原棋譜。`
-        : "VCF 計算完成後，可在這裡獨立逐組、逐手展示；不會改動原棋譜。";
+        : "執行「多組 VCF」後，可在此逐組、逐手展示；不會改動原棋譜。";
     }
   }
 
@@ -301,8 +294,14 @@
   calcGroupSelect.addEventListener("change", () => switchCalculationGroup(Number(calcGroupSelect.value)));
   calcPrevStepButton.addEventListener("click", () => moveCalculationStep(-1));
   calcNextStepButton.addEventListener("click", () => moveCalculationStep(1));
+  // 有多組結果且游標位於棋盤時才攔截滾輪；上滾前一步，下滾下一步。
+  board.addEventListener("wheel", event => {
+    if (!currentCalculationRoute().length || event.ctrlKey || !event.deltaY) return;
+    event.preventDefault();
+    moveCalculationStep(event.deltaY < 0 ? -1 : 1);
+  }, { passive: false });
   window.addEventListener("vcf-result-changed", event => {
-    if (event.detail?.hasResult && captureCalculationResult()) {
+    if (event.detail?.hasResult && event.detail?.groupCount > 0 && captureCalculationResult()) {
       // 搜尋完成後只同步展示面板；保留搜尋本身的耗時、節點與速度完成提示。
       renderCalculationDisplay({ updateStatus: false });
     } else {
@@ -313,6 +312,7 @@
 
   // 棋盤改動後，注釋編輯器只從唯一的 Rapfi workbench record state 重新同步。
   window.addEventListener("vcf-board-changed", () => {
+    resetCalculationDisplay({ clearOverlay: false });
     queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
 

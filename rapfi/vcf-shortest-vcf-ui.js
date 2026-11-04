@@ -13,6 +13,7 @@
       "btn-white",
       "btn-multi-vcf",
       "btn-shortest-vcf",
+      "btn-rapfi-vcf-benchmark",
       "btn-level3",
       "btn-add-black",
       "btn-add-white",
