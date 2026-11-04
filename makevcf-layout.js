@@ -312,7 +312,9 @@
 
   // 棋盤改動後，注釋編輯器只從唯一的 Rapfi workbench record state 重新同步。
   window.addEventListener("vcf-board-changed", () => {
-    resetCalculationDisplay({ clearOverlay: false });
+    // 棋盤已變動時，已開啟的多組展示與其舊路線覆蓋層同時失效。
+    const wasShowingMulti = currentCalculationRoute().length > 0;
+    resetCalculationDisplay({ clearOverlay: wasShowingMulti });
     queueMicrotask(() => syncCommentEditorFromRecordText(window.VCFWorkbenchRecord?.currentRecordText?.() || ""));
   });
 
