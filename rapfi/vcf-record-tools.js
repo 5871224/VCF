@@ -442,6 +442,27 @@
     return Boolean(global.VCFWorkbenchRecord?.transform?.(transform));
   }
 
+  function placeByMouse(index, color) {
+    if (index < 0 || index >= BOARD_CELLS) return;
+    const record = global.VCFWorkbenchRecord;
+    if (!record?.isActive?.()) {
+      status(global.__vcfRapfiDbFailed
+        ? "Rapfi 棋盤引擎載入失敗，請重新整理"
+        : "Rapfi 棋盤引擎初始化中，請稍候");
+      return;
+    }
+    const workspace = record.workspace() || {};
+    const occupied = Number(record.currentBoard()[index]) !== 0;
+    const setup = workspace.mode === "puzzle" && workspace.puzzlePhase === "setup";
+    const updated = setup
+      ? record.placePuzzleSetupStone(index, occupied ? 0 : color)
+      : occupied
+        ? record.removeStoneAt(index)
+        : record.playAt(index, "manual", color);
+    if (!updated) status("目前棋盤狀態無法修改，請確認棋譜與編輯模式");
+    else if (occupied && !setup) status("已清除此手及其後續分支（其他分支保留）");
+  }
+
   board.addEventListener("click", event => {
     const point = pointFromEvent(event);
     const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
@@ -454,9 +475,7 @@
     if (workspace.mode === "puzzle" && workspace.puzzlePhase === "setup") {
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (point.index >= 0 && !global.VCFWorkbenchRecord?.placePuzzleSetupStone?.(point.index, workspace.setupTool)) {
-        status("題目初始盤面無法修改");
-      }
+      placeByMouse(point.index, 1);
       return;
     }
     if (!state.editMode) {
@@ -479,26 +498,9 @@
       return;
     }
     if (point.index >= 0) {
-      const currentBoard = global.VCFWorkbenchRecord?.currentBoard?.() || [];
-      if (Number(currentBoard[point.index])) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        status("要刪除棋子請使用刪除目前棋子及後續分支按鈕");
-        return;
-      }
-      if (!global.VCFWorkbenchRecord?.isActive?.()) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        status(global.__vcfRapfiDbFailed
-          ? "Rapfi 棋盤引擎載入失敗，請重新整理"
-          : "Rapfi 棋盤引擎初始化中，請稍候");
-        return;
-      }
       event.preventDefault();
       event.stopImmediatePropagation();
-      if (!global.VCFWorkbenchRecord?.playAt?.(point.index, "manual")) {
-        status("目前棋盤狀態無法落子，請確認棋譜狀態");
-      }
+      placeByMouse(point.index, 1);
     }
   }, true);
 
@@ -507,12 +509,20 @@
     event.stopImmediatePropagation();
     const point = pointFromEvent(event);
     const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
+    if (!workspace.mode) {
+      status("請先選擇新增打譜或新增題目");
+      return;
+    }
     if (workspace.mode === "puzzle" && workspace.puzzlePhase === "setup") {
-      if (point.index >= 0) global.VCFWorkbenchRecord?.placePuzzleSetupStone?.(point.index, 0);
+      placeByMouse(point.index, 2);
       return;
     }
     if (state.editMode && state.markerMode && point.index >= 0) {
       removeMarker(point.index);
+      return;
+    }
+    if (state.editMode && point.index >= 0) {
+      placeByMouse(point.index, 2);
       return;
     }
     prevStepButton?.click();
@@ -523,7 +533,7 @@
     if (!state.editMode) { state.markerMode = false; pendingStart = null; }
     persistSettings();
     syncUI();
-    status(state.editMode ? "編輯模式：可落新子；左下角可 PASS" : "瀏覽模式：左鍵次一手，右鍵前一手");
+    status(state.editMode ? "編輯模式：左鍵黑子、右鍵白子、再點已有棋子清除；左下角可 PASS" : "瀏覽模式：左鍵次一手，右鍵前一手");
   });
 
   markerButton.addEventListener("click", () => {

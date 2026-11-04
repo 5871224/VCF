@@ -49,4 +49,9 @@ has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT", "HT
 has("builder",['"5db-format.js"']);
 has("srvbuild",['ROOT / "api" / "5db.php"','VCF_5DB_API_URL="/BD1/api/5db.php"']);
 has("deploy",["php -l api/5db.php","test -s _site/api/5db.php","npm run test:architecture"]);
+assert.ok(files.html.indexOf("棋盤操作") < files.html.indexOf('<h3 class="vcf-section-title">分析'), "board controls must appear first");
+assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') > files.html.indexOf('id="btn-multi-vcf"'), "playback must follow multi VCF");
+assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') < files.html.indexOf('id="btn-block-vcf"'), "playback belongs inside multi VCF");
+assert.ok(files.html.includes('id="btn-rapfi-vcf-benchmark"') && !files.html.includes("Rapfi VCF（獨立測速）"));
+assert.ok(files.layout.includes('board.addEventListener("wheel"'), "multi VCF playback must support wheel");
 console.log("5DB workbench and deployment integration contract passed");

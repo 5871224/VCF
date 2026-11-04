@@ -697,15 +697,22 @@
       },
       ensureActive() { return activateRapfiDatabase(); },
       isActive() { return Boolean(rapfiDbActive && exact && db()?.isReady); },
-      playAt(move, source = "manual") {
+      playAt(move, source = "manual", stone = 0) {
         const service = db();
         const index = Number(move);
         if (!workspaceMode || (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase !== PUZZLE_TREE)
           || !rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(index)
           || index < 0 || index >= BOARD_CELLS || Number(service.board()[index])) return false;
+        const selectedStone = Number(stone);
+        if (selectedStone !== EMPTY && selectedStone !== BLACK && selectedStone !== WHITE) return false;
         const parentKey = routeKey();
         if (fiveDBDoc) capture5DBMarks();
-        if (!service.play(index, true)) return false;
+        const needsPass = selectedStone !== EMPTY && selectedStone !== service.sideToMove();
+        if (needsPass && !service.replayMove(PASS, false)) return false;
+        if (!service.play(index, true)) {
+          if (needsPass) service.undo();
+          return false;
+        }
         if (fiveDBDoc) {
           const parent = fiveDBNode(fiveDBPath);
           selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), index);
@@ -720,6 +727,46 @@
         }
         selectedNextByRoute.set(parentKey, index);
         return applyCurrentBoard(true, source);
+      },
+      removeStoneAt(move) {
+        const index = Number(move);
+        const service = db();
+        if (!workspaceMode || !rapfiDbActive || !exact || !service?.isReady
+          || !Number.isInteger(index) || index < 0 || index >= BOARD_CELLS
+          || !Number(service.board()[index])) return false;
+        if (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase === PUZZLE_SETUP) {
+          return this.placePuzzleSetupStone(index, EMPTY);
+        }
+        if (!fiveDBDoc) return false;
+        let node = fiveDBDoc.root;
+        const currentPath = fiveDBPath.slice();
+        for (let depth = 0; depth < currentPath.length; depth++) {
+          const child = node.children[currentPath[depth]];
+          if (!child) return false;
+          if (child.move === index) {
+            capture5DBMarks();
+            node.children.splice(currentPath[depth], 1);
+            if (!replay5DBPath(currentPath.slice(0, depth))) return false;
+            selectedNextByRoute.clear();
+            selected5DBBranches.clear();
+            return applyCurrentBoard(true, "record-edit");
+          }
+          node = child;
+        }
+        // Imported 5DB may have stones in the record's initial root board.
+        if (Number(fiveDBDoc.board[index]) !== EMPTY) {
+          capture5DBMarks();
+          const oldStone = fiveDBDoc.board[index];
+          fiveDBDoc.board[index] = EMPTY;
+          if (!replay5DBPath(currentPath)) {
+            fiveDBDoc.board[index] = oldStone;
+            replay5DBPath(currentPath);
+            return false;
+          }
+          selectedNextByRoute.clear();
+          return applyCurrentBoard(true, "record-edit");
+        }
+        return false;
       },
       navigateStep(direction) {
         if (fiveDBDoc) {
@@ -952,7 +999,7 @@
       format.textContent = state.mode ? "" : "請先選擇模式";
       format.hidden = Boolean(state.mode);
       puzzleControls.hidden = !isPuzzle;
-      setupTools.hidden = !isSetup;
+      if (setupTools) setupTools.hidden = !isSetup;
       attacker.disabled = !isSetup;
       attacker.value = String(state.attacker === WHITE ? WHITE : BLACK);
       commit.hidden = !isSetup;
