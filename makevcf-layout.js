@@ -294,11 +294,23 @@
   calcGroupSelect.addEventListener("change", () => switchCalculationGroup(Number(calcGroupSelect.value)));
   calcPrevStepButton.addEventListener("click", () => moveCalculationStep(-1));
   calcNextStepButton.addEventListener("click", () => moveCalculationStep(1));
-  // 有多組結果且游標位於棋盤時才攔截滾輪；上滾前一步，下滾下一步。
+  // Any displayed VCF route supports wheel playback on the board.
+  // The multi-VCF panel keeps its own full route and navigation; other results use
+  // the board renderer's playback state without opening the multi-VCF panel.
   board.addEventListener("wheel", event => {
-    if (!currentCalculationRoute().length || event.ctrlKey || !event.deltaY) return;
+    if (event.ctrlKey || !event.deltaY) return;
+    const delta = event.deltaY < 0 ? -1 : 1;
+    if (currentCalculationRoute().length) {
+      event.preventDefault();
+      moveCalculationStep(delta);
+      return;
+    }
+    if (!window.VCFOverlayPlayback?.hasRoute?.()) return;
     event.preventDefault();
-    moveCalculationStep(event.deltaY < 0 ? -1 : 1);
+    const position = window.VCFOverlayPlayback.step(delta);
+    if (position && typeof setStatus === "function") {
+      setStatus(`VCF 路線展示：第 ${position.ply}/${position.total} 手`);
+    }
   }, { passive: false });
   window.addEventListener("vcf-result-changed", event => {
     if (event.detail?.hasResult && event.detail?.groupCount > 0 && captureCalculationResult()) {

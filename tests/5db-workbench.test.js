@@ -183,7 +183,9 @@ function createWorkbench(savedDisk = null) {
   assert.equal(boardEditor.currentBoard()[71], 0, "moves after the removed step are also cleared");
   assert.equal(boardEditor.export5DBDocument().root.children.length, 0);
   assert.equal(boardEditor.startWorkspace("puzzle"), true);
-  assert.equal(boardEditor.placePuzzleSetupStone(80, 2), true);
+  assert.equal(boardEditor.placePuzzleSetupStone(80, 2), true, "white must be permitted without any black setup stones");
+  assert.equal(boardEditor.currentBoard()[80], 2, "white-only puzzle setup must immediately render and persist a white stone");
+  assert.equal(boardEditor.export5DBDocument().board[80], 2, "white-only puzzle setup must round-trip to 5DB");
   assert.equal(boardEditor.removeStoneAt(80), true);
   assert.equal(boardEditor.currentBoard()[80], 0);
   console.log("5DB live workbench: branches, marks, irregular setup, saved drafts, explicit colors and delete-to-clear passed");

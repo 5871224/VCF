@@ -53,5 +53,8 @@ assert.ok(files.html.indexOf("棋盤操作") < files.html.indexOf('<h3 class="vc
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') > files.html.indexOf('id="btn-multi-vcf"'), "playback must follow multi VCF");
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') < files.html.indexOf('id="btn-block-vcf"'), "playback belongs inside multi VCF");
 assert.ok(files.html.includes('id="btn-rapfi-vcf-benchmark"') && !files.html.includes("Rapfi VCF（獨立測速）"));
-assert.ok(files.layout.includes('board.addEventListener("wheel"'), "multi VCF playback must support wheel");
+assert.ok(files.layout.includes('board.addEventListener("wheel"'), "VCF playback must support board wheel");
+assert.ok(files.layout.includes("window.VCFOverlayPlayback.step(delta)"), "single VCF must use native SVG playback");
+assert.ok(files.html.includes("window.VCFOverlayPlayback = {"), "SVG renderer must own current route and step position");
+assert.ok(files.html.includes("20261105-workbench2"), "modified scripts must invalidate previous browser cache");
 console.log("5DB workbench and deployment integration contract passed");
