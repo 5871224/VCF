@@ -110,4 +110,23 @@ assert.ok(layer, "next-move marker layer is initialized");
 assert.equal(layer.children.length, 1);
 assert.equal(layer.children[0].attributes.cx, "260");
 assert.equal(layer.children[0].attributes.cy, "260");
-console.log("Workbench tab clicks, keyboard navigation and SVG next-move overlays passed");
+
+// Non-multi VCF results use the same board wheel gesture without opening the multi panel.
+const wheelDirections = [];
+let prevented = 0;
+window.VCFOverlayPlayback = {
+  hasRoute: () => true,
+  step(delta) {
+    wheelDirections.push(delta);
+    return { ply: delta < 0 ? 0 : 1, total: 3 };
+  },
+};
+const board = el("board-svg");
+board.dispatch("wheel", { deltaY: -120, preventDefault() { prevented++; } });
+board.dispatch("wheel", { deltaY: 120, preventDefault() { prevented++; } });
+assert.deepEqual(wheelDirections, [-1, 1], "board wheel must step any visible VCF answer in both directions");
+assert.equal(prevented, 2, "wheel must not scroll the page during answer playback");
+window.VCFOverlayPlayback.hasRoute = () => false;
+board.dispatch("wheel", { deltaY: 120, preventDefault() { prevented++; } });
+assert.equal(prevented, 2, "normal page scrolling must return when there is no VCF answer");
+console.log("Workbench tab clicks, wheel playback and SVG next-move overlays passed");

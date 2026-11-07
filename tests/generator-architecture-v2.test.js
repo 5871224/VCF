@@ -107,6 +107,11 @@ for (const token of ["vcf-question-bank", "vcf-question-bank-ready", "Supabase"]
   if (generatorLayout.includes(token)) throw new Error(`removed question-bank layout contract remains: ${token}`);
 }
 
-if (!scripts.includes("makevcf-layout.js?v=20261024-tabfix1")) throw new Error("canonical UI owner is not loaded");
+// Cache-busting revisions change on deployment; validate the canonical owner by path
+// rather than pinning an obsolete version string that breaks unrelated CI.
+const layoutSources = scripts.filter(src => src.split("?")[0] === "makevcf-layout.js");
+if (layoutSources.length !== 1 || !/^makevcf-layout\.js\?v=[\w-]+$/.test(layoutSources[0])) {
+  throw new Error("canonical UI owner is not loaded exactly once with a cache-busting version");
+}
 
 console.log("Generator final architecture checks passed");

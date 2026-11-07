@@ -464,6 +464,7 @@
   }
 
   board.addEventListener("click", event => {
+    if (event.button !== 0) return;
     const point = pointFromEvent(event);
     const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
     if (!workspace.mode) {
@@ -504,10 +505,7 @@
     }
   }, true);
 
-  board.addEventListener("contextmenu", event => {
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    const point = pointFromEvent(event);
+  function handleSecondaryBoardAction(point) {
     const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
     if (!workspace.mode) {
       status("請先選擇新增打譜或新增題目");
@@ -526,6 +524,27 @@
       return;
     }
     prevStepButton?.click();
+  }
+
+  // Right-click placement happens on pointerdown, not after the browser's context menu.
+  // The contextmenu fallback covers mouse implementations without pointerdown and long presses.
+  let lastSecondaryPointer = { index: -1, time: -Infinity };
+  board.addEventListener("pointerdown", event => {
+    if (event.button !== 2) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const point = pointFromEvent(event);
+    lastSecondaryPointer = { index: point.index, time: Number(event.timeStamp) || 0 };
+    handleSecondaryBoardAction(point);
+  }, true);
+  board.addEventListener("contextmenu", event => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const point = pointFromEvent(event);
+    const duplicate = lastSecondaryPointer.index === point.index
+      && Math.abs((Number(event.timeStamp) || 0) - lastSecondaryPointer.time) < 1500;
+    lastSecondaryPointer.time = -Infinity;
+    if (!duplicate) handleSecondaryBoardAction(point);
   }, true);
 
   editButton.addEventListener("click", () => {
