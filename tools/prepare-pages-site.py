@@ -42,7 +42,6 @@ RAPFI_FILES = [
     "vcf-shortest-vcf-ui.js",
     "vcf-forbidden-overlay.js",
     "rapfi-workbench-header.js",
-    "vcf-rapfi-db.js",
     "vcf-record-tools.js",
     "5db-format.js",
     "vcf-static-annotations.js",
@@ -82,7 +81,6 @@ def main() -> None:
         (ROOT / ".cache" / "rapfi-wasm", "rapfi-single-simd128.*"),
         (ROOT / ".cache" / "vcf-pattern-engine", "vcf-pattern-engine.*"),
         (ROOT / ".cache" / "vcf-bitboard-engine", "vcf-bitboard-engine.*"),
-        (ROOT / ".cache" / "vcf-rapfi-db", "vcf-rapfi-db.*"),
         (ROOT / ".cache" / "rapfi-vcf-standalone", "rapfi-vcf-standalone.*"),
     ]
     for cache_dir, pattern in cache_patterns:

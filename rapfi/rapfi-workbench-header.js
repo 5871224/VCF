@@ -91,22 +91,18 @@
     const normalizeRule = rule => [0, 1, 2].includes(Number(rule)) ? Number(rule) : 2;
     const ruleBox = document.getElementById("rule-box");
 
-    let rapfiDbActive = false;
+    let recordActive = false;
     let exact = false;
     let currentRule = normalizeRule(activeRule());
-    let restoringRule = false;
-    let basePly = 0;
     let lastBoard = new Uint8Array(BOARD_CELLS);
     let workspaceMode = null;
     let puzzlePhase = PUZZLE_SETUP;
     let puzzleAttacker = BLACK;
     let puzzleSetupTool = BLACK;
-    let puzzleRootBoard = new Uint8Array(BOARD_CELLS);
     let suspendPersistence = false;
-    const selectedNextByRoute = new Map();
     const selected5DBBranches = new Map();
     const fiveDBBranchKey = path => "5db:" + path.join(",");
-    // 5DB owns the original-coordinate tree. Rapfi only supplies the active board.
+    // The original-coordinate 5DB document owns both the tree and active board.
     let fiveDBDoc = null;
     let fiveDBPath = [];
     let fiveDBSavedBase64 = "";
@@ -131,42 +127,45 @@
       if (node) node.marks = global.VCFStaticAnnotations?.list?.() || [];
     };
     const replay5DBPath = path => {
-      const service = db();
-      if (!fiveDBDoc || !service?.isReady || !fiveDBNode(path)) return false;
-      service.resetBoard(currentRule);
-      const setup = setupMovesForBoard(fiveDBDoc.board, fiveDBDoc.nextSide);
-      for (const move of setup) if (!service.replayMove(move, false)) return false;
-      basePly = service.ply();
-      let node = fiveDBDoc.root;
-      for (const childIndex of path) {
-        node = node.children[childIndex];
-        if (service.sideToMove() !== node.stone && !service.replayMove(PASS, false)) return false;
-        if (!service.replayMove(node.move, false)) return false;
-      }
+      if (!fiveDBDoc || !fiveDBNode(path)) return false;
       fiveDBPath = path.slice();
       fiveDBDoc.currentPath = path.slice();
       return true;
     };
+    const boardForPath = (path = fiveDBPath) => {
+      const board = fiveDBDoc ? Uint8Array.from(fiveDBDoc.board) : new Uint8Array(BOARD_CELLS);
+      let node = fiveDBDoc?.root;
+      for (const branch of path) {
+        node = node?.children?.[branch];
+        if (!node) throw new Error("5DB 棋譜路線無效");
+        if (node.move >= 0) board[node.move] = node.stone;
+      }
+      return board;
+    };
+    const nextSideForPath = (path = fiveDBPath) => {
+      const last = path.length ? fiveDBNode(path) : null;
+      return last ? oppositeStone(last.stone) : (fiveDBDoc?.nextSide || BLACK);
+    };
+    const routeForPath = path => {
+      let node = fiveDBDoc?.root;
+      const moves = [];
+      for (const branch of path) {
+        node = node?.children?.[branch];
+        if (!node) return "";
+        moves.push(node.move);
+      }
+      return `${currentRule}:${workspaceMode}:${moves.join(",")}`;
+    };
     const import5DBMarks = () => {
-      const service = db(), routes = Object.create(null);
-      if (!fiveDBDoc || !service?.isReady) return;
-      const sourcePath = fiveDBPath.slice();
-      if (!replay5DBPath([])) throw new Error("5DB 初始盤面無法載入");
-      const scan = node => {
-        if (node.marks?.length) {
-          routes[currentRule + ":" + workspaceMode + ":" + service.history().join(",")] = node.marks;
-        }
-        for (const child of node.children) {
-          const skipped = service.sideToMove() !== child.stone;
-          if (skipped && !service.replayMove(PASS, false)) throw new Error("5DB 棋色無法還原");
-          if (!service.replayMove(child.move, false)) throw new Error("5DB 分支無法還原");
-          scan(child);
-          if (!service.undo()) throw new Error("5DB 分支無法返回");
-          if (skipped && !service.undo()) throw new Error("5DB 內部棋色切換無法返回");
+      const routes = Object.create(null);
+      if (!fiveDBDoc) return;
+      const scan = (node, path) => {
+        if (node.marks?.length) routes[routeForPath(path)] = node.marks;
+        for (let index = 0; index < node.children.length; index++) {
+          scan(node.children[index], [...path, index]);
         }
       };
-      scan(fiveDBDoc.root);
-      if (!replay5DBPath(sourcePath)) throw new Error("5DB 目前節點無法還原");
+      scan(fiveDBDoc.root, []);
       global.VCFStaticAnnotations?.importData?.(routes);
     };
 
@@ -184,7 +183,6 @@
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) & 0xff;
       return bytes;
     };
-    const db = () => global.VCFRapfiDB;
     const documentTitle = () => document.getElementById("vcf-record-title");
     const emitWorkspaceChanged = () => {
       global.dispatchEvent(new CustomEvent("vcf-workspace-mode-changed", {
@@ -195,12 +193,6 @@
           setupTool: puzzleSetupTool,
         },
       }));
-    };
-    const routeKey = () => {
-      const service = db();
-      return rapfiDbActive && service?.isReady
-        ? String(currentRule) + ":" + service.history().join(",")
-        : String(currentRule) + ":";
     };
     const oppositeStone = stone => stone === BLACK ? WHITE : BLACK;
     const replayBoard = history => {
@@ -247,12 +239,11 @@
     };
     const emitBoardChanged = source => {
       global.vcfNotifyBoardChanged?.(source || "record", {
-        attacker: rapfiDbActive && db()?.isReady ? db().sideToMove() : undefined,
+        attacker: nextSideForPath(),
       });
     };
     const saveState = (documentChanged = false) => {
-      const service = db();
-      if (suspendPersistence || !fiveDBDoc || !workspaceMode || !rapfiDbActive || !service?.isReady) return false;
+      if (suspendPersistence || !fiveDBDoc || !workspaceMode || !recordActive) return false;
       try {
         capture5DBMarks();
         fiveDBDoc.currentPath = fiveDBPath.slice();
@@ -271,41 +262,29 @@
     };
     const queryChildren = () => {
       if (fiveDBDoc) return (fiveDBNode(fiveDBPath)?.children || []).map(child => child.move);
-      const service = db();
-      if (!rapfiDbActive || !exact || !service?.isReady) return [];
-      try { return service.children().map(Number).filter(Number.isInteger).sort((a, b) => a - b); }
-      catch (error) { console.warn("Rapfi queryChildren 失敗", error); return []; }
+      return [];
     };
     const selectedNextMove = knownMoves => {
       const moves = Array.isArray(knownMoves) ? knownMoves : queryChildren();
       if (!moves.length) return null;
-      const selected = fiveDBDoc
-        ? selected5DBBranches.get(fiveDBBranchKey(fiveDBPath))
-        : selectedNextByRoute.get(routeKey());
+      const selected = selected5DBBranches.get(fiveDBBranchKey(fiveDBPath));
       return moves.includes(selected) ? selected : moves[0];
-    };
-    const rememberSelectedNext = move => {
-      if (Number.isInteger(Number(move))) selectedNextByRoute.set(routeKey(), Number(move));
     };
     const currentRecordText = () => {
       if (fiveDBDoc) return String(fiveDBNode(fiveDBPath)?.text || "");
-      const service = db();
-      if (!rapfiDbActive || !exact || !service?.isReady) return "";
-      try { return String(service.getDisplayText() || ""); } catch (_) { return ""; }
+      return "";
     };
     const notify = () => {
-      const service = db();
       const nextMoves = queryChildren();
       const nextMove = selectedNextMove(nextMoves);
-      const absolutePly = rapfiDbActive && service?.isReady ? service.ply() : 0;
-      const ply = fiveDBDoc ? fiveDBPath.length : Math.max(0, absolutePly - basePly);
+      const ply = fiveDBPath.length;
       global.dispatchEvent(new CustomEvent("vcf-record-state-changed", {
         detail: {
           recordText: currentRecordText(),
-          exact: Boolean(rapfiDbActive && exact),
+          exact: Boolean(recordActive && exact),
           ply,
-          canPrev: Boolean(rapfiDbActive && exact && (fiveDBDoc ? fiveDBPath.length : absolutePly - basePly) > 0),
-          canNext: Boolean(rapfiDbActive && exact && nextMove != null),
+          canPrev: Boolean(recordActive && exact && fiveDBPath.length > 0),
+          canNext: Boolean(recordActive && exact && nextMove != null),
           selectedNextMove: nextMove,
           nextMoves,
           nextBranchCount: nextMoves.length,
@@ -314,53 +293,36 @@
           workspaceMode,
           puzzlePhase,
           puzzleAttacker,
-          positionBackend: rapfiDbActive ? "rapfi-db" : "initializing",
+          positionBackend: recordActive ? "5db" : "initializing",
         },
       }));
     };
     const applyCurrentBoard = (databaseChanged = false, source = "record-navigation", persist = true) => {
-      const service = db();
-      if (!rapfiDbActive || !exact || !service?.isReady) return false;
-      const board = new Uint8Array(service.board());
+      if (!recordActive || !exact) return false;
+      const board = boardForPath();
       lastBoard = board;
-      setMainBoard(board, service.sideToMove());
+      setMainBoard(board, nextSideForPath());
       if (persist) saveState(databaseChanged);
       notify();
       emitBoardChanged(source);
       return true;
     };
-    const restoreDbHistory = moves => {
-      const service = db();
-      if (!service?.isReady) return false;
-      service.resetBoard(currentRule);
-      for (const raw of moves || []) {
-        if (!service.replayMove(Number(raw?.index ?? raw?.move ?? raw), false)) return false;
-      }
-      return true;
-    };
     const replacePositionInternal = (boardValue, options = {}) => {
-      const service = db();
-      if (!rapfiDbActive || !service?.isReady) return false;
+      if (!recordActive) return false;
       const board = normalizeBoard(boardValue || []);
-      const setup = setupMovesForBoard(board, Number(options.sideToMove));
+      const nextSide = [BLACK, WHITE].includes(Number(options.sideToMove))
+        ? Number(options.sideToMove) : (normalSideToMove(board) || BLACK);
       global.VCFStaticAnnotations?.reset?.();
-      service.clear(currentRule);
-      for (const move of setup) if (!service.replayMove(move, false)) return false;
-      service.ensureCurrent();
-      basePly = service.ply();
       workspaceMode = WORKSPACE_PUZZLE;
       puzzlePhase = options.phase === PUZZLE_SETUP ? PUZZLE_SETUP : PUZZLE_TREE;
-      puzzleAttacker = service.sideToMove();
-      puzzleRootBoard = new Uint8Array(board);
-      initialize5DB(board, service.sideToMove());
+      puzzleAttacker = nextSide;
+      initialize5DB(board, nextSide);
       exact = true;
-      selectedNextByRoute.clear();
       emitWorkspaceChanged();
       return applyCurrentBoard(true, options.source || "replace-position");
     };
     const replaceHistoryInternal = (nextHistory, options = {}) => {
-      const service = db();
-      if (!rapfiDbActive || !service?.isReady) return false;
+      if (!recordActive) return false;
       const normalized = Array.isArray(nextHistory) ? nextHistory.map((item, index) => ({
         index: Number(item?.index ?? item?.move ?? item),
         stone: Number(item?.stone ?? item?.color ?? (index % 2 === 0 ? BLACK : WHITE)),
@@ -369,15 +331,7 @@
       if (!replayBoard(normalized)) return false;
       for (let i = 0; i < normalized.length; i++) if (normalized[i].stone !== (i % 2 === 0 ? BLACK : WHITE)) return false;
       global.VCFStaticAnnotations?.reset?.();
-      service.clear(currentRule);
-      service.ensureCurrent();
-      fiveDBDoc = null;
-      if (options.rootRecordText) service.setDisplayText(String(options.rootRecordText));
-      for (const item of normalized) {
-        if (!service.replayMove(item.index, true)) return false;
-        if (item.recordText) service.setDisplayText(item.recordText);
-      }
-      basePly = Math.max(0, Math.min(service.ply(), Number(options.basePly || 0)));
+      const basePly = Math.max(0, Math.min(normalized.length, Number(options.basePly || 0)));
       workspaceMode = WORKSPACE_RECORD;
       const setupHistory = normalized.slice(0, basePly);
       const setupBoard = replayBoard(setupHistory) || new Uint8Array(BOARD_CELLS);
@@ -390,32 +344,22 @@
       }
       fiveDBDoc.currentPath = fiveDBPath.slice();
       puzzlePhase = PUZZLE_SETUP;
-      puzzleRootBoard = new Uint8Array(BOARD_CELLS);
       exact = true;
-      selectedNextByRoute.clear();
-      service.ensureCurrent();
       emitWorkspaceChanged();
       return applyCurrentBoard(true, options.source || "replace-history");
     };
     const resetToEmptyBoard = () => {
       currentRule = normalizeRule(activeRule());
-      const service = db();
-      service.clear(currentRule);
-      service.ensureCurrent();
       fiveDBDoc = null;
       fiveDBPath = [];
-      rapfiDbActive = true;
+      recordActive = true;
       exact = true;
-      basePly = 0;
       workspaceMode = null;
       puzzlePhase = PUZZLE_SETUP;
-      puzzleRootBoard = new Uint8Array(BOARD_CELLS);
-      selectedNextByRoute.clear();
       return applyCurrentBoard(false, "init", false);
     };
     const restoreSavedState = async () => {
-      const service = db();
-      if (!service?.isReady) return false;
+      recordActive = true;
       let saved = null;
       try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); }
       catch (error) {
@@ -437,32 +381,24 @@
           }
           return await global.VCFWorkbenchRecord.import5DBDocument(restored);
         } catch (error) {
-          console.warn("5DB 工作區無法還原，改用空白棋盤", error);
-          localStorage.removeItem(STORAGE_KEY);
+          // Never erase a corrupt or temporarily unreadable draft on startup.
+          console.warn("5DB 工作區暫時無法還原，已顯示空白棋盤；原檔仍保留", error);
         }
       }
       return resetToEmptyBoard();
     };
     let activationPromise = null;
-    const activateRapfiDatabase = () => {
-      if (rapfiDbActive) return Promise.resolve(true);
-      if (!global.VCFRapfiDB?.isReady) return Promise.resolve(false);
+    const activate5DB = () => {
+      if (recordActive) return Promise.resolve(true);
       if (activationPromise) return activationPromise;
       activationPromise = restoreSavedState().then(ok => {
-        if (!ok) throw new Error("Rapfi 棋盤狀態無法啟用");
-        global.dispatchEvent(new CustomEvent("vcf-rapfi-db-active"));
+        if (!ok) throw new Error("5DB 棋盤狀態無法啟用");
+        global.dispatchEvent(new CustomEvent("vcf-workbench-ready"));
         return true;
       }).finally(() => { activationPromise = null; });
       return activationPromise;
     };
-    global.addEventListener("vcf-rapfi-db-ready", () => {
-      queueMicrotask(() => activateRapfiDatabase().catch(error => console.error("Rapfi DB 啟用失敗", error)));
-    });
-    if (global.VCFRapfiDB?.isReady) {
-      queueMicrotask(() => activateRapfiDatabase().catch(error => console.error("Rapfi DB 啟用失敗", error)));
-    } else {
-      global.VCFRapfiDB?.ready?.then(() => activateRapfiDatabase()).catch(error => console.error("Rapfi DB bridge 初始化失敗", error));
-    }
+    queueMicrotask(() => activate5DB().catch(error => console.error("5DB 工作台啟用失敗", error)));
 
     const transformMove = (move, transform) => {
       if (!Number.isInteger(Number(move)) || Number(move) === PASS) return Number(move);
@@ -495,23 +431,16 @@
         return { mode: workspaceMode, puzzlePhase, attacker: puzzleAttacker, setupTool: puzzleSetupTool };
       },
       annotationRoute() {
-        const service = db();
-        if (!workspaceMode || !rapfiDbActive || !exact || !service?.isReady) return "";
-        return currentRule + ":" + workspaceMode + ":" + service.history().join(",");
+        if (!workspaceMode || !recordActive || !exact || !fiveDBDoc) return "";
+        return routeForPath(fiveDBPath);
       },
       startWorkspace(mode) {
-        const service = db();
-        if (!rapfiDbActive || !service?.isReady || (mode !== WORKSPACE_RECORD && mode !== WORKSPACE_PUZZLE)) return false;
-        service.clear(currentRule);
-        service.ensureCurrent();
+        if (!recordActive || (mode !== WORKSPACE_RECORD && mode !== WORKSPACE_PUZZLE)) return false;
         workspaceMode = mode;
         puzzlePhase = PUZZLE_SETUP;
         puzzleAttacker = BLACK;
         puzzleSetupTool = BLACK;
-        puzzleRootBoard = new Uint8Array(BOARD_CELLS);
-        basePly = 0;
         exact = true;
-        selectedNextByRoute.clear();
         global.VCFStaticAnnotations?.reset?.();
         initialize5DB();
         emitWorkspaceChanged();
@@ -527,11 +456,10 @@
       setPuzzleAttacker(attacker) {
         const normalized = Number(attacker);
         if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_SETUP || (normalized !== BLACK && normalized !== WHITE)) return false;
-        return replacePositionInternal(this.currentBoard(), {
-          sideToMove: normalized,
-          source: "puzzle-attacker",
-          phase: PUZZLE_SETUP,
-        });
+        puzzleAttacker = normalized;
+        fiveDBDoc.nextSide = normalized;
+        emitWorkspaceChanged();
+        return applyCurrentBoard(true, "puzzle-attacker");
       },
       placePuzzleSetupStone(index, stone = puzzleSetupTool) {
         const move = Number(index);
@@ -539,32 +467,30 @@
         if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_SETUP
           || !Number.isInteger(move) || move < 0 || move >= BOARD_CELLS
           || (normalized !== EMPTY && normalized !== BLACK && normalized !== WHITE)) return false;
-        const board = this.currentBoard();
-        board[move] = normalized;
-        return replacePositionInternal(board, {
-          sideToMove: puzzleAttacker,
-          source: "puzzle-setup",
-          phase: PUZZLE_SETUP,
-        });
+        if (fiveDBDoc.board[move] === normalized) return true;
+        // The setup board is the 5DB root position. Only the selected cell changes.
+        fiveDBDoc.board[move] = normalized;
+        return applyCurrentBoard(true, "puzzle-setup");
       },
       commitPuzzleSetup() {
         if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_SETUP
           || !this.currentBoard().some(stone => Number(stone) !== EMPTY)) return false;
-        puzzleRootBoard = Uint8Array.from(this.currentBoard());
-        initialize5DB(puzzleRootBoard, puzzleAttacker);
         puzzlePhase = PUZZLE_TREE;
+        delete fiveDBDoc.phase;
         emitWorkspaceChanged();
-        saveState(true);
-        notify();
-        return true;
+        return applyCurrentBoard(true, "puzzle-commit");
       },
       editPuzzleSetup() {
         if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE) return false;
-        return replacePositionInternal(puzzleRootBoard, {
-          sideToMove: puzzleAttacker,
-          source: "puzzle-setup-edit",
-          phase: PUZZLE_SETUP,
-        });
+        capture5DBMarks();
+        fiveDBDoc.root.children = [];
+        fiveDBPath = [];
+        fiveDBDoc.currentPath = [];
+        selected5DBBranches.clear();
+        puzzlePhase = PUZZLE_SETUP;
+        import5DBMarks();
+        emitWorkspaceChanged();
+        return applyCurrentBoard(true, "puzzle-setup-edit");
       },
       setGeneratedPuzzleAnswer(moves, attacker) {
         // Generated puzzle answers are saved as one 5DB branch, without
@@ -585,6 +511,7 @@
         }
         capture5DBMarks();
         fiveDBDoc.nextSide = firstSide;
+        puzzleAttacker = firstSide;
         fiveDBDoc.root.children = [];
         let node = fiveDBDoc.root;
         for (const { move, stone } of validated) {
@@ -595,23 +522,21 @@
         selected5DBBranches.clear();
         fiveDBPath = [];
         fiveDBDoc.currentPath = [];
+        emitWorkspaceChanged();
         saveState(true);
         notify();
         return true;
       },
       currentBoard() {
-        const service = db();
-        return rapfiDbActive && service?.isReady ? Array.from(service.board()) : Array.from(lastBoard);
+        return recordActive ? Array.from(boardForPath()) : Array.from(lastBoard);
       },
       currentSideToMove() {
-        const service = db();
-        return rapfiDbActive && service?.isReady ? service.sideToMove() : BLACK;
+        return nextSideForPath();
       },
       currentRecordText,
       setCurrentRecordText(text) {
-        const service = db();
         if (!workspaceMode || (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase === PUZZLE_SETUP)
-          || !rapfiDbActive || !exact || !service?.isReady) return false;
+          || !recordActive || !exact) return false;
         if (fiveDBDoc) {
           const node = fiveDBNode(fiveDBPath);
           if (!node) return false;
@@ -624,19 +549,13 @@
       replacePosition(board, options = {}) { return replacePositionInternal(board, options); },
       replaceHistory(history, options = {}) { return replaceHistoryInternal(history, options); },
       clearPosition(source = "clear") {
-        const service = db();
-        if (!rapfiDbActive || !service?.isReady) return false;
-        service.clear(currentRule);
-        service.ensureCurrent();
+        if (!recordActive) return false;
         global.VCFStaticAnnotations?.reset?.();
         if (workspaceMode) initialize5DB();
-        basePly = 0;
         if (workspaceMode === WORKSPACE_PUZZLE) {
           puzzlePhase = PUZZLE_SETUP;
-          puzzleRootBoard = new Uint8Array(BOARD_CELLS);
         }
         exact = true;
-        selectedNextByRoute.clear();
         emitWorkspaceChanged();
         return applyCurrentBoard(true, source, Boolean(workspaceMode));
       },
@@ -655,8 +574,7 @@
         return copy;
       },
       async import5DBDocument(source) {
-        const service = db();
-        if (!service?.isReady || !global.FiveDB) return false;
+        if (!global.FiveDB) return false;
         global.FiveDB.validate(source);
         if (source.width !== BOARD_SIZE || source.height !== BOARD_SIZE)
           throw new Error("目前工作台固定 15×15，這份 5DB 棋譜為 " + source.width + "×" + source.height);
@@ -675,12 +593,9 @@
           }
           workspaceMode = source.mode;
           puzzlePhase = source.mode === WORKSPACE_PUZZLE && source.phase !== PUZZLE_SETUP ? PUZZLE_TREE : PUZZLE_SETUP;
-          puzzleRootBoard = Uint8Array.from(source.board);
           puzzleAttacker = source.nextSide;
           exact = true;
-          rapfiDbActive = true;
-          selectedNextByRoute.clear();
-          service.clear(currentRule);
+          recordActive = true;
           if (!replay5DBPath(source.currentPath)) throw new Error("5DB 原始路線無法還原");
           import5DBMarks();
           const title = documentTitle();
@@ -695,45 +610,36 @@
           suspendPersistence = false;
         }
       },
-      ensureActive() { return activateRapfiDatabase(); },
-      isActive() { return Boolean(rapfiDbActive && exact && db()?.isReady); },
+      ensureActive() { return activate5DB(); },
+      isActive() { return Boolean(recordActive && exact); },
       playAt(move, source = "manual", stone = 0) {
-        const service = db();
         const index = Number(move);
         if (!workspaceMode || (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase !== PUZZLE_TREE)
-          || !rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(index)
-          || index < 0 || index >= BOARD_CELLS || Number(service.board()[index])) return false;
+          || !recordActive || !exact || !Number.isInteger(index)
+          || index < 0 || index >= BOARD_CELLS || boardForPath()[index]) return false;
         const selectedStone = Number(stone);
         if (selectedStone !== EMPTY && selectedStone !== BLACK && selectedStone !== WHITE) return false;
-        const parentKey = routeKey();
-        if (fiveDBDoc) capture5DBMarks();
-        const needsPass = selectedStone !== EMPTY && selectedStone !== service.sideToMove();
-        if (needsPass && !service.replayMove(PASS, false)) return false;
-        if (!service.play(index, true)) {
-          if (needsPass) service.undo();
-          return false;
+        capture5DBMarks();
+        const parent = fiveDBNode(fiveDBPath);
+        const side = selectedStone || nextSideForPath();
+        selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), index);
+        let selected = parent.children.findIndex(child => child.move === index);
+        if (selected < 0) {
+          parent.children.push(blank5DBNode(index, side));
+          selected = parent.children.length - 1;
+        } else if (parent.children[selected].stone !== side) {
+          // A coordinate is unique per parent in 5DB; changing its color replaces the branch.
+          parent.children[selected] = blank5DBNode(index, side);
         }
-        if (fiveDBDoc) {
-          const parent = fiveDBNode(fiveDBPath);
-          selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), index);
-          const side = service.sideToMove() === BLACK ? WHITE : BLACK;
-          let selected = parent.children.findIndex(child => child.move === index);
-          if (selected < 0) {
-            parent.children.push(blank5DBNode(index, side));
-            selected = parent.children.length - 1;
-          }
-          fiveDBPath.push(selected);
-          fiveDBDoc.currentPath = fiveDBPath.slice();
-        }
-        selectedNextByRoute.set(parentKey, index);
+        fiveDBPath.push(selected);
+        fiveDBDoc.currentPath = fiveDBPath.slice();
         return applyCurrentBoard(true, source);
       },
       removeStoneAt(move) {
         const index = Number(move);
-        const service = db();
-        if (!workspaceMode || !rapfiDbActive || !exact || !service?.isReady
+        if (!workspaceMode || !recordActive || !exact
           || !Number.isInteger(index) || index < 0 || index >= BOARD_CELLS
-          || !Number(service.board()[index])) return false;
+          || !boardForPath()[index]) return false;
         if (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase === PUZZLE_SETUP) {
           return this.placePuzzleSetupStone(index, EMPTY);
         }
@@ -747,8 +653,8 @@
             capture5DBMarks();
             node.children.splice(currentPath[depth], 1);
             if (!replay5DBPath(currentPath.slice(0, depth))) return false;
-            selectedNextByRoute.clear();
             selected5DBBranches.clear();
+            import5DBMarks();
             return applyCurrentBoard(true, "record-edit");
           }
           node = child;
@@ -763,176 +669,104 @@
             replay5DBPath(currentPath);
             return false;
           }
-          selectedNextByRoute.clear();
           return applyCurrentBoard(true, "record-edit");
         }
         return false;
       },
       navigateStep(direction) {
-        if (fiveDBDoc) {
-          capture5DBMarks();
-          if (direction < 0) {
-            if (!fiveDBPath.length) return false;
-            const previous = fiveDBNode(fiveDBPath);
-            fiveDBPath.pop();
-            selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), previous.move);
-          } else {
-            const node = fiveDBNode(fiveDBPath);
-            const moves = node?.children || [];
-            if (!moves.length) return false;
-            const preferred = selected5DBBranches.get(fiveDBBranchKey(fiveDBPath));
-            const selected = Math.max(0, moves.findIndex(child => child.move === preferred));
-            fiveDBPath.push(selected);
-          }
-          if (!replay5DBPath(fiveDBPath)) return false;
-          return applyCurrentBoard(false, "record-navigation");
-        }
-        const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        if (!fiveDBDoc) return false;
+        capture5DBMarks();
         if (direction < 0) {
-          const history = service.history();
-          if (service.ply() <= basePly || !history.length) return false;
-          const move = history[history.length - 1];
-          if (!service.undo()) return false;
-          rememberSelectedNext(move);
-          return applyCurrentBoard(false, "record-navigation");
+          if (!fiveDBPath.length) return false;
+          const previous = fiveDBNode(fiveDBPath);
+          fiveDBPath.pop();
+          selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), previous.move);
+        } else {
+          const node = fiveDBNode(fiveDBPath);
+          const moves = node?.children || [];
+          if (!moves.length) return false;
+          const preferred = selected5DBBranches.get(fiveDBBranchKey(fiveDBPath));
+          const selected = Math.max(0, moves.findIndex(child => child.move === preferred));
+          fiveDBPath.push(selected);
         }
-        const moves = queryChildren();
-        const move = selectedNextMove(moves);
-        if (move == null) return false;
-        rememberSelectedNext(move);
-        if (!service.play(move, false)) return false;
+        if (!replay5DBPath(fiveDBPath)) return false;
         return applyCurrentBoard(false, "record-navigation");
       },
       navigateBranch(direction) {
-        if (fiveDBDoc) {
-          capture5DBMarks();
-          if (direction < 0) {
-            if (!fiveDBPath.length) return false;
-            do {
-              const previous = fiveDBNode(fiveDBPath);
-              fiveDBPath.pop();
-              selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), previous.move);
-              const node = fiveDBNode(fiveDBPath);
-              if (!fiveDBPath.length || node.children.length > 1) break;
-            } while (fiveDBPath.length);
-          } else {
-            let node = fiveDBNode(fiveDBPath);
-            if (!node?.children?.length) return false;
-            do {
-              const preferred = selected5DBBranches.get(fiveDBBranchKey(fiveDBPath));
-              const selected = Math.max(0, node.children.findIndex(child => child.move === preferred));
-              fiveDBPath.push(selected);
-              node = node.children[selected];
-            } while (node.children.length === 1);
-          }
-          if (!replay5DBPath(fiveDBPath)) return false;
-          return applyCurrentBoard(false, "record-navigation");
-        }
-        const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady) return false;
+        if (!fiveDBDoc) return false;
+        capture5DBMarks();
         if (direction < 0) {
-          if (service.ply() <= basePly) return false;
+          if (!fiveDBPath.length) return false;
           do {
-            const history = service.history();
-            const move = history[history.length - 1];
-            if (!service.undo()) break;
-            rememberSelectedNext(move);
-            if (queryChildren().length > 1 || service.ply() <= basePly) break;
-          } while (service.ply() > basePly);
-          return applyCurrentBoard(false, "record-navigation");
+            const previous = fiveDBNode(fiveDBPath);
+            fiveDBPath.pop();
+            selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), previous.move);
+            const node = fiveDBNode(fiveDBPath);
+            if (!fiveDBPath.length || node.children.length > 1) break;
+          } while (fiveDBPath.length);
+        } else {
+          let node = fiveDBNode(fiveDBPath);
+          if (!node?.children?.length) return false;
+          do {
+            const preferred = selected5DBBranches.get(fiveDBBranchKey(fiveDBPath));
+            const selected = Math.max(0, node.children.findIndex(child => child.move === preferred));
+            fiveDBPath.push(selected);
+            node = node.children[selected];
+          } while (node.children.length === 1);
         }
-        let moves = queryChildren();
-        if (!moves.length) return false;
-        do {
-          const move = selectedNextMove(moves);
-          if (move == null) break;
-          rememberSelectedNext(move);
-          if (!service.play(move, false)) break;
-          moves = queryChildren();
-        } while (moves.length === 1);
+        if (!replay5DBPath(fiveDBPath)) return false;
         return applyCurrentBoard(false, "record-navigation");
       },
       appendPass() {
-        const service = db();
-        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE || !rapfiDbActive || !exact || !service?.isReady) return false;
-        const parentKey = routeKey();
-        if (fiveDBDoc) capture5DBMarks();
-        if (!service.play(PASS, true)) return false;
-        if (fiveDBDoc) {
-          const parent = fiveDBNode(fiveDBPath);
-          selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), PASS);
-          let selected = parent.children.findIndex(child => child.move === PASS);
-          if (selected < 0) { parent.children.push(blank5DBNode(PASS, service.sideToMove() === BLACK ? WHITE : BLACK)); selected = parent.children.length - 1; }
-          fiveDBPath.push(selected);
-          fiveDBDoc.currentPath = fiveDBPath.slice();
-        }
-        selectedNextByRoute.set(parentKey, PASS);
+        if (workspaceMode !== WORKSPACE_PUZZLE || puzzlePhase !== PUZZLE_TREE || !recordActive || !exact) return false;
+        capture5DBMarks();
+        const parent = fiveDBNode(fiveDBPath);
+        selected5DBBranches.set(fiveDBBranchKey(fiveDBPath), PASS);
+        let selected = parent.children.findIndex(child => child.move === PASS);
+        if (selected < 0) { parent.children.push(blank5DBNode(PASS, nextSideForPath())); selected = parent.children.length - 1; }
+        fiveDBPath.push(selected);
+        fiveDBDoc.currentPath = fiveDBPath.slice();
         return applyCurrentBoard(true, "manual");
       },
       deleteCurrentAndFollowing() {
-        if (fiveDBDoc) {
-          if (!fiveDBPath.length) return false;
-          capture5DBMarks();
-          const removedIndex = fiveDBPath.pop();
-          const parent = fiveDBNode(fiveDBPath);
-          parent.children.splice(removedIndex, 1);
-          if (!replay5DBPath(fiveDBPath)) return false;
-          selectedNextByRoute.delete(routeKey());
-          return applyCurrentBoard(true, "record-edit");
-        }
-        const service = db();
-        if (!rapfiDbActive || !exact || !service?.isReady || service.ply() <= basePly) return false;
-        if (!service.deleteCurrentAndChildren() || !service.undo()) return false;
-        selectedNextByRoute.delete(routeKey());
+        if (!fiveDBDoc || !fiveDBPath.length) return false;
+        capture5DBMarks();
+        const removedIndex = fiveDBPath.pop();
+        const parent = fiveDBNode(fiveDBPath);
+        parent.children.splice(removedIndex, 1);
+        replay5DBPath(fiveDBPath);
+        selected5DBBranches.clear();
+        import5DBMarks();
         return applyCurrentBoard(true, "record-edit");
       },
       transform(transform) {
-        if (fiveDBDoc) {
-          const t = Number(transform);
-          if (!Number.isInteger(t) || t < 0 || t > 7) return false;
-          capture5DBMarks();
-          const transformedBoard = new Array(BOARD_CELLS).fill(0);
-          const change = index => transformMove(index, t);
-          for (let i = 0; i < BOARD_CELLS; i++) {
-            if (fiveDBDoc.board[i]) transformedBoard[change(i)] = fiveDBDoc.board[i];
-          }
-          fiveDBDoc.board = transformedBoard;
-          const stack = [fiveDBDoc.root];
-          while (stack.length) {
-            const node = stack.pop();
-            if (node.move >= 0) node.move = change(node.move);
-            node.marks = (node.marks || []).map(mark => {
-              const xy = transformXY(mark.x, mark.y, t);
-              const next = { ...mark, x: xy[0], y: xy[1] };
-              if (mark.type === "line" || mark.type === "arrow") {
-                const end = transformXY(mark.tx, mark.ty, t);
-                next.tx = end[0]; next.ty = end[1];
-              }
-              return next;
-            });
-            stack.push(...node.children);
-          }
-          if (!replay5DBPath(fiveDBPath)) return false;
-          import5DBMarks();
-          return applyCurrentBoard(true, "record-transform");
+        if (!fiveDBDoc) return false;
+        const t = Number(transform);
+        if (!Number.isInteger(t) || t < 0 || t > 7) return false;
+        capture5DBMarks();
+        const transformedBoard = new Array(BOARD_CELLS).fill(0);
+        const change = index => transformMove(index, t);
+        for (let i = 0; i < BOARD_CELLS; i++) {
+          if (fiveDBDoc.board[i]) transformedBoard[change(i)] = fiveDBDoc.board[i];
         }
-        const service = db();
-        const normalized = Number(transform);
-        if (!rapfiDbActive || !exact || !service?.isReady || !Number.isInteger(normalized) || normalized < 0 || normalized > 7) return false;
-        const original = service.history();
-        const transformed = original.map(move => transformMove(move, normalized));
-        if (!restoreDbHistory(transformed)) { restoreDbHistory(original); return false; }
-        if (workspaceMode === WORKSPACE_PUZZLE) {
-          const nextRoot = new Uint8Array(BOARD_CELLS);
-          for (let index = 0; index < BOARD_CELLS; index++) {
-            if (puzzleRootBoard[index]) nextRoot[transformMove(index, normalized)] = puzzleRootBoard[index];
-          }
-          puzzleRootBoard = nextRoot;
+        fiveDBDoc.board = transformedBoard;
+        const stack = [fiveDBDoc.root];
+        while (stack.length) {
+          const node = stack.pop();
+          if (node.move >= 0) node.move = change(node.move);
+          node.marks = (node.marks || []).map(mark => {
+            const xy = transformXY(mark.x, mark.y, t);
+            const next = { ...mark, x: xy[0], y: xy[1] };
+            if (mark.type === "line" || mark.type === "arrow") {
+              const end = transformXY(mark.tx, mark.ty, t);
+              next.tx = end[0]; next.ty = end[1];
+            }
+            return next;
+          });
+          stack.push(...node.children);
         }
-        selectedNextByRoute.clear();
-        global.VCFStaticAnnotations?.transform?.(normalized);
-        return applyCurrentBoard(false, "record-transform");
+        import5DBMarks();
+        return applyCurrentBoard(true, "record-transform");
       },
       invalidate() { notify(); return true; },
     };
@@ -945,27 +779,13 @@
     });
 
     global.addEventListener("vcf-rules-changed", () => {
-      if (restoringRule || !rapfiDbActive || !db()?.isReady) return;
-      const service = db();
+      if (!recordActive) return;
       const nextRule = normalizeRule(activeRule());
       if (nextRule === currentRule) { notify(); return; }
-      if (fiveDBDoc) {
-        capture5DBMarks();
-        currentRule = nextRule;
-        service.clear(currentRule);
-        if (!replay5DBPath(fiveDBPath)) return;
-        import5DBMarks();
-        selectedNextByRoute.clear();
-        applyCurrentBoard(true, "rule-change");
-        return;
-      }
-      const moves = service.history();
-      service.cloneRule(currentRule, nextRule);
+      if (fiveDBDoc) capture5DBMarks();
       currentRule = nextRule;
-      if (!restoreDbHistory(moves)) return;
-      selectedNextByRoute.clear();
-      exact = true;
-      applyCurrentBoard(true, "rule-change");
+      if (fiveDBDoc) import5DBMarks();
+      applyCurrentBoard(true, "rule-change", Boolean(fiveDBDoc));
     });
 
     notify();
@@ -1020,7 +840,7 @@
         const hasContent = global.VCFWorkbenchRecord?.currentBoard?.().some(stone => Number(stone) !== EMPTY);
         if ((current || hasContent) && !global.confirm("建立新工作區會清除目前盤面、注釋與分支，確定繼續？")) return;
         if (!global.VCFWorkbenchRecord?.startWorkspace?.(nextMode)) {
-          status("Rapfi 棋盤尚未就緒，請稍候再選擇模式");
+          status("5DB 棋盤尚未就緒，請稍候再選擇模式");
           return;
         }
         status(nextMode === "record" ? "打譜模式：從空盤依序落子，可儲存為 5DB" : "題目模式：先自由擺放黑白棋，再選擇攻方並開始編輯解答");
@@ -1043,7 +863,7 @@
       }
     });
     global.addEventListener("vcf-workspace-mode-changed", sync);
-    global.addEventListener("vcf-rapfi-db-active", sync);
+    global.addEventListener("vcf-workbench-ready", sync);
     sync();
     return true;
   }

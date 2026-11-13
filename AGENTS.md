@@ -56,9 +56,9 @@ makevcf-generator-core.js
 
 - 優先修改正式來源，不以額外修補層長期保留兩套互相覆蓋的邏輯。
 - 工作台跨模組行為統一使用 `rapfi/vcf-bitboard-generator-compat.js` 提供的具名 Registry／事件：`vcfSetRules`、`vcf-board-changed`、`vcfRegisterBusyHook`、`vcfRegisterStatusFormatter`、`vcfRegisterTrimGroupsProvider`、`vcfRegisterSearchHandler`。
-- `VCFWorkbenchRecord` 統一控制執行期 Rapfi `Board` 與原始座標 5DB 棋譜樹；SVG board 只負責顯示，不得另存可操作盤面。5DB 樹保存分支、註解與標記，不依賴 Rapfi canonical position 反推。
-- `_renderBoardArr` 與相容 `_setBoardArr` 只允許 Rapfi record 層用來重畫；題目產生器、圖片匯入、搜尋 UI 等功能模組必須用 `VCFWorkbenchRecord.playAt/replacePosition/replaceHistory/clearPosition`。
-- Bitboard Engine 是唯讀計算服務；搜尋前由目前 Rapfi Board 轉成 225 格／Bitboard，搜尋結果只能進計算展示 overlay，不得自動寫入 Rapfi DB 分支。
+- `VCFWorkbenchRecord` 以原始座標的 5DB 初始盤面與棋譜樹作為唯一執行期資料來源；SVG board 只負責顯示，不得另存可操作盤面。分支、註解、標記與當前路線皆由 5DB 管理，不依賴 Rapfi canonical position 反推。
+- `_renderBoardArr` 與相容 `_setBoardArr` 只允許 5DB 工作台資料層用來重畫；題目產生器、圖片匯入、搜尋 UI 等功能模組必須用 `VCFWorkbenchRecord.playAt/replacePosition/replaceHistory/clearPosition`。
+- Bitboard 與獨立 Rapfi VCF 引擎都是唯讀計算服務；搜尋前由目前 5DB 盤面轉成 225 格／引擎格式，搜尋結果只能進計算展示 overlay，不得自動寫入 5DB 分支。
 - 功能模組不得重新指派 `setBusy`、`setStatus`、`doSearch`、`doAddVCF`、`engine.findVCF`、`engine.trimVCFGroups`、`pool.getLevelPoints`、`_setBoardArr` 或 `_clearBoard`；只有工作台 runtime 可建立一次正式 dispatcher。
 - 題目產生器一次執行共用單一 `GenerationContext`；新增設定或控制項鎖定行為應使用具名提供者／Hook，不得覆寫 `genOptions` 或核心 `genSetBusy`。
 - 題目產生器回放只可訂閱核心具名事件；不得覆寫驗證、搜尋、結果或忙碌函式，也不得操作舊回放按鈕、讀取已渲染盤面或用延遲排程合併時間軸。
