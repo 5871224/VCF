@@ -164,7 +164,7 @@
       #vcf-account-actions #bb-cloud-auth{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;padding:0}
       #bb-cloud-user{font-size:12px;color:#4f5d50}.bb-cloud-btn{min-height:36px;padding:7px 10px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}.bb-cloud-btn:disabled{opacity:.5;cursor:not-allowed}
       #vcf-cloud-dialog{width:min(760px,calc(100vw - 24px));max-height:min(86vh,850px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop{background:rgb(0 0 0 / 35%)}
-      #vcf-shared-login-dialog{box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow-y:auto;padding:25px;border:0;border-radius:16px;background:#eee6de;color:#4f4339;box-shadow:0 28px 70px rgba(79,67,57,.24);font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif}
+      #vcf-shared-login-dialog{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow-y:auto;padding:25px;border:0;border-radius:16px;background:#eee6de;color:#4f4339;box-shadow:0 28px 70px rgba(79,67,57,.24);font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif}
       #vcf-shared-login-dialog::backdrop{background:rgba(79,67,57,.55)}
       #vcf-shared-login-dialog [hidden]{display:none!important}
       #vcf-shared-login-dialog .sched-email-auth-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
