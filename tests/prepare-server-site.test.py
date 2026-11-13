@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as raw_temp:
             "--site",
             str(site),
             "--api-url",
-            "/BD/api/yxdb.php",
+            "/Sched/api/index.php",
             "--revision",
             "abc123",
         ],
@@ -32,13 +32,14 @@ with tempfile.TemporaryDirectory() as raw_temp:
 
     html = (site / "index.html").read_text(encoding="utf-8")
     for token in (
-        'window.VCF_CLOUD_API_URL="/BD/api/yxdb.php"',
-        "accounts.google.com/gsi/client",
+        'window.VCF_CLOUD_API_URL="/Sched/api/index.php"',
         'window.VCF_5DB_API_URL="/BD1/api/5db.php"',
         "rapfi/vcf-5db-cloud.js?v=abc123",
     ):
         if token not in html:
             raise AssertionError(f"server site missing {token}")
+    if "accounts.google.com/gsi/client" in html:
+        raise AssertionError("BD1 must use the existing Sched login page")
 
     deployment = json.loads((site / "deployment.json").read_text(encoding="utf-8"))
     if deployment["revision"] != "abc123" or deployment["target"] != "BD1":

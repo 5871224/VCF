@@ -42,10 +42,11 @@ has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "contro
  "global.FiveDB?.decode?.(bytes)", "makeBoardThumbnail(snapshot)", "IntersectionObserver", "previewCache",
   "X-5DB-Preview", 'cloud-\${id}.5db',
  'file_name: name', "record.export5DBDocument()", '檔案名稱（不影響棋譜標題）',
- "auth_me","admin_user_delete","admin_user_role","admin_user_status"]);
-lacks("cloud",["VCFCloudYXDB","createLZ4Frame"]);
+ "auth_me","/Sched/api/index.php","/Sched/rank-auth.html","credentials: \"same-origin\""]);
+lacks("cloud",["VCFCloudYXDB","createLZ4Frame","vcf_google_auth_token_v1",
+ "admin_user_delete","admin_user_role","admin_user_status","action=auth_google"]);
 has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT", "HTTP_X_5DB_PREVIEW", "file_name' => $fileName",
-  "auth_me","Authorization: Bearer","flock(","storage5(","DOCUMENT_ROOT", "publicRoot", "privateBase",
+  "sched_site_auth","AuthTokenService.php","authCurrentUser(","flock(","storage5(","DOCUMENT_ROOT", "publicRoot", "privateBase",
   "realpath(","FILTER_VALIDATE_EMAIL","LOCK_EX","action === 'save'","action === 'get'"]);
 has("builder",['"5db-format.js"']);
 has("header",["const boardForPath = (path = fiveDBPath) =>", "const routeForPath = path =>",
@@ -59,9 +60,10 @@ has("recordTools",['board.addEventListener("pointerdown"',
   'board.addEventListener("contextmenu"', '!global.PointerEvent || event.pointerType === "touch"']);
 has("srvbuild",['ROOT / "api" / "5db.php"','VCF_5DB_API_URL="/BD1/api/5db.php"']);
 has("deploy",["php -l api/5db.php","test -s _site/api/5db.php","npm run test:architecture"]);
-has("server",["https://www.renju.org.tw/BD/api/yxdb.php?action=auth_me"]);
+has("srvbuild",["window.VCF_CLOUD_API_URL=", "vcf-5db-cloud.js"]);
+has("deploy",["--api-url /Sched/api/index.php"]);
 has("deploy",["https://www.renju.org.tw/BD1/"]);
-lacks("server",["https://587.renju.org.tw/"]);
+lacks("server",["https://www.renju.org.tw/BD/api/yxdb.php", "Authorization: Bearer"]);
 lacks("deploy",["https://587.renju.org.tw/"]);
 assert.ok(files.html.indexOf("棋盤操作") < files.html.indexOf('<h3 class="vcf-section-title">分析'), "board controls must appear first");
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') > files.html.indexOf('id="btn-multi-vcf"'), "playback must follow multi VCF");

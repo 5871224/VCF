@@ -1,33 +1,22 @@
 "use strict";
 
 (function initVCFCloud5DB(global) {
-  const API_URL = String(global.VCF_CLOUD_API_URL || "/BD/api/yxdb.php");
+  const API_URL = String(global.VCF_CLOUD_API_URL || "/Sched/api/index.php");
   const FIVE_DB_API_URL = String(global.VCF_5DB_API_URL || "/BD1/api/5db.php");
-  const AUTH_TOKEN_KEY = "vcf_google_auth_token_v1";
-  const ADMIN_EMAIL = "5871224@gmail.com";
+  const SCHED_LOGIN_PAGE = "/Sched/rank-auth.html";
 
   let authUser = null;
-  let googleClientId = "";
+  let loginPollTimer = null;
   const previewCache = new Map();
   let activePreviewObserver = null;
   let previewGeneration = 0;
 
   function isAdminUser(user) {
-    return String(user?.email || "").trim().toLowerCase() === ADMIN_EMAIL;
-  }
-
-  function getToken() { try { return localStorage.getItem(AUTH_TOKEN_KEY) || ""; } catch (_) { return ""; } }
-  function setToken(token) {
-    previewCache.clear();
-    try { token ? localStorage.setItem(AUTH_TOKEN_KEY, token) : localStorage.removeItem(AUTH_TOKEN_KEY); } catch (_) {}
-  }
-  function authHeaders(extra = {}) {
-    const token = getToken();
-    return token ? { Authorization: `Bearer ${token}`, ...extra } : { ...extra };
+    return user?.permission === "admin";
   }
   async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
-    if (response.status === 401) { setToken(""); authUser = null; refreshAuthUI(); }
+    if (response.status === 401) { authUser = null; refreshAuthUI(); }
     if (!response.ok || payload?.ok === false) {
       throw new Error(payload?.error || `伺服器回應 HTTP ${response.status}`);
     }
@@ -52,42 +41,29 @@
     }
   }
   async function publicConfig() {
-    const response = await fetch(`${API_URL}?action=public_config`, { cache: "no-store", mode: "cors" });
+    const response = await fetch(`${API_URL}?action=public_config`, { cache: "no-store", credentials: "same-origin" });
     const payload = await jsonResponse(response);
-    googleClientId = String(payload.google_client_id || "");
-    return googleClientId;
+    return String(payload.data?.google_client_id || "");
   }
   async function authMe() {
-    if (!getToken()) { authUser = null; return null; }
     try {
-      const response = await fetch(`${API_URL}?action=auth_me`, { cache: "no-store", mode: "cors", headers: authHeaders() });
+      const response = await fetch(`${API_URL}?action=auth_me`, { cache: "no-store", credentials: "same-origin" });
       const payload = await jsonResponse(response);
-      authUser = payload.user || null;
-    } catch (_) { authUser = null; }
+      authUser = payload.logged_in ? payload.data || null : null;
+    } catch (error) { authUser = null; throw error; }
     refreshAuthUI();
-    return authUser;
-  }
-  async function onGoogleCredential(response) {
-    const credential = String(response?.credential || "");
-    if (!credential) throw new Error("Google 未回傳登入憑證");
-    const http = await fetch(`${API_URL}?action=auth_google`, {
-      method: "POST", mode: "cors", cache: "no-store", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: credential }),
-    });
-    const payload = await jsonResponse(http);
-    setToken(String(payload.token || ""));
-    authUser = payload.user || null;
-    refreshAuthUI();
-    status(`已登入：${authUser?.name || authUser?.email || "Google 使用者"}`);
     return authUser;
   }
   async function logout() {
-    const token = getToken();
-    if (token) {
-      try { await fetch(`${API_URL}?action=auth_logout`, { method: "POST", mode: "cors", cache: "no-store", headers: authHeaders() }); } catch (_) {}
-    }
-    setToken(""); authUser = null;     refreshAuthUI();
-    status("已登出 Google 帳號。");
+    const response = await fetch(`${API_URL}?action=auth_logout`, {
+      method: "POST", cache: "no-store", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: "{}",
+    });
+    await jsonResponse(response);
+    previewCache.clear();
+    authUser = null;
+    refreshAuthUI();
+    status("已登出協會會員帳號。");
   }
 
   function normalizeFileName(value, fallback = "") {
@@ -102,7 +78,7 @@
     return `5db-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
   }
   async function saveCurrent(fileName = "") {
-    if (!authUser) throw new Error("請先登入 Google 帳號");
+    if (!authUser) throw new Error("請先登入協會會員帳號");
     const record = global.VCFWorkbenchRecord;
     if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
     const doc = record.export5DBDocument();
@@ -114,29 +90,29 @@
     const name = normalizeFileName(fileName, defaultFileName());
     const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "" });
     const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
-      method: "POST", cache: "no-store",
-      headers: authHeaders({ "Content-Type": "application/octet-stream", "X-5DB-Preview": thumbnail }),
+      method: "POST", cache: "no-store", credentials: "same-origin",
+      headers: { "Content-Type": "application/octet-stream", "X-5DB-Preview": thumbnail },
       body: bytes,
     });
     const saved = await jsonResponse(response);
     return { ...saved, recordCount: info.nodeCount, compressedSize: bytes.length, annotationCount: info.markCount };
   }
   async function list() {
-    if (!authUser) throw new Error("請先登入 Google 帳號");
+    if (!authUser) throw new Error("請先登入協會會員帳號");
     const response = await cloudFetch(`${FIVE_DB_API_URL}?action=list`, {
-      cache: "no-store", headers: authHeaders(),
+      cache: "no-store", credentials: "same-origin",
     });
     return (await jsonResponse(response)).records || [];
   }
   async function fetchRecord(id) {
-    if (!authUser) throw new Error("請先登入 Google 帳號");
+    if (!authUser) throw new Error("請先登入協會會員帳號");
     const recordId = Number(id);
     if (!Number.isSafeInteger(recordId) || recordId < 1) throw new Error("棋譜編號無效");
     const response = await cloudFetch(`${FIVE_DB_API_URL}?action=get&id=${recordId}`, {
-      cache: "no-store", headers: authHeaders(),
+      cache: "no-store", credentials: "same-origin",
     });
     if (!response.ok) {
-      if (response.status === 401) { setToken(""); authUser = null; refreshAuthUI(); }
+      if (response.status === 401) { authUser = null; refreshAuthUI(); }
       const payload = await response.json().catch(() => null);
       throw new Error(payload?.error || `HTTP ${response.status}`);
     }
@@ -154,11 +130,11 @@
     };
   }
   async function remove(id) {
-    if (!authUser) throw new Error("請先登入 Google 帳號");
+    if (!authUser) throw new Error("請先登入協會會員帳號");
     const recordId = Number(id);
     if (!Number.isSafeInteger(recordId) || recordId < 1) throw new Error("棋譜編號無效");
     const response = await cloudFetch(`${FIVE_DB_API_URL}?action=delete&id=${recordId}`, {
-      method: "POST", cache: "no-store", headers: authHeaders(),
+      method: "POST", cache: "no-store", credentials: "same-origin",
     });
     return jsonResponse(response);
   }
@@ -187,7 +163,8 @@
     style.textContent = `
       #vcf-account-actions #bb-cloud-auth{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;padding:0}
       #bb-cloud-user{font-size:12px;color:#4f5d50}.bb-cloud-btn{min-height:36px;padding:7px 10px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}.bb-cloud-btn:disabled{opacity:.5;cursor:not-allowed}
-      #vcf-google-login{min-height:36px}#vcf-cloud-dialog,#vcf-account-admin-dialog{width:min(760px,calc(100vw - 24px));max-height:min(78vh,720px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop,#vcf-account-admin-dialog::backdrop{background:rgb(0 0 0 / 35%)}
+      #vcf-cloud-dialog,#vcf-shared-login-dialog{width:min(760px,calc(100vw - 24px));max-height:min(86vh,850px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop,#vcf-shared-login-dialog::backdrop{background:rgb(0 0 0 / 35%)}
+      #vcf-shared-login-dialog{width:min(540px,calc(100vw - 24px))}#vcf-shared-login-dialog iframe{display:block;width:100%;height:min(570px,65vh);border:0;background:#f7f4ed}#vcf-shared-login-dialog .vcf-login-help{margin:0;color:#6b6559;font-size:12px;line-height:1.6}#vcf-shared-login-dialog .vcf-login-help a{margin-left:3px;color:#246e47}
       .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
     `;
     document.head.appendChild(style);
@@ -199,113 +176,36 @@
     dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-list></div></div>';
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close()); document.body.appendChild(dialog); return dialog;
   }
-  async function adminRequest(action, body = null) {
-    if (!isAdminUser(authUser)) throw new Error("此帳號沒有管理員權限");
-    const options = { cache: "no-store", mode: "cors", headers: authHeaders() };
-    if (body !== null) {
-      options.method = "POST";
-      options.headers = authHeaders({ "Content-Type": "application/json" });
-      options.body = JSON.stringify(body);
-    }
-    const response = await fetch(`${API_URL}?action=${encodeURIComponent(action)}`, options);
-    return jsonResponse(response);
-  }
-  async function listUsers() {
-    const payload = await adminRequest("admin_users");
-    return Array.isArray(payload.users) ? payload.users : [];
-  }
-  async function setUserStatus(userId, enabled) {
-    return adminRequest("admin_user_status", { user_id: Number(userId), enabled: Boolean(enabled) });
-  }
-  async function setUserRole(userId, role) {
-    const normalized = role === "admin" ? "admin" : "user";
-    return adminRequest("admin_user_role", { user_id: Number(userId), role: normalized });
-  }
-  async function deleteUser(userId) {
-    return adminRequest("admin_user_delete", { user_id: Number(userId) });
-  }
-  function ensureAdminDialog() {
-    let dialog = document.getElementById("vcf-account-admin-dialog");
+  function ensureLoginDialog() {
+    let dialog = document.getElementById("vcf-shared-login-dialog");
     if (dialog) return dialog;
     dialog = document.createElement("dialog");
-    dialog.id = "vcf-account-admin-dialog";
-    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>管理帳號</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-admin-list></div></div>';
+    dialog.id = "vcf-shared-login-dialog";
+    dialog.innerHTML = `<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>協會會員登入</h3><button type="button" data-close aria-label="關閉">×</button></div><iframe title="瑞士制共用會員登入" src="${SCHED_LOGIN_PAGE}" allow="identity-credentials-get"></iframe><p class="vcf-login-help">登入後，BD1 將自動使用相同會員。若 Google 登入視窗受瀏覽器限制，也可<a href="${SCHED_LOGIN_PAGE}" target="_blank" rel="noopener">開啟獨立登入頁</a>。</p></div>`;
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+    dialog.addEventListener("close", () => {
+      if (loginPollTimer) clearInterval(loginPollTimer);
+      loginPollTimer = null;
+      void authMe().catch(() => {});
+    });
     document.body.appendChild(dialog);
     return dialog;
   }
-  async function refreshAdminDialog(dialog) {
-    const container = dialog.querySelector("[data-admin-list]");
-    container.innerHTML = '<div class="vcf-cloud-empty">正在讀取帳號……</div>';
-    if (!isAdminUser(authUser)) {
-      container.innerHTML = '<div class="vcf-cloud-empty">此帳號沒有管理員權限。</div>';
-      return;
-    }
-    let users;
-    try {
-      users = await listUsers();
-    } catch (error) {
-      container.innerHTML = '<div class="vcf-cloud-empty"></div>';
-      container.firstElementChild.textContent = error?.message || String(error);
-      return;
-    }
-    container.replaceChildren();
-    if (!users.length) {
-      container.innerHTML = '<div class="vcf-cloud-empty">目前沒有帳號資料。</div>';
-      return;
-    }
-    for (const account of users) {
-      const row = document.createElement("div");
-      row.className = "vcf-cloud-row";
-
-      const info = document.createElement("div");
-      const title = document.createElement("div");
-      title.className = "vcf-cloud-title";
-      title.textContent = account.name || account.email || `帳號 #${account.id}`;
-      const meta = document.createElement("div");
-      meta.className = "vcf-cloud-meta";
-      const roleText = account.role === "admin" ? "管理員" : "一般使用者";
-      const stateText = account.enabled === false || Number(account.enabled) === 0 ? "已停用" : "啟用";
-      meta.textContent = `${account.email || ""} · ${roleText} · ${stateText}${account.last_login_at ? ` · 最後登入 ${account.last_login_at}` : ""}`;
-      info.append(title, meta);
-
-      const actions = document.createElement("div");
-      actions.className = "vcf-cloud-actions";
-      const isOwner = String(account.email || "").trim().toLowerCase() === ADMIN_EMAIL;
-
-      const statusButton = document.createElement("button");
-      const enabled = !(account.enabled === false || Number(account.enabled) === 0);
-      statusButton.textContent = enabled ? "停用" : "啟用";
-      statusButton.disabled = isOwner;
-      statusButton.addEventListener("click", async () => {
-        statusButton.disabled = true;
-        try { await setUserStatus(account.id, !enabled); await refreshAdminDialog(dialog); }
-        catch (e) { status(e.message || String(e)); statusButton.disabled = false; }
-      });
-
-      const roleButton = document.createElement("button");
-      roleButton.textContent = account.role === "admin" ? "改為一般使用者" : "設為管理員";
-      roleButton.disabled = isOwner;
-      roleButton.addEventListener("click", async () => {
-        roleButton.disabled = true;
-        try { await setUserRole(account.id, account.role === "admin" ? "user" : "admin"); await refreshAdminDialog(dialog); }
-        catch (e) { status(e.message || String(e)); roleButton.disabled = false; }
-      });
-
-      const deleteButton = document.createElement("button");
-      deleteButton.textContent = "刪除";
-      deleteButton.disabled = isOwner;
-      deleteButton.addEventListener("click", async () => {
-        if (!confirm(`確定刪除「${account.email || account.name || account.id}」？該帳號的登入資料與雲端棋譜將依後端政策處理。`)) return;
-        deleteButton.disabled = true;
-        try { await deleteUser(account.id); await refreshAdminDialog(dialog); }
-        catch (e) { status(e.message || String(e)); deleteButton.disabled = false; }
-      });
-
-      actions.append(statusButton, roleButton, deleteButton);
-      row.append(info, actions);
-      container.appendChild(row);
-    }
+  function openSharedLogin() {
+    const dialog = ensureLoginDialog();
+    if (!dialog.open) dialog.showModal();
+    if (loginPollTimer) clearInterval(loginPollTimer);
+    loginPollTimer = setInterval(async () => {
+      if (!dialog.open) return;
+      try {
+        const user = await authMe();
+        if (user) {
+          previewCache.clear();
+          dialog.close();
+          status(`已登入：${user.name || user.email || "協會會員"}`);
+        }
+      } catch (_) {}
+    }, 1500);
   }
 
   function parsePreview(value) {
@@ -386,7 +286,7 @@
     }
     if (generation !== previewGeneration) return;
     container.replaceChildren();
-    if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">這個 Google 帳號目前沒有雲端棋譜。</div>'; return; }
+    if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">這個會員帳號目前沒有雲端棋譜。</div>'; return; }
     const missingPreviews = [];
     for (const record of records) {
       const row = document.createElement("div"); row.className = "vcf-cloud-row";
@@ -447,25 +347,17 @@
     }
   }
   function refreshAuthUI() {
-    const login = document.getElementById("vcf-google-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
+    const login = document.getElementById("vcf-shared-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
     const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open"), adminButton = document.getElementById("bb-cloud-admin");
     if (user) user.textContent = authUser ? `${authUser.name || authUser.email}${isAdminUser(authUser) ? "｜管理員" : ""}` : "未登入";
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
       saveButton.disabled = !authUser || !global.VCFWorkbenchRecord?.workspace?.()?.mode;
-      saveButton.title = "將完整 5DB 1.0 棋譜儲存到目前登入的 Google 帳號";
+      saveButton.title = "將完整 5DB 1.0 棋譜儲存到目前登入的協會會員帳號";
     }
     if (openButton) { openButton.disabled = !authUser; openButton.title = "查看此帳號的 5DB 1.0 棋譜"; }
     if (adminButton) adminButton.hidden = !isAdminUser(authUser);
-  }
-  function renderGoogleButton() {
-    const target = document.getElementById("vcf-google-login");
-    if (!target || authUser || !googleClientId || !global.google?.accounts?.id) return false;
-    target.replaceChildren();
-    global.google.accounts.id.initialize({ client_id: googleClientId, callback: credential => onGoogleCredential(credential).catch(e => status(e.message || String(e))) });
-    global.google.accounts.id.renderButton(target, { theme: "outline", size: "medium", text: "signin_with", shape: "rectangular" });
-    return true;
   }
   function installUI() {
     const panel = document.getElementById("bitboard-architecture-panel");
@@ -474,13 +366,14 @@
     injectStyle();
     const exportStatus = panel.querySelector("#bb-export-status");
     const auth = document.createElement("div"); auth.id = "bb-cloud-auth";
-    auth.innerHTML = '<div id="vcf-google-login"></div><span id="bb-cloud-user"></span><button id="bb-cloud-admin" class="bb-cloud-btn" type="button" hidden>管理帳號</button><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
+    auth.innerHTML = '<button id="vcf-shared-login" class="bb-cloud-btn" type="button">登入</button><span id="bb-cloud-user"></span><button id="bb-cloud-admin" class="bb-cloud-btn" type="button" hidden>會員管理</button><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
     const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
     const adminButton = auth.querySelector("#bb-cloud-admin");
     accountSlot.appendChild(auth);
     panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null);
-    auth.querySelector("#bb-cloud-logout").addEventListener("click", () => logout());
+    auth.querySelector("#vcf-shared-login").addEventListener("click", openSharedLogin);
+    auth.querySelector("#bb-cloud-logout").addEventListener("click", () => { void logout().catch(e => status(e.message || String(e))); });
     saveButton.addEventListener("click", async () => {
       saveButton.disabled = true; status("正在建立雲端棋譜及標記……");
       try {
@@ -491,13 +384,13 @@
       } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
     openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
-    adminButton.addEventListener("click", () => { if (!isAdminUser(authUser)) return; const dialog = ensureAdminDialog(); dialog.showModal(); refreshAdminDialog(dialog); });
+    adminButton.addEventListener("click", () => { if (isAdminUser(authUser)) global.open("/Sched/admin.html", "_blank", "noopener"); });
     refreshAuthUI(); return true;
   }
 
   const api = {
-    API_URL, FIVE_DB_API_URL, ADMIN_EMAIL, isAdminUser,
-    publicConfig, authMe, onGoogleCredential, logout, saveCurrent, list, load, remove, listUsers, setUserStatus, setUserRole, deleteUser,
+    API_URL, FIVE_DB_API_URL, isAdminUser,
+    publicConfig, authMe, logout, saveCurrent, list, load, remove,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
@@ -507,6 +400,9 @@
 
   installUI();
   global.addEventListener("vcf-workspace-mode-changed", refreshAuthUI);
-  Promise.all([publicConfig(), authMe()]).then(() => { refreshAuthUI(); renderGoogleButton(); }).catch(e => status(e.message || String(e)));
-  global.addEventListener("load", () => { renderGoogleButton(); }, { once: true });
+  authMe().catch(e => status(e.message || String(e)));
+  global.addEventListener("focus", () => { void authMe().catch(() => {}); });
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) void authMe().catch(() => {});
+  });
 })(typeof window !== "undefined" ? window : globalThis);
