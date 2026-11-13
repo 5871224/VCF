@@ -42,9 +42,12 @@ has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "contro
  "global.FiveDB?.decode?.(bytes)", "makeBoardThumbnail(snapshot)", "IntersectionObserver", "previewCache",
   "X-5DB-Preview", 'cloud-\${id}.5db',
  'file_name: name', "record.export5DBDocument()", '檔案名稱（不影響棋譜標題）',
- "auth_me","/Sched/api/index.php","/Sched/rank-auth.html","credentials: \"same-origin\""]);
+ "auth_me","/Sched/api/index.php","credentials: \"same-origin\"",
+ "sched-email-auth-heading","auth_email_login","auth_email_register","auth_email_forgot",
+ "global.google.accounts.id.renderButton", "auth_google", "postLoginAction("]);
 lacks("cloud",["VCFCloudYXDB","createLZ4Frame","vcf_google_auth_token_v1",
- "admin_user_delete","admin_user_role","admin_user_status","action=auth_google"]);
+ "admin_user_delete","admin_user_role","admin_user_status","bb-cloud-admin",
+ "/Sched/rank-auth.html", "<iframe", "loginPollTimer"]);
 has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT", "HTTP_X_5DB_PREVIEW", "file_name' => $fileName",
   "sched_site_auth","AuthTokenService.php","authCurrentUser(","flock(","storage5(","DOCUMENT_ROOT", "publicRoot", "privateBase",
   "realpath(","FILTER_VALIDATE_EMAIL","LOCK_EX","action === 'save'","action === 'get'"]);

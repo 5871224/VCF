@@ -3,17 +3,17 @@
 (function initVCFCloud5DB(global) {
   const API_URL = String(global.VCF_CLOUD_API_URL || "/Sched/api/index.php");
   const FIVE_DB_API_URL = String(global.VCF_5DB_API_URL || "/BD1/api/5db.php");
-  const SCHED_LOGIN_PAGE = "/Sched/rank-auth.html";
 
   let authUser = null;
-  let loginPollTimer = null;
+  let googleClientId = "";
+  let googleScriptPromise = null;
+  let googleButtonRendered = false;
+  let googleUnavailable = false;
+  let loginBusy = false;
   const previewCache = new Map();
   let activePreviewObserver = null;
   let previewGeneration = 0;
 
-  function isAdminUser(user) {
-    return user?.permission === "admin";
-  }
   async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
     if (response.status === 401) { authUser = null; refreshAuthUI(); }
@@ -163,8 +163,30 @@
     style.textContent = `
       #vcf-account-actions #bb-cloud-auth{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;padding:0}
       #bb-cloud-user{font-size:12px;color:#4f5d50}.bb-cloud-btn{min-height:36px;padding:7px 10px;border:1px solid #39744c;border-radius:6px;background:#fff;color:#19512d;font:inherit;font-size:13px;cursor:pointer}.bb-cloud-btn:disabled{opacity:.5;cursor:not-allowed}
-      #vcf-cloud-dialog,#vcf-shared-login-dialog{width:min(760px,calc(100vw - 24px));max-height:min(86vh,850px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop,#vcf-shared-login-dialog::backdrop{background:rgb(0 0 0 / 35%)}
-      #vcf-shared-login-dialog{width:min(540px,calc(100vw - 24px))}#vcf-shared-login-dialog iframe{display:block;width:100%;height:min(570px,65vh);border:0;background:#f7f4ed}#vcf-shared-login-dialog .vcf-login-help{margin:0;color:#6b6559;font-size:12px;line-height:1.6}#vcf-shared-login-dialog .vcf-login-help a{margin-left:3px;color:#246e47}
+      #vcf-cloud-dialog{width:min(760px,calc(100vw - 24px));max-height:min(86vh,850px);border:1px solid #b9b09c;border-radius:12px;padding:0;box-shadow:0 16px 60px rgb(0 0 0 / 25%)}#vcf-cloud-dialog::backdrop{background:rgb(0 0 0 / 35%)}
+      #vcf-shared-login-dialog{box-sizing:border-box;width:min(420px,calc(100vw - 32px));max-height:calc(100dvh - 32px);overflow-y:auto;padding:25px;border:0;border-radius:16px;background:#eee6de;color:#4f4339;box-shadow:0 28px 70px rgba(79,67,57,.24);font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif}
+      #vcf-shared-login-dialog::backdrop{background:rgba(79,67,57,.55)}
+      #vcf-shared-login-dialog [hidden]{display:none!important}
+      #vcf-shared-login-dialog .sched-email-auth-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}
+      #vcf-shared-login-dialog .sched-email-auth-heading h2{margin:0;color:#4f4339;font-size:23px}
+      #vcf-shared-login-dialog .sched-email-auth-close{width:34px;height:34px;border:0;padding:0;background:transparent;color:#817367;font-size:28px;cursor:pointer}
+      #vcf-shared-login-dialog .sched-email-auth-choices{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:12px;padding-top:22px}
+      #vcf-shared-login-dialog .sched-email-auth-google{display:flex;align-items:center;width:90px;height:32px}
+      #vcf-shared-login-dialog .sched-email-auth-google-button{display:flex;align-items:center;justify-content:center;width:90px;height:32px;overflow:hidden}
+      #vcf-shared-login-dialog .sched-email-auth-email-choice{box-sizing:border-box;width:90px;height:32px;padding:0 7px;border:1px solid #cdbba8;border-radius:5px;background:#eee6de;color:#4f4339;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+      #vcf-shared-login-dialog .sched-email-auth-email-choice:hover,#vcf-shared-login-dialog .sched-email-auth-email-choice[aria-expanded="true"]{background:rgba(217,201,184,.42)}
+      #vcf-shared-login-dialog .sched-email-auth-email-choice:focus-visible{outline:2px solid #725b48;outline-offset:2px}
+      #vcf-shared-login-dialog .sched-email-auth-form{margin-top:20px}
+      #vcf-shared-login-dialog .sched-email-auth-form label{display:block;margin:12px 0;color:#5f5044;font-size:14px;font-weight:600}
+      #vcf-shared-login-dialog .sched-email-auth-form input{display:block;box-sizing:border-box;width:100%;min-height:38px;margin-top:6px;padding:8px 10px;border:1px solid #cdbba8;border-radius:10px;background:#f8f4ef;color:#4f4339;font:inherit;font-size:16px;outline:none}
+      #vcf-shared-login-dialog .sched-email-auth-form input:focus{border-color:#a88d74;background:#fffaf6;box-shadow:0 0 0 4px rgba(168,141,116,.22)}
+      #vcf-shared-login-dialog .sched-email-auth-submit{width:100%;margin-top:12px;padding:12px;border:0;border-radius:9px;background:#725b48;color:#fff;font-size:16px;font-weight:700;cursor:pointer}
+      #vcf-shared-login-dialog .sched-email-auth-submit:disabled{opacity:.55;cursor:wait}
+      #vcf-shared-login-dialog .sched-email-auth-google-help{margin:8px 0 0;color:#817367;text-align:center;font-size:13px;line-height:1.6}
+      #vcf-shared-login-dialog .sched-email-auth-error{color:#d92d20;font-size:14px}
+      #vcf-shared-login-dialog .sched-email-auth-notice{line-height:1.7}
+      #vcf-shared-login-dialog .sched-email-auth-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:20px}
+      #vcf-shared-login-dialog .sched-email-auth-actions button{border:0;background:transparent;padding:4px;color:#725b48;font:inherit;cursor:pointer}
       .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
     `;
     document.head.appendChild(style);
@@ -181,31 +203,180 @@
     if (dialog) return dialog;
     dialog = document.createElement("dialog");
     dialog.id = "vcf-shared-login-dialog";
-    dialog.innerHTML = `<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>協會會員登入</h3><button type="button" data-close aria-label="關閉">×</button></div><iframe title="瑞士制共用會員登入" src="${SCHED_LOGIN_PAGE}" allow="identity-credentials-get"></iframe><p class="vcf-login-help">登入後，BD1 將自動使用相同會員。若 Google 登入視窗受瀏覽器限制，也可<a href="${SCHED_LOGIN_PAGE}" target="_blank" rel="noopener">開啟獨立登入頁</a>。</p></div>`;
-    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+    // 與 Sched EmailAuthDialog 使用相同的欄位、模式和樣式；直接在 BD1
+    // 顯示一層登入視窗，不再將另一整頁放進 iframe。
+    dialog.innerHTML = `
+      <div class="sched-email-auth-heading"><h2 data-title>登入</h2><button type="button" class="sched-email-auth-close" data-close aria-label="關閉">×</button></div>
+      <div class="sched-email-auth-choices" data-choices>
+        <div class="sched-email-auth-google" data-google-wrap><div class="sched-email-auth-google-button" data-google aria-label="Google 登入"></div></div>
+        <button type="button" class="sched-email-auth-email-choice" data-email-choice aria-expanded="false">Email 登入</button>
+      </div>
+      <p class="sched-email-auth-google-help" data-google-error role="status" hidden>Google 登入暫時無法載入，請改用 Email 登入，或重新整理頁面。</p>
+      <form class="sched-email-auth-form" data-form hidden>
+        <label data-name-row hidden>姓名<input name="name" type="text" autocomplete="name" maxlength="100" required disabled></label>
+        <label data-email-row>Email<input name="email" type="email" autocomplete="email" maxlength="255" required></label>
+        <label data-password-row>密碼<input name="password" type="password" autocomplete="current-password" required></label>
+        <p class="sched-email-auth-error" data-error role="alert" hidden></p>
+        <button class="sched-email-auth-submit" data-submit type="submit">登入</button>
+      </form>
+      <div class="sched-email-auth-notice" data-notice role="status" hidden></div>
+      <p class="sched-email-auth-error" data-choice-error role="alert" hidden></p>
+      <nav class="sched-email-auth-actions" data-actions hidden>
+        <button type="button" data-register>註冊 Email 帳號</button>
+        <button type="button" data-forgot>忘記密碼？</button>
+        <button type="button" data-back hidden>返回 Email 登入</button>
+      </nav>`;
+    dialog.querySelector("[data-close]").addEventListener("click", () => { if (!loginBusy) dialog.close(); });
+    dialog.querySelector("[data-email-choice]").addEventListener("click", () => {
+      changeLoginMode(dialog, dialog.dataset.mode === "login" ? "choose" : "login");
+    });
+    dialog.querySelector("[data-register]").addEventListener("click", () => changeLoginMode(dialog, "register"));
+    dialog.querySelector("[data-forgot]").addEventListener("click", () => changeLoginMode(dialog, "forgot"));
+    dialog.querySelector("[data-back]").addEventListener("click", () => changeLoginMode(dialog, "login"));
+    dialog.querySelector("[data-form]").addEventListener("submit", event => { event.preventDefault(); void submitLoginForm(dialog); });
+    dialog.addEventListener("cancel", event => { if (loginBusy) event.preventDefault(); });
     dialog.addEventListener("close", () => {
-      if (loginPollTimer) clearInterval(loginPollTimer);
-      loginPollTimer = null;
+      dialog.querySelector('[name="password"]').value = "";
       void authMe().catch(() => {});
     });
     document.body.appendChild(dialog);
+    changeLoginMode(dialog, "choose");
     return dialog;
+  }
+  function changeLoginMode(dialog, mode) {
+    dialog.dataset.mode = mode;
+    const titles = { choose: "登入", login: "登入", register: "Email 註冊", forgot: "忘記密碼", reset: "設定新密碼", notice: "信箱通知" };
+    const labels = { login: "登入", register: "註冊並寄送驗證信", forgot: "寄送重設密碼連結", reset: "重設密碼" };
+    const form = dialog.querySelector("[data-form]");
+    const isForm = ["login", "register", "forgot", "reset"].includes(mode);
+    dialog.querySelector("[data-title]").textContent = titles[mode] || "Email 登入";
+    dialog.querySelector("[data-choices]").hidden = mode !== "choose" && mode !== "login";
+    dialog.querySelector("[data-email-choice]").setAttribute("aria-expanded", String(mode === "login"));
+    form.hidden = !isForm;
+    const nameRow = dialog.querySelector("[data-name-row]");
+    const emailRow = dialog.querySelector("[data-email-row]");
+    const passwordRow = dialog.querySelector("[data-password-row]");
+    nameRow.hidden = mode !== "register";
+    emailRow.hidden = mode === "reset";
+    passwordRow.hidden = mode === "forgot";
+    nameRow.querySelector("input").disabled = nameRow.hidden;
+    emailRow.querySelector("input").disabled = emailRow.hidden;
+    passwordRow.querySelector("input").disabled = passwordRow.hidden;
+    passwordRow.firstChild.textContent = mode === "login" ? "密碼" : "新密碼（至少 6 個字元）";
+    const password = passwordRow.querySelector("input");
+    password.value = "";
+    password.minLength = mode === "login" ? 0 : 6;
+    password.autocomplete = mode === "login" ? "current-password" : "new-password";
+    dialog.querySelector("[data-submit]").textContent = labels[mode] || "送出";
+    dialog.querySelector("[data-notice]").hidden = mode !== "notice";
+    dialog.querySelector("[data-actions]").hidden = mode === "choose";
+    dialog.querySelector("[data-register]").hidden = mode !== "login";
+    dialog.querySelector("[data-forgot]").hidden = mode !== "login";
+    dialog.querySelector("[data-back]").hidden = mode === "login";
+    showLoginError(dialog, "");
+  }
+  function showLoginError(dialog, message) {
+    for (const selector of ["[data-error]", "[data-choice-error]"]) {
+      const node = dialog.querySelector(selector);
+      node.textContent = message;
+      node.hidden = !message || (selector === "[data-error]" ? dialog.querySelector("[data-form]").hidden : !dialog.querySelector("[data-form]").hidden);
+    }
+  }
+  function setLoginBusy(dialog, busy) {
+    loginBusy = busy;
+    dialog.querySelector("[data-submit]").disabled = busy;
+    dialog.querySelector("[data-submit]").textContent = busy ? "處理中…" : ({ login: "登入", register: "註冊並寄送驗證信", forgot: "寄送重設密碼連結", reset: "重設密碼" }[dialog.dataset.mode] || "送出");
+  }
+  async function postLoginAction(action, data) {
+    const response = await cloudFetch(`${API_URL}?action=${action}`, {
+      method: "POST", cache: "no-store", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+    });
+    return jsonResponse(response);
+  }
+  async function finishLogin(dialog) {
+    const user = await authMe();
+    if (!user) throw new Error("登入成功，但尚未取得會員資料，請重新登入");
+    previewCache.clear();
+    dialog.close();
+    status(`已登入：${user.name || user.email || "協會會員"}`);
+  }
+  async function submitLoginForm(dialog) {
+    if (loginBusy) return;
+    const mode = dialog.dataset.mode;
+    const action = { login: "auth_email_login", register: "auth_email_register", forgot: "auth_email_forgot", reset: "auth_email_reset" }[mode];
+    if (!action) return;
+    showLoginError(dialog, "");
+    setLoginBusy(dialog, true);
+    const form = dialog.querySelector("[data-form]");
+    const data = {
+      email: form.elements.email.value.trim(),
+      name: form.elements.name.value.trim(),
+      password: form.elements.password.value,
+    };
+    try {
+      const result = await postLoginAction(action, data);
+      if (mode === "login") await finishLogin(dialog);
+      else {
+        changeLoginMode(dialog, "notice");
+        dialog.querySelector("[data-notice]").textContent = result.data?.message || "完成";
+      }
+    } catch (error) { showLoginError(dialog, error.message || "登入失敗"); }
+    finally { setLoginBusy(dialog, false); }
+  }
+  async function onGoogleCredential(response) {
+    const dialog = ensureLoginDialog();
+    if (loginBusy || !response?.credential) return;
+    showLoginError(dialog, "");
+    setLoginBusy(dialog, true);
+    try {
+      await postLoginAction("auth_google", { id_token: response.credential });
+      await finishLogin(dialog);
+    } catch (error) { showLoginError(dialog, error.message || "Google 登入失敗"); }
+    finally { setLoginBusy(dialog, false); }
+  }
+  function loadGoogleScript() {
+    if (global.google?.accounts?.id) return Promise.resolve();
+    if (!googleScriptPromise) {
+      googleScriptPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Google 登入元件載入失敗"));
+        document.head.appendChild(script);
+      }).catch(error => { googleScriptPromise = null; throw error; });
+    }
+    return googleScriptPromise;
+  }
+  function renderGoogleButton(dialog) {
+    if (googleButtonRendered || !googleClientId || !global.google?.accounts?.id) return;
+    const target = dialog.querySelector("[data-google]");
+    global.google.accounts.id.initialize({ client_id: googleClientId, callback: onGoogleCredential });
+    global.google.accounts.id.renderButton(target, { type: "standard", size: "medium", text: "signin", shape: "rectangular", width: 90 });
+    googleButtonRendered = true;
+  }
+  async function prepareGoogleLogin() {
+    try {
+      googleClientId = await publicConfig();
+      if (!googleClientId) throw new Error("Google 登入尚未設定");
+      await loadGoogleScript();
+      googleUnavailable = false;
+    } catch (_) { googleUnavailable = true; }
+    const dialog = document.getElementById("vcf-shared-login-dialog");
+    if (dialog) {
+      dialog.querySelector("[data-google-error]").hidden = !googleUnavailable;
+      dialog.querySelector("[data-google-wrap]").hidden = !googleClientId;
+      if (dialog.open) renderGoogleButton(dialog);
+    }
   }
   function openSharedLogin() {
     const dialog = ensureLoginDialog();
+    changeLoginMode(dialog, "choose");
+    dialog.querySelector("[data-google-error]").hidden = !googleUnavailable;
+    dialog.querySelector("[data-google-wrap]").hidden = !googleClientId;
     if (!dialog.open) dialog.showModal();
-    if (loginPollTimer) clearInterval(loginPollTimer);
-    loginPollTimer = setInterval(async () => {
-      if (!dialog.open) return;
-      try {
-        const user = await authMe();
-        if (user) {
-          previewCache.clear();
-          dialog.close();
-          status(`已登入：${user.name || user.email || "協會會員"}`);
-        }
-      } catch (_) {}
-    }, 1500);
+    renderGoogleButton(dialog);
   }
 
   function parsePreview(value) {
@@ -348,8 +519,8 @@
   }
   function refreshAuthUI() {
     const login = document.getElementById("vcf-shared-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
-    const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open"), adminButton = document.getElementById("bb-cloud-admin");
-    if (user) user.textContent = authUser ? `${authUser.name || authUser.email}${isAdminUser(authUser) ? "｜管理員" : ""}` : "未登入";
+    const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open");
+    if (user) user.textContent = authUser ? (authUser.name || authUser.email) : "未登入";
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
@@ -357,7 +528,6 @@
       saveButton.title = "將完整 5DB 1.0 棋譜儲存到目前登入的協會會員帳號";
     }
     if (openButton) { openButton.disabled = !authUser; openButton.title = "查看此帳號的 5DB 1.0 棋譜"; }
-    if (adminButton) adminButton.hidden = !isAdminUser(authUser);
   }
   function installUI() {
     const panel = document.getElementById("bitboard-architecture-panel");
@@ -366,10 +536,9 @@
     injectStyle();
     const exportStatus = panel.querySelector("#bb-export-status");
     const auth = document.createElement("div"); auth.id = "bb-cloud-auth";
-    auth.innerHTML = '<button id="vcf-shared-login" class="bb-cloud-btn" type="button">登入</button><span id="bb-cloud-user"></span><button id="bb-cloud-admin" class="bb-cloud-btn" type="button" hidden>會員管理</button><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
+    auth.innerHTML = '<button id="vcf-shared-login" class="bb-cloud-btn" type="button">登入</button><span id="bb-cloud-user"></span><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
     const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
-    const adminButton = auth.querySelector("#bb-cloud-admin");
     accountSlot.appendChild(auth);
     panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null);
     auth.querySelector("#vcf-shared-login").addEventListener("click", openSharedLogin);
@@ -384,12 +553,13 @@
       } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
     openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
-    adminButton.addEventListener("click", () => { if (isAdminUser(authUser)) global.open("/Sched/admin.html", "_blank", "noopener"); });
-    refreshAuthUI(); return true;
+    refreshAuthUI();
+    void prepareGoogleLogin();
+    return true;
   }
 
   const api = {
-    API_URL, FIVE_DB_API_URL, isAdminUser,
+    API_URL, FIVE_DB_API_URL,
     publicConfig, authMe, logout, saveCurrent, list, load, remove,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
