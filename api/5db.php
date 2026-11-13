@@ -35,7 +35,7 @@ function bearer5(): string {
     return $m[1];
 }
 function authenticate5(string $token): string {
-    $url = 'https://587.renju.org.tw/BD/api/yxdb.php?action=auth_me';
+    $url = 'https://www.renju.org.tw/BD/api/yxdb.php?action=auth_me';
     $content = false;
     if (function_exists('curl_init')) {
         $ch = curl_init($url);

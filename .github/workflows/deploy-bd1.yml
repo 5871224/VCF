@@ -51,7 +51,7 @@ jobs:
           remote_status="$(mktemp)"
           if curl -k -fsSL --retry 2 \
               -H 'Cache-Control: no-cache' \
-              "https://587.renju.org.tw/BD1/deployment.json?check=$VCF_SHA" \
+              "https://www.renju.org.tw/BD1/deployment.json?check=$VCF_SHA" \
               -o "$remote_status"; then
             deployed_sha="$(jq -r '.revision // empty' "$remote_status" 2>/dev/null || true)"
           fi
@@ -374,7 +374,7 @@ jobs:
             remote="$(mktemp)"
             curl -k -fLsS --retry 3 \
               -H 'Cache-Control: no-cache' \
-              "https://587.renju.org.tw/BD1/$rel?sync_verify=$VCF_SHA" \
+              "https://www.renju.org.tw/BD1/$rel?sync_verify=$VCF_SHA" \
               -o "$remote"
             local_sha="$(sha256sum "_site/$rel" | awk '{print $1}')"
             remote_sha="$(sha256sum "$remote" | awk '{print $1}')"
@@ -400,7 +400,7 @@ jobs:
           api_status="$(curl -k -sS --retry 2 --max-time 15 \
             -H 'Cache-Control: no-cache' \
             -o "$api_body" -w '%{http_code}' \
-            "https://587.renju.org.tw/BD1/api/5db.php?action=list&sync_verify=$VCF_SHA")"
+            "https://www.renju.org.tw/BD1/api/5db.php?action=list&sync_verify=$VCF_SHA")"
           echo "5DB cloud endpoint HTTP $api_status"
           test "$api_status" = '401'
           jq -e '.ok == false and (.error | type == "string")' "$api_body" >/dev/null
@@ -409,7 +409,7 @@ jobs:
           marker="$(mktemp)"
           curl -k -fLsS --retry 3 \
             -H 'Cache-Control: no-cache' \
-            "https://587.renju.org.tw/BD1/deployment.json?sync_verify=$VCF_SHA" \
+            "https://www.renju.org.tw/BD1/deployment.json?sync_verify=$VCF_SHA" \
             -o "$marker"
           test "$(jq -r '.revision' "$marker")" = "$VCF_SHA"
           test "$(jq -r '.target' "$marker")" = 'BD1'

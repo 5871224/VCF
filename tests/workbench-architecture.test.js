@@ -59,6 +59,10 @@ has("recordTools",['board.addEventListener("pointerdown"',
   'board.addEventListener("contextmenu"', '!global.PointerEvent || event.pointerType === "touch"']);
 has("srvbuild",['ROOT / "api" / "5db.php"','VCF_5DB_API_URL="/BD1/api/5db.php"']);
 has("deploy",["php -l api/5db.php","test -s _site/api/5db.php","npm run test:architecture"]);
+has("server",["https://www.renju.org.tw/BD/api/yxdb.php?action=auth_me"]);
+has("deploy",["https://www.renju.org.tw/BD1/"]);
+lacks("server",["https://587.renju.org.tw/"]);
+lacks("deploy",["https://587.renju.org.tw/"]);
 assert.ok(files.html.indexOf("棋盤操作") < files.html.indexOf('<h3 class="vcf-section-title">分析'), "board controls must appear first");
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') > files.html.indexOf('id="btn-multi-vcf"'), "playback must follow multi VCF");
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') < files.html.indexOf('id="btn-block-vcf"'), "playback belongs inside multi VCF");
