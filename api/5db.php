@@ -2,8 +2,9 @@
 /**
  * 5DB 1.0 authenticated private storage.
  *
- * Google login / account enablement is verified by the existing YXDB auth_me
- * endpoint. This API never parses legacy YXDB, LIB or VCFDB files.
+ * Identity is verified through the shared Sched HttpOnly login cookie and
+ * AuthTokenService; Google and Email users have the same private storage.
+ * This API never parses legacy YXDB, LIB or VCFDB files.
  * User files live OUTSIDE DOCUMENT_ROOT and never in the deployed _site.
  */
 declare(strict_types=1);
@@ -24,52 +25,34 @@ function reply5(array $data): never {
     echo json_encode(['ok' => true] + $data, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
     exit;
 }
-function bearer5(): string {
-    $value = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
-    if (!$value && function_exists('getallheaders')) {
-        foreach (getallheaders() as $name => $header) {
-            if (strtolower($name) === 'authorization') { $value = (string)$header; break; }
-        }
-    }
-    if (!preg_match('/^Bearer\s+([A-Za-z0-9._~+\/=-]+)$/', trim($value), $m)) fail5('請先登入 Google 帳號', 401);
-    return $m[1];
-}
-function authenticate5(string $token): string {
-    $url = 'https://www.renju.org.tw/BD/api/yxdb.php?action=auth_me';
-    $content = false;
-    if (function_exists('curl_init')) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_CONNECTTIMEOUT => 5,
-            CURLOPT_TIMEOUT => 12,
-            CURLOPT_HTTPHEADER => ['Authorization: Bearer '.$token, 'Accept: application/json'],
-            CURLOPT_FOLLOWLOCATION => false,
-            CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_SSL_VERIFYHOST => 2,
+function authenticate5(): string {
+    if (empty($_COOKIE['sched_site_auth']) && empty($_COOKIE['sched_auth']))
+        fail5('請先登入協會會員帳號', 401);
+
+    // Both applications are deployed under the same website root.
+    $schedApi = realpath(dirname(__DIR__, 2).'/Sched/api');
+    if (!$schedApi || !is_file($schedApi.'/AuthTokenService.php') || !is_file($schedApi.'/config.php'))
+        fail5('共用會員驗證服務尚未部署', 503);
+
+    try {
+        require_once $schedApi.'/AuthTokenService.php';
+        $config = require $schedApi.'/config.php';
+        $db = $config['db'] ?? [];
+        $dsn = sprintf('mysql:host=%s;dbname=%s;charset=%s',
+            $db['host'] ?? '', $db['dbname'] ?? '', $db['charset'] ?? 'utf8mb4');
+        $pdo = new PDO($dsn, (string)($db['user'] ?? ''), (string)($db['pass'] ?? ''), [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
-        $content = curl_exec($ch);
-        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        curl_close($ch);
-    } else {
-        $ctx = stream_context_create(['http' => [
-            'method' => 'GET',
-            'timeout' => 12,
-            'ignore_errors' => true,
-            'header' => "Authorization: Bearer {$token}\r\nAccept: application/json\r\n",
-        ]]);
-        $content = @file_get_contents($url, false, $ctx);
-        $status = 0;
-        foreach (($http_response_header ?? []) as $line) {
-            if (preg_match('~^HTTP/\S+\s+(\d{3})~', $line, $m)) $status = (int)$m[1];
-        }
+        $user = authCurrentUser($pdo, $config);
+    } catch (Throwable $error) {
+        error_log('5DB Sched authentication failed: '.$error->getMessage());
+        fail5('共用會員驗證服務目前無法使用', 503);
     }
-    if ($status === 401 || $status === 403) fail5('登入憑證無效，或帳號已停用', 401);
-    if ($status !== 200 || !is_string($content)) fail5('登入驗證服務目前無法連線', 503);
-    $answer = json_decode($content, true);
-    $email = strtolower(trim((string)($answer['user']['email'] ?? '')));
-    if (($answer['ok'] ?? null) === false || !filter_var($email, FILTER_VALIDATE_EMAIL))
-        fail5('Google 登入驗證失敗', 401);
+    if (!$user) fail5('會員登入已失效，請重新登入', 401);
+    $email = strtolower(trim((string)($user['email'] ?? '')));
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail5('會員帳號缺少有效 Email', 403);
+    // Preserve the existing private directory for users who already saved 5DB.
     return hash('sha256', $email);
 }
 function storage5(): string {
@@ -145,12 +128,19 @@ function positiveId5(): int {
     return (int)$id;
 }
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+$origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
+$expectedOrigin = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ||
+    (strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https')
+    ? 'https://' : 'http://') . (string)($_SERVER['HTTP_HOST'] ?? '');
+if (($origin !== '' && $origin !== $expectedOrigin) ||
+    ($origin === '' && ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '') === 'cross-site'))
+    fail5('不允許的請求來源', 403);
 $action = (string)($_GET['action'] ?? '');
 $method = (string)($_SERVER['REQUEST_METHOD'] ?? '');
 if (!in_array($action, ['list','get','save','delete'], true)) fail5('不支援的 5DB 操作', 404);
 if (($action === 'list' || $action === 'get') && $method !== 'GET') fail5('HTTP 方法錯誤', 405);
 if (($action === 'save' || $action === 'delete') && $method !== 'POST') fail5('HTTP 方法錯誤', 405);
-$user = authenticate5(bearer5());
+$user = authenticate5();
 $dir = userdir5(storage5(), $user);
 $fp = @fopen($dir.DIRECTORY_SEPARATOR.'index.json', 'c+');
 if (!$fp) fail5('雲端索引不可寫入', 503);

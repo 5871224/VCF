@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add server-only Google/YXDB features to an already prepared static VCF site."""
+"""Add shared Sched member login and private 5DB storage to the VCF site."""
 
 from __future__ import annotations
 
@@ -47,7 +47,6 @@ def main() -> None:
     version = revision[:12]
     block = f"""{MARKER}
 <script>window.VCF_CLOUD_API_URL={json.dumps(args.api_url, ensure_ascii=False)};window.VCF_5DB_API_URL="/BD1/api/5db.php";</script>
-<script src="https://accounts.google.com/gsi/client"></script>
 <script src="rapfi/vcf-5db-cloud.js?v={version}"></script>
 """
     index.write_text(html.replace("</body>", block + "\n</body>", 1), encoding="utf-8", newline="\n")

@@ -264,7 +264,7 @@ jobs:
           python tools/prepare-pages-site.py
           python tools/prepare-server-site.py \
             --site _site \
-            --api-url /BD/api/yxdb.php \
+            --api-url /Sched/api/index.php \
             --revision "$VCF_SHA"
 
           test -s _site/index.html

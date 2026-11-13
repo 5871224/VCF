@@ -14,8 +14,8 @@ class Element {
   get textContent() { return this._text || this.children.map(x => x.textContent).join(""); }
   set innerHTML(html) {
     this._html = String(html); this.children = [];
-    if (html.includes('id="vcf-google-login"')) {
-      const login = new Element(); login.id = "vcf-google-login";
+    if (html.includes('id="vcf-shared-login"')) {
+      const login = new Element("button"); login.id = "vcf-shared-login";
       const user = new Element("span"); user.id = "bb-cloud-user";
       const admin = new Element("button"); admin.id = "bb-cloud-admin";
       const logout = new Element("button"); logout.id = "bb-cloud-logout";
@@ -25,6 +25,9 @@ class Element {
       close.attrs["data-close"] = ""; head.append(close);
       const list = new Element(); list.attrs["data-list"] = "";
       this.append(head, list);
+    } else if (html.includes('vcf-login-help')) {
+      const close = new Element("button"); close.attrs["data-close"] = "";
+      this.append(close);
     } else if (html.includes("vcf-cloud-title")) {
       this.append(new Element(), new Element());
     }
@@ -58,6 +61,7 @@ const panel = new Element(); panel.id = "bitboard-architecture-panel";
 const accountSlot = new Element(); accountSlot.id = "vcf-account-actions";
 const document = {
   head: new Element("head"), body: new Element("body"),
+  addEventListener() {},
   createElement: tag => new Element(tag),
   createElementNS: (_ns, tag) => new Element(tag),
   getElementById(id) {
@@ -76,17 +80,12 @@ const documentFor = (title, moves) => {
 const now = documentFor("新版標題", [10]);
 const old = documentFor("舊版標題", [20]);
 const newBoard = FiveDB.preview(now);
-const storage = new Map([["vcf_google_auth_token_v1", "test-token"]]);
-const localStorage = {
-  getItem: k => storage.get(k) || null,
-  setItem: (k,v) => storage.set(k,v),
-  removeItem: k => storage.delete(k),
-};
 let fileGets = 0;
 const fetch = async url => {
   const u = String(url);
-  if (u.includes("public_config")) return { status:200, ok:true, json:async()=>({ok:true}) };
-  if (u.includes("auth_me")) return { status:200, ok:true, json:async()=>({ok:true,user:{email:"example@gmail.com"}}) };
+  if (u.includes("public_config")) return { status:200, ok:true, json:async()=>({ok:true,data:{}}) };
+  if (u.includes("auth_me")) return { status:200, ok:true, json:async()=>({ok:true,logged_in:true,data:{user_id:5,email:"example@gmail.com",permission:"user"}}) };
+  if (u.includes("auth_logout")) return { status:200, ok:true, json:async()=>({ok:true}) };
   if (u.includes("action=list")) return { status:200,ok:true,json:async()=>({ok:true,records:[
     {id:1,file_name:"新棋譜",title:"新版標題",record_count:2,compressed_size:250,preview:`15x15:${newBoard.board}`},
     {id:2,file_name:"舊棋譜",title:"舊版標題",record_count:2,compressed_size:250},
@@ -111,8 +110,8 @@ const window = {
   addEventListener() {}, dispatchEvent() {},
 };
 vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
-  window, document, localStorage, fetch, URLSearchParams, AbortController,
-  setTimeout, clearTimeout, TextEncoder, TextDecoder, Date, Uint8Array, Blob,
+  window, document, fetch, URLSearchParams, AbortController,
+  setTimeout, clearTimeout, setInterval:()=>1, clearInterval:()=>{}, TextEncoder, TextDecoder, Date, Uint8Array, Blob,
   IntersectionObserver: FakeObserver, console,
 }, {filename:"vcf-5db-cloud.js"});
 (async () => {
@@ -123,7 +122,7 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
     "account actions must not remain in the bottom quick-action panel");
   assert.equal(document.getElementById("bb-cloud-admin").hidden, true,
     "non-admin users must not see the management button");
-  assert.equal(document.getElementById("vcf-google-login").hidden, true,
+  assert.equal(document.getElementById("vcf-shared-login").hidden, true,
     "signed-in users must not see login");
   assert.equal(document.getElementById("bb-cloud-logout").hidden, false,
     "signed-in users can sign out in the header");
@@ -147,5 +146,13 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
   assert.equal(previous.children[0].children[0].children.filter(x=>x.tag==="circle").length,2);
   await document.getElementById("bb-cloud-open").click();
   assert.equal(fileGets,1,"older previews are kept in session cache");
+  await window.VCFCloud5DB.logout();
+  assert.equal(document.getElementById("vcf-shared-login").hidden, false,
+    "logging out of Sched reveals the shared member login button");
+  await document.getElementById("vcf-shared-login").click();
+  const loginDialog = document.getElementById("vcf-shared-login-dialog");
+  assert.equal(loginDialog.open, true);
+  assert.ok(loginDialog._html.includes('/Sched/rank-auth.html'),
+    "the login dialog uses the real Sched Google and Email membership UI");
   console.log("Cloud 5DB thumbnails: immediate preview, saved branch, lazy old records and cache passed");
 })().catch(error => {console.error(error); process.exitCode = 1;});
