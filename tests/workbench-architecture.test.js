@@ -45,6 +45,7 @@ has("cloud",["global.VCFCloud5DB = api","FIVE_DB_API_URL","cloudFetch(", "contro
  "auth_me","/Sched/api/index.php","credentials: \"same-origin\"",
  "sched-email-auth-heading","auth_email_login","auth_email_register","auth_email_forgot",
  "global.google.accounts.id.renderButton", "auth_google", "postLoginAction("]);
+has("cloud", ["#vcf-shared-login-dialog{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);margin:0;"]);
 lacks("cloud",["VCFCloudYXDB","createLZ4Frame","vcf_google_auth_token_v1",
  "admin_user_delete","admin_user_role","admin_user_status","bb-cloud-admin",
  "/Sched/rank-auth.html", "<iframe", "loginPollTimer"]);
