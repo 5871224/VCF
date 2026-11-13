@@ -95,14 +95,6 @@ jobs:
           path: .cache/vcf-bitboard-engine
           key: bd1-vcf-bitboard-engine-v4-${{ runner.os }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-pattern-engine.cpp', 'rapfi/vcf-pattern-engine-optimized.cpp', 'rapfi/vcf-bitboard-engine.cpp', 'rapfi/vcf-bitboard-search-v2.cpp', 'rapfi/vcf-bitboard-search-*.inc', 'rapfi/vcf-bitboard-legacy-extra.cpp') }}
 
-      - name: Restore Rapfi DB bridge cache
-        if: steps.version.outputs.needs_sync == 'true'
-        id: rapfi-db-cache
-        uses: actions/cache@v4
-        with:
-          path: .cache/vcf-rapfi-db
-          key: bd1-vcf-rapfi-db-v1-${{ runner.os }}-${{ env.RAPFI_REF }}-${{ env.EMSDK_VERSION }}-${{ hashFiles('rapfi/vcf-rapfi-db-bridge.cpp') }}
-
       - name: Restore independent Rapfi VCF benchmark cache
         if: steps.version.outputs.needs_sync == 'true'
         id: rapfi-vcf-cache
@@ -120,7 +112,7 @@ jobs:
           key: bd1-emsdk-${{ runner.os }}-${{ env.EMSDK_VERSION }}-v1
 
       - name: Install Emscripten SDK
-        if: steps.version.outputs.needs_sync == 'true' && (steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.rapfi-db-cache.outputs.cache-hit != 'true' || steps.rapfi-vcf-cache.outputs.cache-hit != 'true')
+        if: steps.version.outputs.needs_sync == 'true' && (steps.rapfi-cache.outputs.cache-hit != 'true' || steps.pattern-cache.outputs.cache-hit != 'true' || steps.bitboard-cache.outputs.cache-hit != 'true' || steps.rapfi-vcf-cache.outputs.cache-hit != 'true')
         shell: bash
         run: |
           set -euxo pipefail
@@ -202,48 +194,6 @@ jobs:
             -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
             -o .cache/vcf-bitboard-engine/vcf-bitboard-engine.js
 
-      - name: Build Rapfi DB bridge
-        if: steps.version.outputs.needs_sync == 'true' && steps.rapfi-db-cache.outputs.cache-hit != 'true'
-        shell: bash
-        run: |
-          set -euxo pipefail
-          source .emsdk/emsdk_env.sh
-          if [ ! -d .build/rapfi/.git ]; then
-            rm -rf .build/rapfi
-            mkdir -p .build
-            git clone --filter=blob:none --no-checkout https://github.com/dhbloo/rapfi.git .build/rapfi
-            git -C .build/rapfi fetch --depth 1 origin "$RAPFI_REF"
-            git -C .build/rapfi checkout --detach "$RAPFI_REF"
-          fi
-          rm -rf .cache/vcf-rapfi-db
-          mkdir -p .cache/vcf-rapfi-db
-          rapfi_root="$PWD/.build/rapfi/Rapfi"
-          sources=(
-            rapfi/vcf-rapfi-db-bridge.cpp
-            "$rapfi_root/core/hash.cpp"
-            "$rapfi_root/core/utils.cpp"
-            "$rapfi_root/core/iohelper.cpp"
-            "$rapfi_root/core/compressor.cpp"
-            "$rapfi_root/external/lz4/src/lz4_all.c"
-            "$rapfi_root/external/lz4/src/xxhash.c"
-            "$rapfi_root/game/pattern.cpp"
-            "$rapfi_root/game/board.cpp"
-            "$rapfi_root/database/dbtypes.cpp"
-            "$rapfi_root/database/dbclient.cpp"
-            "$rapfi_root/database/yxdbstorage.cpp"
-          )
-          g++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include" \
-            -O2 -std=c++17 -ffunction-sections -fdata-sections -DVCF_RAPFI_DB_BRIDGE_TEST_MAIN \
-            -Wl,--gc-sections -o /tmp/vcf-rapfi-db-test
-          /tmp/vcf-rapfi-db-test
-          em++ "${sources[@]}" -I"$rapfi_root" -I"$rapfi_root/external/lz4/include" \
-            -O3 -flto -DNDEBUG -std=c++17 --no-entry \
-            -s WASM=1 -s MODULARIZE=1 -s EXPORT_NAME=VCFRapfiDBModule \
-            -s ENVIRONMENT='web,worker,node' -s FORCE_FILESYSTEM=1 -s ALLOW_MEMORY_GROWTH=1 \
-            -s "EXPORTED_FUNCTIONS=['_vcfRapfiDbInit','_vcfRapfiDbResetBoard','_vcfRapfiDbClear','_vcfRapfiDbReady','_vcfRapfiDbEnsureCurrent','_vcfRapfiDbReplayMove','_vcfRapfiDbPlay','_vcfRapfiDbUndo','_vcfRapfiDbPly','_vcfRapfiDbHistoryMove','_vcfRapfiDbSideToMove','_vcfRapfiDbBoardCell','_vcfRapfiDbIsForbidden','_vcfRapfiDbSetDisplayText','_vcfRapfiDbGetDisplayText','_vcfRapfiDbSetRawText','_vcfRapfiDbGetRawText','_vcfRapfiDbSetComment','_vcfRapfiDbGetComment','_vcfRapfiDbTextPtr','_vcfRapfiDbTextLength','_vcfRapfiDbSetBoardText','_vcfRapfiDbQueryBoardTexts','_vcfRapfiDbBoardTextMove','_vcfRapfiDbBoardTextValue','_vcfRapfiDbQueryChildren','_vcfRapfiDbChildMove','_vcfRapfiDbRecordCount','_vcfRapfiDbDeleteCurrentAndChildren','_vcfRapfiDbCloneRule','_vcfRapfiDbExportYXDB','_vcfRapfiDbImportYXDB','_vcfRapfiDbBytesPtr','_vcfRapfiDbBytesLength','_malloc','_free']" \
-            -s "EXPORTED_RUNTIME_METHODS=['cwrap']" \
-            -o .cache/vcf-rapfi-db/vcf-rapfi-db.js
-
       - name: Build standalone Rapfi VCF benchmark
         if: steps.version.outputs.needs_sync == 'true' && steps.rapfi-vcf-cache.outputs.cache-hit != 'true'
         shell: bash
@@ -287,32 +237,6 @@ jobs:
           php -l api/5db.php
           npm run test:architecture
           VCF_BITBOARD_ENGINE_DIR=.cache/vcf-bitboard-engine npm run test:runtime
-          node - <<'NODE'
-          const path = require("path");
-          const createModule = require(path.resolve(".cache/vcf-rapfi-db/vcf-rapfi-db.js"));
-          createModule({ locateFile: file => path.resolve(".cache/vcf-rapfi-db", file) })
-            .then(module => {
-              const init = module.cwrap("vcfRapfiDbInit", "number", ["number"]);
-              const play = module.cwrap("vcfRapfiDbPlay", "number", ["number", "number"]);
-              const exportYXDB = module.cwrap("vcfRapfiDbExportYXDB", "number", []);
-              const bytesPtr = module.cwrap("vcfRapfiDbBytesPtr", "number", []);
-              const importYXDB = module.cwrap("vcfRapfiDbImportYXDB", "number", ["number", "number", "number"]);
-              const recordCount = module.cwrap("vcfRapfiDbRecordCount", "number", []);
-              if (init(2) !== 1 || exportYXDB() <= 0) throw new Error("empty Rapfi DB snapshot failed");
-              if (play(112, 1) !== 1) throw new Error("Rapfi DB play failed");
-              const length = exportYXDB();
-              if (length <= 0) throw new Error("played Rapfi DB snapshot failed");
-              const snapshot = module.HEAPU8.slice(bytesPtr(), bytesPtr() + length);
-              const buffer = module._malloc(length);
-              module.HEAPU8.set(snapshot, buffer);
-              const restored = importYXDB(buffer, length, 2);
-              module._free(buffer);
-              if (restored !== 1 || recordCount() < 2) throw new Error("Rapfi DB snapshot restore failed");
-              console.log("Rapfi DB Wasm snapshot smoke test passed");
-            })
-            .catch(error => { console.error(error); process.exit(1); });
-          NODE
-
           node - <<'NODE'
           const createRapfi = require(require('path').resolve('.cache/rapfi-vcf-standalone/rapfi-vcf-standalone.js'));
           createRapfi({ locateFile: file => require('path').resolve('.cache/rapfi-vcf-standalone', file) })
@@ -358,8 +282,6 @@ jobs:
           test -s _site/rapfi/engine/vcf-pattern-engine.wasm
           test -s _site/rapfi/engine/vcf-bitboard-engine.js
           test -s _site/rapfi/engine/vcf-bitboard-engine.wasm
-          test -s _site/rapfi/engine/vcf-rapfi-db.js
-          test -s _site/rapfi/engine/vcf-rapfi-db.wasm
           test -s _site/rapfi/5db-format.js
           test -s _site/api/5db.php
           test -s _site/rapfi/vcf-5db-cloud.js
@@ -470,8 +392,6 @@ jobs:
           check_file rapfi/engine/rapfi-vcf-standalone.wasm
           check_file rapfi/engine/vcf-bitboard-engine.js
           check_file rapfi/engine/vcf-bitboard-engine.wasm
-          check_file rapfi/engine/vcf-rapfi-db.js
-          check_file rapfi/engine/vcf-rapfi-db.wasm
           check_file rapfi/vcf-5db-cloud.js
 
           # A missing PHP route or PHP source served as text must fail deployment.

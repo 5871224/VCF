@@ -1697,7 +1697,7 @@ const engine = new VCFEngine();
 const pool = new WorkerPool();
 engine._initP
   .then(() => setStatus("VCF 計算引擎就緒，點擊棋盤交替落子，再點計算"))
-  .catch(e => setStatus("⚠ VCF 計算引擎初始化失敗：" + e.message + "；Rapfi 棋盤仍可使用"));
+  .catch(e => setStatus("⚠ VCF 計算引擎初始化失敗：" + e.message + "；5DB 棋盤編輯仍可使用"));
 
 // ============================================================
 // Board SVG
@@ -1760,7 +1760,7 @@ engine._initP
     nextColor = next === 2 ? 2 : 1;
   }
 
-  // 棋盤 SVG 只負責顯示；正式盤面由 VCFWorkbenchRecord / Rapfi Board 持有。
+  // 棋盤 SVG 只負責顯示；正式盤面由 VCFWorkbenchRecord 的 5DB 文件持有。
   window._renderBoardArr = renderBoard;
   window._getArr = () => {
     const rapfiBoard = window.VCFWorkbenchRecord?.currentBoard?.();
@@ -4275,8 +4275,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       setImportStatus("棋譜引擎尚未就緒，請稍後再套用辨識結果。");
       return;
     }
-    setStatus("已將圖片辨識結果套用到 Rapfi 棋盤，可直接繼續 VCF 分析。");
-    setImportStatus("辨識結果已套用到 Rapfi 棋盤。若有少數誤差，可直接在棋盤上手動修正。");
+    setStatus("已將圖片辨識結果套用到 5DB 棋盤，可直接繼續 VCF 分析。");
+    setImportStatus("辨識結果已套用到 5DB 棋盤。若有少數誤差，可直接在棋盤上手動修正。");
   }
 
   function stopCameraPreview() {
@@ -4756,86 +4756,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-layout.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-static-annotations.js?v=20261009-cloud2"></script>
 <script src="rapfi/5db-format.js?v=20261024-cloudpreview1"></script>
-<script src="rapfi/rapfi-workbench-header.js?v=20261105-workbench2"></script>
-<script src="rapfi/vcf-record-tools.js?v=20261105-workbench2"></script>
-<script>
-(function scheduleRapfiRecordDatabase(global) {
-  const version = "20260921-rapfi-export1";
-  const STARTUP_TIMEOUT_MS = 15000;
-  const scriptLoads = new Map();
-  let startPromise = null;
-  global.__vcfRapfiDbScheduled = true;
-  global.__vcfRapfiDbLoading = false;
-  global.__vcfRapfiDbFailed = false;
-
-  const loadScript = src => {
-    if (scriptLoads.has(src)) return scriptLoads.get(src);
-    const promise = new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = src;
-      script.async = false;
-      script.onload = () => resolve(script);
-      script.onerror = () => reject(new Error("載入失敗：" + src));
-      document.head.appendChild(script);
-    }).catch(error => {
-      scriptLoads.delete(src);
-      throw error;
-    });
-    scriptLoads.set(src, promise);
-    return promise;
-  };
-
-  const withTimeout = (promise, message) => {
-    let timer = 0;
-    return Promise.race([
-      Promise.resolve(promise),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), STARTUP_TIMEOUT_MS); }),
-    ]).finally(() => clearTimeout(timer));
-  };
-
-  const start = () => {
-    if (global.VCFWorkbenchRecord?.isActive?.()) return Promise.resolve(true);
-    if (startPromise) return startPromise;
-    global.__vcfRapfiDbLoading = true;
-    global.__vcfRapfiDbFailed = false;
-    const startup = (async () => {
-      if (typeof global.VCFRapfiDBModule !== "function") {
-        await loadScript("rapfi/engine/vcf-rapfi-db.js?v=" + version);
-      }
-      if (!global.VCFRapfiDB) {
-        await loadScript("rapfi/vcf-rapfi-db.js?v=" + version);
-      }
-      if (!global.VCFRapfiDB?.ready) throw new Error("找不到 Rapfi DB 服務");
-      await global.VCFRapfiDB.ready;
-      const active = await global.VCFWorkbenchRecord?.ensureActive?.();
-      if (!active || !global.VCFWorkbenchRecord?.isActive?.()) throw new Error("Rapfi 棋盤狀態無法啟用");
-      return true;
-    })();
-    startPromise = withTimeout(startup, "Rapfi 棋盤啟用逾時").then(() => {
-      global.__vcfRapfiDbFailed = false;
-      return true;
-    }).catch(error => {
-      global.__vcfRapfiDbFailed = true;
-      console.error("Rapfi 棋譜 DB 延遲初始化失敗", error);
-      return false;
-    }).finally(() => {
-      global.__vcfRapfiDbLoading = false;
-      startPromise = null;
-    });
-    global.__vcfRapfiDbReady = startPromise;
-    return startPromise;
-  };
-
-  global.addEventListener("vcf-rapfi-db-active", () => { global.__vcfRapfiDbFailed = false; });
-
-  // Rapfi Board 是棋盤資料層，與 Bitboard 計算引擎獨立初始化。
-  if (typeof global.requestIdleCallback === "function") {
-    global.requestIdleCallback(() => start(), { timeout: 400 });
-  } else {
-    setTimeout(() => start(), 0);
-  }
-})(window);
-</script>
+<script src="rapfi/rapfi-workbench-header.js?v=20261113-5db-workbench"></script>
+<script src="rapfi/vcf-record-tools.js?v=20261113-5db-workbench"></script>
 <script src="makevcf-generator-settings-persistence.js?v=20260923-calculation-layout1"></script>
 <script src="makevcf-generator-image-import-fix.js?v=20261008-static-workbench1"></script>
 <!-- 根工作台不啟動舊的優化搜尋覆寫 -->

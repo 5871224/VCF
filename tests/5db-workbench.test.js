@@ -5,37 +5,10 @@ const vm = require("node:vm");
 const FiveDB = require("../rapfi/5db-format.js");
 const script = fs.readFileSync("rapfi/rapfi-workbench-header.js", "utf8");
 function createWorkbench(savedDisk = null) {
-  let board = new Uint8Array(225), history = [];
   const disk = savedDisk || new Map(), routes = new Map();
   const title = { value: "", dispatchEvent() {}, addEventListener() {} };
-  const service = {
-    isReady: true,
-    clear() { board = new Uint8Array(225); history = []; return true; },
-    resetBoard() { board = new Uint8Array(225); history = []; return true; },
-    ensureCurrent() { return true; },
-    board() { return board; },
-    history() { return history.slice(); },
-    ply() { return history.length; },
-    sideToMove() { return history.length % 2 === 0 ? 1 : 2; },
-    replayMove(move) {
-      if (move !== -1 && (!Number.isInteger(move) || move < 0 || move >= 225 || board[move])) return false;
-      if (move >= 0) board[move] = this.sideToMove();
-      history.push(move);
-      return true;
-    },
-    play(move) { return this.replayMove(move); },
-    undo() {
-      if (!history.length) return false;
-      const move = history.pop();
-      if (move >= 0) board[move] = 0;
-      return true;
-    },
-    children() { return []; },
-    getDisplayText() { return ""; },
-    setDisplayText() { return true; },
-  };
   const win = {
-    FiveDB, VCFRapfiDB: service, VCF_CLOUD_API_URL: "",
+    FiveDB, VCF_CLOUD_API_URL: "",
     localStorage: {
       getItem: k => disk.get(k) || null,
       setItem: (k,v) => disk.set(k,v),
@@ -69,7 +42,7 @@ function createWorkbench(savedDisk = null) {
     CustomEvent: class CustomEvent { constructor(type,options){ this.type=type; this.detail=options?.detail; }},
     Event: class Event { constructor(type){this.type=type;} },
   }, { filename: "rapfi-workbench-header.js" });
-  return { win, service, title, disk };
+  return { win, title, disk };
 }
 (async () => {
   const { win, title } = createWorkbench();
@@ -188,5 +161,24 @@ function createWorkbench(savedDisk = null) {
   assert.equal(boardEditor.export5DBDocument().board[80], 2, "white-only puzzle setup must round-trip to 5DB");
   assert.equal(boardEditor.removeStoneAt(80), true);
   assert.equal(boardEditor.currentBoard()[80], 0);
+
+  // Regression: setup right-click clears only its own white stone, even if the
+  // other white stones greatly outnumber black stones; no Rapfi Board exists.
+  const whitePositions = [6, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170];
+  for (const index of whitePositions) assert.equal(boardEditor.placePuzzleSetupStone(index, 2), true);
+  assert.equal(boardEditor.placePuzzleSetupStone(112, 1), true);
+  const oldBoard = Array.from(boardEditor.currentBoard());
+  assert.equal(boardEditor.placePuzzleSetupStone(68, 0), true);
+  const expectedBoard = oldBoard.slice();
+  expectedBoard[68] = 0;
+  assert.deepEqual(Array.from(boardEditor.currentBoard()), expectedBoard, "one right click must remove exactly one stone");
+  assert.deepEqual(Array.from(boardEditor.export5DBDocument().board), expectedBoard, "5DB must own the displayed setup position");
+  assert.equal(boardEditor.placePuzzleSetupStone(68, 2), true);
+  assert.equal(boardEditor.placePuzzleSetupStone(68, 0), true);
+  assert.deepEqual(Array.from(boardEditor.currentBoard()), expectedBoard, "repeated toggle must not remove neighboring whites");
+  const afterReload = createWorkbench(explicit.disk);
+  await new Promise(setImmediate);
+  assert.deepEqual(Array.from(afterReload.win.VCFWorkbenchRecord.currentBoard()), expectedBoard,
+    "reloaded 5DB setup must preserve every other white stone");
   console.log("5DB live workbench: branches, marks, irregular setup, saved drafts, explicit colors and delete-to-clear passed");
 })().catch(err=>{console.error(err);process.exitCode=1;});

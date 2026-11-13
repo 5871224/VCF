@@ -446,9 +446,7 @@
     if (index < 0 || index >= BOARD_CELLS) return;
     const record = global.VCFWorkbenchRecord;
     if (!record?.isActive?.()) {
-      status(global.__vcfRapfiDbFailed
-        ? "Rapfi 棋盤引擎載入失敗，請重新整理"
-        : "Rapfi 棋盤引擎初始化中，請稍候");
+      status("5DB 棋盤初始化中，請稍候");
       return;
     }
     const workspace = record.workspace() || {};
@@ -526,25 +524,20 @@
     prevStepButton?.click();
   }
 
-  // Right-click placement happens on pointerdown, not after the browser's context menu.
-  // The contextmenu fallback covers mouse implementations without pointerdown and long presses.
-  let lastSecondaryPointer = { index: -1, time: -Infinity };
+  // Mouse right-click is handled once on pointerdown. contextmenu only suppresses
+  // the native menu; older browsers and touch long-presses use it as a fallback.
   board.addEventListener("pointerdown", event => {
     if (event.button !== 2) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    const point = pointFromEvent(event);
-    lastSecondaryPointer = { index: point.index, time: Number(event.timeStamp) || 0 };
-    handleSecondaryBoardAction(point);
+    handleSecondaryBoardAction(pointFromEvent(event));
   }, true);
   board.addEventListener("contextmenu", event => {
     event.preventDefault();
     event.stopImmediatePropagation();
-    const point = pointFromEvent(event);
-    const duplicate = lastSecondaryPointer.index === point.index
-      && Math.abs((Number(event.timeStamp) || 0) - lastSecondaryPointer.time) < 1500;
-    lastSecondaryPointer.time = -Infinity;
-    if (!duplicate) handleSecondaryBoardAction(point);
+    if (!global.PointerEvent || event.pointerType === "touch") {
+      handleSecondaryBoardAction(pointFromEvent(event));
+    }
   }, true);
 
   editButton.addEventListener("click", () => {

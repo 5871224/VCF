@@ -3,6 +3,7 @@ const assert=require("node:assert/strict"),fs=require("node:fs"),path=require("n
 const read=n=>fs.readFileSync(path.join(__dirname,"..",n),"utf8");
 const files={
  html:read("index.html"),header:read("rapfi/rapfi-workbench-header.js"),
+ recordTools:read("rapfi/vcf-record-tools.js"),
  layout:read("makevcf-layout.js"),codec:read("rapfi/5db-format.js"),
  cloud:read("rapfi/vcf-5db-cloud.js"),marks:read("rapfi/vcf-static-annotations.js"),
  server:read("api/5db.php"),builder:read("tools/prepare-pages-site.py"),
@@ -47,6 +48,15 @@ has("server",["FIVE_DB_MAX_FILE","verify5(","fnv1a32","FIVE_DB_MAX_ACCOUNT", "HT
   "auth_me","Authorization: Bearer","flock(","storage5(","DOCUMENT_ROOT", "publicRoot", "privateBase",
   "realpath(","FILTER_VALIDATE_EMAIL","LOCK_EX","action === 'save'","action === 'get'"]);
 has("builder",['"5db-format.js"']);
+has("header",["const boardForPath = (path = fiveDBPath) =>", "const routeForPath = path =>",
+  "fiveDBDoc.board[move] = normalized", 'positionBackend: recordActive ? "5db"',
+  'global.dispatchEvent(new CustomEvent("vcf-workbench-ready"))']);
+lacks("header",["VCFRapfiDB", "rapfiDbActive", "service.replayMove", "service.board()"]);
+lacks("html",["VCFRapfiDB", "vcf-rapfi-db.js", "__vcfRapfiDbScheduled"]);
+lacks("builder",["vcf-rapfi-db"]);
+lacks("deploy",["vcf-rapfi-db", "Rapfi DB bridge"]);
+has("recordTools",['board.addEventListener("pointerdown"',
+  'board.addEventListener("contextmenu"', '!global.PointerEvent || event.pointerType === "touch"']);
 has("srvbuild",['ROOT / "api" / "5db.php"','VCF_5DB_API_URL="/BD1/api/5db.php"']);
 has("deploy",["php -l api/5db.php","test -s _site/api/5db.php","npm run test:architecture"]);
 assert.ok(files.html.indexOf("棋盤操作") < files.html.indexOf('<h3 class="vcf-section-title">分析'), "board controls must appear first");
@@ -56,5 +66,7 @@ assert.ok(files.html.includes('id="btn-rapfi-vcf-benchmark"') && !files.html.inc
 assert.ok(files.layout.includes('board.addEventListener("wheel"'), "VCF playback must support board wheel");
 assert.ok(files.layout.includes("window.VCFOverlayPlayback.step(delta)"), "single VCF must use native SVG playback");
 assert.ok(files.html.includes("window.VCFOverlayPlayback = {"), "SVG renderer must own current route and step position");
-assert.ok(files.html.includes("20261105-workbench2"), "modified scripts must invalidate previous browser cache");
+assert.ok(files.html.includes("rapfi/rapfi-workbench-header.js?v=20261113-5db-workbench")
+  && files.html.includes("rapfi/vcf-record-tools.js?v=20261113-5db-workbench"),
+  "new 5DB editor and right-click handler must invalidate the previous browser cache");
 console.log("5DB workbench and deployment integration contract passed");

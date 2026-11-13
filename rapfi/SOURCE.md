@@ -50,7 +50,7 @@ rapfi-single-simd128.data
 
 與正式 Bitboard VCF 分離的 Rapfi 搜尋入口，只會在「計算 VCF」頁手動按下「Rapfi VCF 計算」後載入。
 
-- `rapfi/vcf-rapfi-vcf-benchmark.js`：讀取目前 Rapfi Board 的 225 格盤面、規則與分析色；維護專屬結果、耗時（ms）、搜尋節點數、NPS。
+- `rapfi/vcf-rapfi-vcf-benchmark.js`：唯讀取得 `VCFWorkbenchRecord` 從 5DB 還原的 225 格盤面、規則與分析色；維護專屬結果、耗時（ms）、搜尋節點數、NPS。
 - `rapfi/vcf-rapfi-vcf-worker.js`：完全獨立 Worker、動態載入獨立 Wasm、可立即停止。
 - `rapfi/vcf-rapfi-vcf-standalone.cpp`：依固定上游 Rapfi `Board`、`Pattern`、`MoveGen` 建構的 QVCF 專用遞迴搜尋與 Rapfi 禁手驗證，不連結本專案 Bitboard。
 - 部署時只編入上游 `core/hash.cpp`、`core/utils.cpp`、`game/pattern.cpp`、`game/board.cpp`、`game/movegen.cpp` 與獨立橋接；無需 NNUE 或 Rapfi Networks 權重檔。
