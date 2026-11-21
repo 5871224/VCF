@@ -114,7 +114,7 @@ has("html", ['id="import-image-viewport"', 'id="import-image-transform"',
   'imageViewport.addEventListener("drop"', 'imageViewport.addEventListener("wheel"',
   'imageViewport.addEventListener("pointerdown"', 'imageViewport.addEventListener("pointermove"',
   'imageViewport.addEventListener("pointerup", finishImageTouch, true)',
-  'activeImageTouches', 'imageTouches.size > 1', 'resetImageView()',
+  'imageTouches', 'imageTouches.size > 1', 'resetImageView()',
   'imageTransform.style.transform', 'const color = evt.button === 2 ? 2 : 1',
   'imageViewport.addEventListener("contextmenu"']);
 const mobilePresentation = read("makevcf-mobile.js");
