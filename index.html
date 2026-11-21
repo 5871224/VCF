@@ -1583,9 +1583,13 @@ class VCFEngine {
     return new Promise(resolve => { this._res = resolve; this._w.postMessage({ cmd, param }); });
   }
 
-  async findVCF({ arr, color, maxVCF = 1, maxDepth = 200, maxNode = 5000000 }) {
+  async findVCF({ arr, color, maxVCF = 1, maxDepth = 200, maxNode = 5000000, ...options }) {
     await this._initP;
-    return (await this._post("findVCF", { arr, color, maxVCF, maxDepth, maxNode })) || { winMoves: [] };
+    // Preserve mode, simplify, ttExponent, distanceLimited and future engine
+    // options. Dropping extra fields here silently bypasses Worker features.
+    return (await this._post("findVCF", {
+      arr, color, maxVCF, maxDepth, maxNode, ...options,
+    })) || { winMoves: [] };
   }
 
   async getBlockVCF({ arr, color, vcfMoves }) {
