@@ -1,7 +1,7 @@
 // 單組 VCF 專用精確同型表。
 //
-// 2026-07-23 Native／LTO SIMD Wasm 基準共同最快版本：
-// - 65,536 buckets × 4 ways = 262,144 個表項。
+// 單組 VCF 容量對照測試 B：
+// - 262,144 buckets × 4 ways = 1,048,576 個表項。
 // - Zobrist hash 先經 SplitMix64 finalizer。
 // - tag 命中後仍完整比較黑、白 bitboard。
 // - 四路全滿時以全域循環方式覆蓋近期表項。
@@ -23,7 +23,7 @@ namespace std {
 template<class Key, class Hash>
 class VcfSingleFourWayTransTableV5 {
 private:
-    static constexpr size_t BUCKET_BITS = 16;
+    static constexpr size_t BUCKET_BITS = 18;
     static constexpr size_t BUCKET_COUNT = size_t(1) << BUCKET_BITS;
     static constexpr size_t BUCKET_MASK = BUCKET_COUNT - 1;
     static constexpr size_t WAY_COUNT = 4;
