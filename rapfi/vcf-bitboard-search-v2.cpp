@@ -21,6 +21,9 @@
 #undef vcfBbScanPointsModeV3
 #undef vcfBbSearchV2SelfTest
 
+// 選用的距離限制快速探索；原有 runAtDepth / SearchRunner 不改動。
+#include "vcf-bitboard-search-distance-v1.inc"
+
 // 驗證四方向加權與原盤不變。雙方向連接應優先於單方向連接；
 // 同方向重疊視窗只能取最佳一段，不能多次累加。
 static int candidateDirectionScoreSelfTest()
@@ -220,8 +223,44 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbScanPointsModeV3(const uint8_t *
                                                maxResults, stats);
 }
 
+static int distanceSearchV1SelfTest()
+{
+    std::array<uint8_t, BOARD_CELLS> board {};
+    for (int x : {5, 6, 7})
+        board[7 * BOARD_SIZE + x] = BLACK;
+    std::array<uint8_t, MAX_ROUTE_PLY> moves {};
+    uint16_t length = 0;
+    SearchStats stats {};
+    const auto original = board;
+    const int found = vcfBbFindDistanceV1(board.data(), BLACK, RENJU,
+                                          0, 0, 15, 100000,
+                                          moves.data(), &length, MAX_ROUTE_PLY, &stats);
+    const auto telemetry = std::VcfSingleFourWayTransTableV5<
+        CompactPosition, CompactPositionHasher>::readTelemetry();
+    uint32_t counted = 0;
+    for (uint32_t count : singleSearchDiagnostics.depthNodes)
+        counted += count;
+    if (board != original || found != 1 || length == 0)
+        return 1;
+    if (counted != stats.nodes || telemetry.hits > telemetry.probes)
+        return 2;
+
+    // A non-winning root must not accidentally pass a heuristic probe.
+    board.fill(EMPTY);
+    length = 0;
+    const int empty = vcfBbFindDistanceV1(board.data(), BLACK, RENJU,
+                                          0, 2, 11, 1000,
+                                          moves.data(), &length, MAX_ROUTE_PLY, &stats);
+    if (empty != 0 || length != 0)
+        return 3;
+    return 0;
+}
+
 extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
 {
+    const int distanceResult = distanceSearchV1SelfTest();
+    if (distanceResult != 0)
+        return 300 + distanceResult;
     const int directionResult = candidateDirectionScoreSelfTest();
     if (directionResult != 0)
         return 200 + directionResult;
