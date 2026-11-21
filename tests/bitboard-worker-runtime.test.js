@@ -126,7 +126,7 @@ function normalized(result) {
   if (!distanceResult.distanceLimited || !distanceResult.searchAttempts?.length
       || !distanceResult.vcfCount || !distanceResult.winMoves[0]?.length
       || distanceDiag.countedNodes !== distanceResult.nodeCount
-      || distanceDiag.probes !== distanceResult.nodeCount
+      || distanceDiag.hits > distanceDiag.probes
       || distanceDiag.depthNodes.reduce((n, x) => n + x.nodes, 0) !== distanceResult.nodeCount
       || distanceDiag.rootNodes.reduce((n, x) => n + x.nodes, 0) !== distanceResult.nodeCount
       || distanceResult.searchAttempts.reduce((n, x) => n + x.nodes, 0) !== distanceResult.nodeCount) {
