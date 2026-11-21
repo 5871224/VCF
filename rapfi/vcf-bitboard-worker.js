@@ -861,7 +861,7 @@ function trimVCFGroups(param) {
 async function init(url, runSmokeCheck = true) {
   if (readyPromise) return readyPromise;
   readyPromise = (async () => {
-    const moduleURL = new URL(url, self.location.href);
+    const moduleURL = new URL(url);
     const base = new URL("./", moduleURL).href;
     const assetRevision = moduleURL.searchParams.get("v");
     self.importScripts(url);
