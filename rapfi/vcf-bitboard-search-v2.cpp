@@ -1,7 +1,7 @@
 // VCF 搜尋以舊版 Evaluator 的 findVCF 流程為主；
 // 熱路徑另外維護 572 個五格視窗的增量狀態：
 // 每手只更新最多 20 個相關視窗，搜尋時只列舉有效的三／四／五子視窗。
-// 單組搜尋使用 1,048,576 表項的四路組相連精確同型表；多組 V3 使用自己的精確同型表，
+// 單組搜尋使用 2^18～2^22 表項可選的四路組相連精確同型表；多組 V3 使用自己的精確同型表，
 // 再依模式選擇嚴格完全同盤剪枝或高速勝型子集剪枝。
 //
 // 分檔僅為方便維護；inc 依序組成同一個翻譯單元。
@@ -24,6 +24,14 @@
 static int singleFourWayTransTableV5SelfTest()
 {
     using TestTable = std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>;
+    if (TestTable::configureExponent(17) || TestTable::configureExponent(23))
+        return 4;
+    if (!TestTable::configureExponent(22) || TestTable::configuredExponent() != 22)
+        return 5;
+    if (!TestTable::configureExponent(18) || TestTable::configuredExponent() != 18)
+        return 6;
+    if (!TestTable::configureExponent(20) || TestTable::configuredExponent() != 20)
+        return 7;
 
     CompactPosition base {};
     base.black[0] = 1ULL << 5;
@@ -78,6 +86,14 @@ static int singleFourWayTransTableV5SelfTest()
 
 // 專供題目產生器使用：略過目標完成盤面，找到第一條較短／其他 VCF 即返回。
 #include "vcf-bitboard-search-first-nontarget-v1.inc"
+
+// Set single-VCF table capacity to 2^exponent entries before a search.
+// Returns 1 for exponents 18..22; invalid values or an active search return 0.
+extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSetSingleTTExponent(int exponent)
+{
+    using SingleTT = std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>;
+    return SingleTT::configureExponent(exponent) ? 1 : 0;
+}
 
 // Read-only ABI for latest single VCF call in this Worker.
 // words: [version, countedNodes, probes, hits, writes, replacements,
