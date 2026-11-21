@@ -192,7 +192,7 @@ struct Candidate {
     uint8_t idx = NIL;
     uint8_t defenseCount = 0;
     std::array<uint8_t, 2> defenses {NIL, NIL};
-    uint8_t chainRank = 3;
+    uint8_t directionScore = 0;
     bool immediate = false;
 };
 
@@ -209,8 +209,7 @@ struct CandidateList {
 struct CandidateBuildScratch {
     std::array<CandidateAcc, BOARD_CELLS> acc {};
     std::array<uint8_t, BOARD_CELLS> touched {};
-    std::array<uint8_t, BOARD_CELLS> augmentedMoves {};
-};
+ };
 
 int distanceKey(int idx, int center)
 {
@@ -219,9 +218,11 @@ int distanceKey(int idx, int center)
     return dx * dx + dy * dy;
 }
 
-uint8_t candidateChainRank(const Position &position, int idx, int attacker, int rule)
+// 各方向只計算最佳的五格視窗，避免同一方向的重疊視窗重複加分。
+// 直接讀取原盤面既有棋型計數；不暫時落子，也不更新 bitboard/hash/棋型快取。
+uint8_t candidateDirectionStoneScore(const Position &position, int idx, int attacker, int rule)
 {
-    int best = 0;
+    std::array<uint8_t, 4> bestByDirection {};
     const int n = WINDOW_TABLE.byPointCount[idx];
     for (int i = 0; i < n; i++) {
         const int id = WINDOW_TABLE.byPoint[idx][i];
@@ -229,13 +230,11 @@ uint8_t candidateChainRank(const Position &position, int idx, int attacker, int 
         if (position.opponentCount(id, attacker) != 0
             || !exactWindowAllowed(position.board, window, attacker, rule))
             continue;
-        best = std::max(best, int(position.count(id, attacker)));
+        bestByDirection[window.direction] = std::max(
+            bestByDirection[window.direction], position.count(id, attacker));
     }
-    if (best >= 3)
-        return 0;
-    if (best == 2)
-        return 1;
-    return 2;
+    return uint8_t(bestByDirection[0] + bestByDirection[1]
+                 + bestByDirection[2] + bestByDirection[3]);
 }
 
 void scanCandidates(Position &position,
@@ -299,12 +298,4 @@ void scanCandidates(Position &position,
         candidate.defenses = scratch.acc[idx].defenses;
     }
 
-    int augmentedCount = 0;
-    for (int i = 0; i < candidates.count; i++) {
-        const Candidate &candidate = candidates.items[i];
-        if (!candidate.immediate) {
-            position.play(candidate.idx, attacker);
-            scratch.augmentedMoves[augmentedCount++] = candidate.idx;
-        }
-    }
     for (int i = 0; i < candidates.count; i++) {
