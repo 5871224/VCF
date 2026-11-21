@@ -135,13 +135,14 @@
       touchHold = null;
     }
 
-    sourceCanvas.addEventListener("pointerdown", event => {
-      // A second finger starts a pinch, not a long-press clear action.
+    canvasWrap.addEventListener("pointerdown", event => {
+      // The second finger may touch the clipped viewport rather than the image.
       if (event.pointerType === "touch" && !event.isPrimary) {
         cancelTouchHold();
         return;
       }
-      if (panel.hidden || event.pointerType !== "touch" || !event.isPrimary) return;
+      if (event.target !== sourceCanvas ||
+          panel.hidden || event.pointerType !== "touch" || !event.isPrimary) return;
       const row = findOrderRowAtCanvasEvent(event);
       if (!row) {
         cancelTouchHold();
