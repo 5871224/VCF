@@ -2671,9 +2671,40 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     };
   }
 
-  function setDefaultCorners() {
+  // Return the portion of the ORIGINAL image actually visible through the
+  // fixed frame. Do not sample the annotated canvas or lose the crop offset:
+  // detection must still return corners in the original image coordinates.
+  function getVisibleSourceImageRect() {
+    if (!importState.sourceImage || !importState.sourceRect) return null;
+    const viewportRect = imageViewport.getBoundingClientRect();
+    const canvasRect = sourceCanvas.getBoundingClientRect();
+    if (!viewportRect.width || !viewportRect.height ||
+        !canvasRect.width || !canvasRect.height) return null;
+    const imageRect = importState.sourceRect;
+    const toCanvasX = x => (x - canvasRect.left) * sourceCanvas.width / canvasRect.width;
+    const toCanvasY = y => (y - canvasRect.top) * sourceCanvas.height / canvasRect.height;
+    const left = clamp(toCanvasX(viewportRect.left), imageRect.x, imageRect.x + imageRect.w);
+    const right = clamp(toCanvasX(viewportRect.right), imageRect.x, imageRect.x + imageRect.w);
+    const top = clamp(toCanvasY(viewportRect.top), imageRect.y, imageRect.y + imageRect.h);
+    const bottom = clamp(toCanvasY(viewportRect.bottom), imageRect.y, imageRect.y + imageRect.h);
+    const x = clamp(Math.floor((left - imageRect.x) / importState.displayScale), 0, importState.sourceImage.width);
+    const y = clamp(Math.floor((top - imageRect.y) / importState.displayScale), 0, importState.sourceImage.height);
+    const x2 = clamp(Math.ceil((right - imageRect.x) / importState.displayScale), 0, importState.sourceImage.width);
+    const y2 = clamp(Math.ceil((bottom - imageRect.y) / importState.displayScale), 0, importState.sourceImage.height);
+    if (x2 - x < 24 || y2 - y < 24) return null;
+    return { x, y, width: x2 - x, height: y2 - y };
+  }
+
+  function setDefaultCorners(imageRegion = null) {
     if (!importState.sourceRect) drawSource();
-    const r = importState.sourceRect;
+    const r = imageRegion
+      ? (() => {
+          const topLeft = projectImagePointToSourceCanvas({x:imageRegion.x, y:imageRegion.y});
+          return {x:topLeft.x, y:topLeft.y,
+            w:imageRegion.width * importState.displayScale,
+            h:imageRegion.height * importState.displayScale};
+        })()
+      : importState.sourceRect;
     const marginX = r.w * 0.08;
     const marginY = r.h * 0.08;
     importState.boardCorners = [
@@ -3453,24 +3484,40 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     return best;
   }
 
-  async function autoDetectBoard() {
+  async function autoDetectBoard({ visibleOnly = false } = {}) {
     drawSource();
     if (!importState.sourceImage) return;
+    // Snapshot the view at the moment the user requests re-detection.
+    // Initial import still detects the whole source image.
+    const imageRegion = visibleOnly ? getVisibleSourceImageRect() : {
+      x: 0, y: 0,
+      width: importState.sourceImage.width,
+      height: importState.sourceImage.height,
+    };
+    if (!imageRegion) {
+      setImportStatus("目前圖片框內可見的圖片太少，請調整縮放位置後重新偵測。", true);
+      return;
+    }
     const cvAvailable = await ensureCvReady();
     if (!cvAvailable) {
-      setDefaultCorners();
-      setImportStatus("OpenCV.js 不可用，已切到手動框選模式。");
+      setDefaultCorners(imageRegion);
+      setImportStatus("OpenCV.js 不可用，已在目前畫面範圍提供手動棋盤框。");
       setImportButtons();
       return;
     }
 
     let src = null, gray = null, detectionGray = null;
     try {
-      setImportStatus("正在抑制外圍文字並以 15 路格線模型偵測棋盤...");
+      setImportStatus((visibleOnly ? "正在偵測目前可見的圖片範圍；" : "") +
+        "正在抑制外圍文字並以 15 路格線模型偵測棋盤...");
       const tempCanvas = document.createElement("canvas");
-      tempCanvas.width = importState.sourceImage.width;
-      tempCanvas.height = importState.sourceImage.height;
-      tempCanvas.getContext("2d").drawImage(importState.sourceImage, 0, 0);
+      tempCanvas.width = imageRegion.width;
+      tempCanvas.height = imageRegion.height;
+      tempCanvas.getContext("2d").drawImage(
+        importState.sourceImage,
+        imageRegion.x, imageRegion.y, imageRegion.width, imageRegion.height,
+        0, 0, tempCanvas.width, tempCanvas.height
+      );
       src = cv.imread(tempCanvas);
       gray = new cv.Mat();
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
@@ -3490,20 +3537,28 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       if (chosen && chosen.score >= 0.34) chosen = refineBoardCandidate(detectionGray, chosen);
 
       if (chosen && chosen.score >= 0.40 && chosen.coverage >= 0.38) {
-        importState.boardCorners = orderCorners(chosen.quad).map(projectImagePointToSourceCanvas);
+        importState.boardCorners = orderCorners(chosen.quad).map(point =>
+          projectImagePointToSourceCanvas({
+            x: point.x + imageRegion.x,
+            y: point.y + imageRegion.y,
+          })
+        );
         importState.mode = "cornersEditing";
         const confidence = Math.round(chosen.score * 100);
         const coverage = Math.round(chosen.coverage * 100);
-        setImportStatus("已用" + chosen.method + "定位 15 路棋盤（可信度 " + confidence + "%／格線覆蓋 " + coverage + "%）；若有偏差可拖曳四角修正。");
+        setImportStatus((visibleOnly ? "依目前畫面，" : "") +
+          "已用" + chosen.method + "定位 15 路棋盤（可信度 " + confidence +
+          "%／格線覆蓋 " + coverage + "%）；若有偏差可拖曳四角修正。");
       } else {
-        setDefaultCorners();
+        setDefaultCorners(imageRegion);
         const bestScore = chosen ? Math.round(chosen.score * 100) : 0;
-        setImportStatus("多策略偵測仍未通過 15 路格線驗證（最高 " + bestScore + "%），已提供預設棋盤框，請手動修正。", true);
+        setImportStatus("目前偵測範圍未通過 15 路格線驗證（最高 " + bestScore +
+          "%），已在此範圍提供預設棋盤框，請手動修正。", true);
       }
     } catch (e) {
       console.error(e);
-      setDefaultCorners();
-      setImportStatus("多策略棋盤偵測失敗，已切到手動框選模式。", true);
+      setDefaultCorners(imageRegion);
+      setImportStatus("棋盤偵測失敗，已在目前範圍切到手動框選模式。", true);
     } finally {
       drawSource();
       setImportButtons();
@@ -4316,6 +4371,10 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       cv.imshow(warpedCanvas, dst);
       importState.mode = "boardConfirmed";
       computeWarpedIntersections();
+      // A confirmed board is already perspective-fitted (including the outer
+      // 0.68-cell margin). Clear the previous source-photo zoom and pan so the
+      // complete board fits the frame instead of being magnified twice.
+      resetImageView();
       renderNotationPaperPreview();
       setImportStatus("棋盤區域已確認，請選擇「辨識棋子」或「加上手順」。");
       setImportButtons();
@@ -4786,7 +4845,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   });
   btnImportRedetect.addEventListener("click", () => {
     closeImportModeChoice();
-    autoDetectBoard();
+    autoDetectBoard({ visibleOnly: true });
   });
   btnImportConfirm.addEventListener("click", () => confirmBoardArea());
   btnImportModeRecognize.addEventListener("click", () => {

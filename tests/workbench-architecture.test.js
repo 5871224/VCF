@@ -200,4 +200,69 @@ assert.ok(handleCode.includes("srcCtx.arc(") && handleCode.includes("srcCtx.line
   "corner handles include hollow circles and two connected guide arms");
 assert.ok(!handleCode.includes("srcCtx.fill()"),"corner markers must not obscure the photo");
 
+
+// Re-detection must crop the original pixels to what is visible in the fixed
+// viewport, then add the crop offset back to detected image-space corners.
+has("html", [
+  "function getVisibleSourceImageRect()",
+  "const imageRegion = visibleOnly ? getVisibleSourceImageRect() :",
+  "autoDetectBoard({ visibleOnly: true });",
+  "tempCanvas.width = imageRegion.width;",
+  "tempCanvas.height = imageRegion.height;",
+  "imageRegion.x, imageRegion.y, imageRegion.width, imageRegion.height,",
+  "x: point.x + imageRegion.x,",
+  "y: point.y + imageRegion.y,",
+  "setDefaultCorners(imageRegion);",
+]);
+const cropStart = files.html.indexOf("  function getVisibleSourceImageRect() {");
+const cropEnd = files.html.indexOf("  function setDefaultCorners(", cropStart);
+assert.ok(cropStart >= 0 && cropEnd > cropStart, "visible crop helper must exist");
+const cropCode = files.html.slice(cropStart, cropEnd);
+const cropFactory = new Function("importState", "imageViewport", "sourceCanvas", "clamp",
+  cropCode + "\nreturn getVisibleSourceImageRect;");
+const cropState = {
+  sourceImage: {width:1200,height:1200},
+  displayScale:0.75,
+  sourceRect:{x:0,y:0,w:900,h:900},
+};
+const fixedView = {getBoundingClientRect:()=>({left:100,top:200,right:500,bottom:600,
+  width:400,height:400})};
+let transformedCanvasRect = {left:100,top:200,right:500,bottom:600,width:400,height:400};
+const scaledCanvas = {width:900,height:900,
+  getBoundingClientRect:()=>transformedCanvasRect};
+const roi = cropFactory(cropState, fixedView, scaledCanvas,
+  (v,lo,hi)=>Math.max(lo,Math.min(v,hi)));
+assert.deepEqual(roi(),{x:0,y:0,width:1200,height:1200},
+  "normal view must detect the whole image");
+transformedCanvasRect = {left:-100,top:0,right:700,bottom:800,width:800,height:800};
+assert.deepEqual(roi(),{x:300,y:300,width:600,height:600},
+  "2x image zoom with pan must detect only the center visible quarter");
+transformedCanvasRect = {left:300,top:400,right:1100,bottom:1200,width:800,height:800};
+assert.deepEqual(roi(),{x:0,y:0,width:300,height:300},
+  "image translated offscreen must crop to original image bounds");
+cropState.sourceImage = {width:1200,height:600};
+cropState.sourceRect = {x:0,y:225,w:900,h:450};
+transformedCanvasRect = {left:100,top:200,right:500,bottom:600,width:400,height:400};
+assert.deepEqual(roi(),{x:0,y:0,width:1200,height:600},
+  "letterboxing must not be included as detectable photo pixels");
+cropState.sourceImage = null;
+assert.equal(roi(),null,"without an image re-detection must do nothing");
+
+const confirmStart = files.html.indexOf("  async function confirmBoardArea() {");
+const confirmEnd = files.html.indexOf("  function backToBoardArea()", confirmStart);
+assert.ok(confirmStart >= 0 && confirmEnd > confirmStart, "confirmation function exists");
+const confirmation = files.html.slice(confirmStart,confirmEnd);
+assert.ok(
+  confirmation.indexOf("cv.imshow(warpedCanvas, dst);") <
+  confirmation.indexOf("resetImageView();") &&
+  confirmation.indexOf("resetImageView();") <
+  confirmation.indexOf("renderNotationPaperPreview();"),
+  "confirm must clear previous zoom after warping, before drawing full-board preview"
+);
+assert.ok(confirmation.includes('importState.mode = "cornersEditing";') &&
+  confirmation.indexOf('importState.mode = "cornersEditing";') >
+  confirmation.indexOf("resetImageView();"),
+  "failed confirmation keeps prior zoom and returns to corner editing"
+);
+
 console.log("5DB workbench and deployment integration contract passed");
