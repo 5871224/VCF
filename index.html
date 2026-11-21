@@ -1085,6 +1085,11 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
   .vcf-import-mode-actions{flex-direction:column}
   .vcf-import-mode-actions button{width:100%}
 }
+#vcf-search-diagnostics{margin-top:12px;border:1px solid #c9c3b5;border-radius:8px;padding:10px}
+#vcf-search-diagnostics[hidden]{display:none!important}
+#vcf-search-diagnostics summary{cursor:pointer;font-weight:700}
+#vcf-search-diagnostics pre{font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto;margin:8px 0;line-height:1.55}
+#vcf-search-diagnostics-copy{font-size:12px;padding:5px 12px}
 </style>
 <script>
 // ponytail: restore layout preferences before parsing the visible workbench, without hiding the page.
@@ -1259,6 +1264,11 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
     </label>
 <label id="show-forbidden-label" hidden><input id="show-forbidden" type="checkbox"> 顯示禁手</label>
 </div></div>
+          <details id="vcf-search-diagnostics" hidden class="vcf-search-diagnostics">
+            <summary>搜尋統計（速找 VCF）</summary>
+            <pre id="vcf-search-diagnostics-text"></pre>
+            <button id="vcf-search-diagnostics-copy" type="button">複製統計</button>
+          </details>
         </section>
         <section class="vcf-section"><h3 class="vcf-section-title">多組 VCF</h3>
           <div class="vcf-actions vcf-cols-4"><button id="btn-multi-vcf" type="button">多組 VCF</button><label class="vcf-setting-toggle vcf-multi-toggle"><input id="vcf-show-multi-settings" type="checkbox">多組設定</label></div>

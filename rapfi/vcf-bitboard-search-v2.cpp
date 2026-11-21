@@ -79,6 +79,34 @@ static int singleFourWayTransTableV5SelfTest()
 // 專供題目產生器使用：略過目標完成盤面，找到第一條較短／其他 VCF 即返回。
 #include "vcf-bitboard-search-first-nontarget-v1.inc"
 
+// Read-only ABI for latest single VCF call in this Worker.
+// words: [version, countedNodes, probes, hits, writes, replacements,
+//         rootCandidateCount, maxPly, depthNodes[113], rootNodes[225]].
+extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbGetSingleSearchDiagnostics(uint32_t *out, int capacity)
+{
+    constexpr int HEADER_WORDS = 8;
+    constexpr int WORDS = HEADER_WORDS + SINGLE_SEARCH_DEPTH_BUCKETS + BOARD_CELLS;
+    if (!out || capacity < WORDS)
+        return 0;
+    const auto tt = std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>::readTelemetry();
+    uint32_t totalNodes = 0;
+    for (uint32_t count : singleSearchDiagnostics.depthNodes)
+        totalNodes += count;
+    out[0] = 1;
+    out[1] = totalNodes;
+    out[2] = tt.probes;
+    out[3] = tt.hits;
+    out[4] = tt.writes;
+    out[5] = tt.replacements;
+    out[6] = singleSearchDiagnostics.rootCandidates;
+    out[7] = singleSearchDiagnostics.maxPly;
+    for (int i = 0; i < SINGLE_SEARCH_DEPTH_BUCKETS; i++)
+        out[HEADER_WORDS + i] = singleSearchDiagnostics.depthNodes[i];
+    for (int i = 0; i < BOARD_CELLS; i++)
+        out[HEADER_WORDS + SINGLE_SEARCH_DEPTH_BUCKETS + i] = singleSearchDiagnostics.rootNodes[i];
+    return WORDS;
+}
+
 extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbFindModeV3(const uint8_t *board,
                                                                int attacker,
                                                                int rule,

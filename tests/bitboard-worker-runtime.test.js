@@ -69,6 +69,25 @@ function normalized(result) {
     throw new Error("Worker current rule does not preserve free-rule value 0");
   }
 
+  // Observability-only ABI: exact node totals must match the existing engine.
+  const singleBoard = new Array(225).fill(0);
+  for (const x of [5, 6, 7]) singleBoard[7 * 15 + x] = 1;
+  const singleResult = await call("findVCF", {
+    arr: singleBoard, color: 1, rules: 2, mode: "single",
+    maxDepth: 11, maxNode: 25000,
+  });
+  const diagnostics = singleResult.searchDiagnostics;
+  if (!diagnostics || diagnostics.version !== 1) {
+    throw new Error("single VCF search diagnostics ABI is unavailable");
+  }
+  if (diagnostics.countedNodes !== singleResult.nodeCount
+      || diagnostics.hits > diagnostics.probes
+      || diagnostics.replacements > diagnostics.writes
+      || diagnostics.depthNodes.reduce((total, item) => total + item.nodes, 0) !== singleResult.nodeCount
+      || diagnostics.rootNodes.reduce((total, item) => total + item.nodes, 0) !== singleResult.nodeCount) {
+    throw new Error("single VCF diagnostics counters are inconsistent");
+  }
+
   const catchFoul = new Array(225).fill(0);
   for (let x = 0; x <= 3; x++) catchFoul[7 * 15 + x] = 1;
   catchFoul[7 * 15 + 5] = 1;

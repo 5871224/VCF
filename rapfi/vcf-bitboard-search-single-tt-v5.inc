@@ -34,7 +34,15 @@ private:
         uint32_t generation = 0;
     };
 
+    struct SearchTelemetry {
+        uint32_t probes = 0;
+        uint32_t hits = 0;
+        uint32_t writes = 0;
+        uint32_t replacements = 0;
+    };
+
     struct Storage {
+        SearchTelemetry telemetry {};
         vector<Slot> slots;
         uint32_t generation = 0;
         uint64_t replacementCounter = 0;
@@ -46,6 +54,7 @@ private:
 
         void beginSearch()
         {
+            telemetry = {};
             generation++;
             replacementCounter = 0;
             if (generation == 0) {
@@ -85,10 +94,13 @@ private:
         slot.key = key;
         slot.tag = tag;
         slot.generation = storage.generation;
+        storage.telemetry.writes++;
     }
 
 public:
     using const_iterator = const Key *;
+    static SearchTelemetry readTelemetry() { return storage.telemetry; }
+    static void clearTelemetry() { storage.telemetry = {}; }
 
     VcfSingleFourWayTransTableV5()
     {
@@ -112,11 +124,14 @@ public:
         const uint64_t hash = mixHash(key.hash);
         const uint64_t tag = hash | 1ULL;
         const size_t base = (size_t(hash) & BUCKET_MASK) * WAY_COUNT;
+        storage.telemetry.probes++;
 
         for (size_t way = 0; way < WAY_COUNT; way++) {
             const Slot &slot = storage.slots[base + way];
-            if (exactMatch(slot, key, tag))
+            if (exactMatch(slot, key, tag)) {
+                storage.telemetry.hits++;
                 return &slot.key;
+            }
         }
         return nullptr;
     }
@@ -138,6 +153,7 @@ public:
         }
 
         const size_t victim = size_t(storage.replacementCounter++ & 3ULL);
+        storage.telemetry.replacements++;
         writeSlot(storage.slots[base + victim], key, tag);
     }
 };
