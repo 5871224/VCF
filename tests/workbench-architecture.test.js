@@ -108,4 +108,52 @@ has("dashboard", [
   "距離限制：", "未啟用（原始 DFS）",
   "distanceLimited && info?.distanceLimited !== true",
 ]);
+
+// Image import: DOM alignment, drag/drop, pointer zoom and mouse-only white stones.
+has("html", ['id="import-image-viewport"', 'id="import-image-transform"',
+  'imageViewport.addEventListener("drop"', 'imageViewport.addEventListener("wheel"',
+  'imageViewport.addEventListener("pointerdown"', 'imageViewport.addEventListener("pointermove"',
+  'imageViewport.addEventListener("pointerup", finishImageTouch, true)',
+  'imageTouches', 'imageTouches.size > 1', 'resetImageView()',
+  'imageTransform.style.transform', 'const color = evt.button === 2 ? 2 : 1',
+  'imageViewport.addEventListener("contextmenu"']);
+const mobilePresentation = read("makevcf-mobile.js");
+assert.ok(mobilePresentation.includes("canvasWrap.getBoundingClientRect().height"),
+  "move-order table height must use unzoomed viewport");
+assert.ok(mobilePresentation.includes('event.pointerType === "touch" && !event.isPrimary'),
+  "second finger must cancel touch hold when pinching");
+
+// Execute the actual preview edit handler with a 15x15 synthetic grid.
+// Desktop mouse: left=black/clear, right=white/clear. Touch: existing cycle.
+const editStart = files.html.indexOf("  function editPreviewPoint(evt) {");
+const editEnd = files.html.indexOf("  function renderNotationPaperPreview()", editStart);
+assert.ok(editStart >= 0 && editEnd > editStart, "image editor must be present");
+const factory = new Function("importState", "getCanvasPoint", "sourceCanvas",
+  "WARP_SIZE", "nearestGridIndex", "getRefinedGridStep", "renderRecognitionPreview",
+  "setImportStatus", "SIZE",
+  files.html.slice(editStart, editEnd) + "\nreturn editPreviewPoint;");
+const board = Array(225).fill(0);
+const grid = Array.from({length:15}, (_, i) => 30 + i * 60);
+const state = {mode:"recognized", recognizedBoard:board, confidenceMap:Array(225).fill(0),
+  gridXs:grid, gridYs:grid};
+const nearest = (values, coordinate) => {
+  let bestIndex = 0, bestDistance = Infinity;
+  values.forEach((value, index) => {
+    const distance = Math.abs(value - coordinate);
+    if (distance < bestDistance) {bestIndex=index; bestDistance=distance;}
+  });
+  return {index:bestIndex, distance:bestDistance};
+};
+const edit = factory(state, () => ({x:30,y:30}), {width:900,height:900}, 900, nearest,
+  () => 60, () => {}, () => {}, 15);
+const pointer = (pointerType, button) => ({pointerType,button,preventDefault() {}});
+edit(pointer("mouse",0)); assert.equal(board[0],1);
+edit(pointer("mouse",0)); assert.equal(board[0],0);
+edit(pointer("mouse",2)); assert.equal(board[0],2);
+edit(pointer("mouse",2)); assert.equal(board[0],0);
+edit(pointer("mouse",2)); assert.equal(board[0],2);
+edit(pointer("mouse",0)); assert.equal(board[0],1);
+edit(pointer("touch",0)); assert.equal(board[0],2);
+edit(pointer("touch",0)); assert.equal(board[0],0);
+
 console.log("5DB workbench and deployment integration contract passed");

@@ -901,8 +901,10 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
   .gen-replay-count { min-width: 92px; }
 }
 
-.vcf-image-order-canvas-wrap{position:relative;width:100%}
-.vcf-image-order-canvas-wrap>.import-canvas{position:relative;z-index:1}
+.vcf-image-order-canvas-wrap{position:relative;width:100%;aspect-ratio:1;overflow:hidden;border-radius:4px}
+#import-image-transform{position:relative;width:100%;height:100%;transform-origin:0 0}
+.vcf-image-order-canvas-wrap #source-canvas{position:relative;z-index:1}
+.vcf-image-order-canvas-wrap.is-dragover{outline:3px dashed #1976d2;outline-offset:-3px;background:#dceeff}
 #vcf-image-order-overlay{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
 #vcf-image-order-panel{margin:0 auto 8px;width:min(100%,780px);padding:9px;border:1px solid #d8c48a;border-radius:6px;background:#fffdf5}
 #vcf-image-order-panel[hidden]{display:none}
@@ -941,7 +943,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
   width:auto;
   min-width:0;
 }
-#vcf-image-order-stage>.vcf-image-order-canvas-wrap>.import-canvas{
+#vcf-image-order-stage>.vcf-image-order-canvas-wrap>#import-image-transform>.import-canvas{
   width:100%;
   height:auto;
 }
@@ -1403,12 +1405,14 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
   <div id="import-canvases">
     <div id="import-canvas-card" class="canvas-card">
       <h3 id="import-view-title">原圖與棋盤框</h3>
-      <p id="source-hint">支援上傳、貼上截圖、手機拍照；桌機拖角點，手機可從對應象限任意位置拖曳該角。</p>
+      <p id="source-hint">可將圖片拖到框內；手機雙指、電腦滾輪縮放。桌機拖角點，手機由對應象限拖曳角點。</p>
       <div id="vcf-image-order-stage">
-        <div class="vcf-image-order-canvas-wrap">
-          <canvas id="source-canvas" class="import-canvas" width="900" height="900"></canvas>
-          <canvas id="vcf-image-order-overlay" hidden></canvas>
-          <div id="vcf-image-order-dom-overlay"></div>
+        <div id="import-image-viewport" class="vcf-image-order-canvas-wrap">
+          <div id="import-image-transform">
+            <canvas id="source-canvas" class="import-canvas" width="900" height="900"></canvas>
+            <canvas id="vcf-image-order-overlay" hidden></canvas>
+            <div id="vcf-image-order-dom-overlay"></div>
+          </div>
         </div>
     <div class="vcf-image-order-table-wrap" hidden>
       <table id="vcf-image-order-table">
@@ -1418,12 +1422,12 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
     </div>
       </div>
       <div id="preview-edit-hint" class="hint preview-edit-hint" hidden>
-        點一下交點可依序切換「空點 → 黑子 → 白子 → 空點」。標記採半透明顯示，可直接和原圖對照。
+        電腦左鍵放黑子、右鍵放白子，點同色可清除；手機仍可循環切換空、黑、白。
       </div>
     </div>
   </div>
   <div id="import-actions" class="hint">
-    桌機可直接 Ctrl+V 貼上截圖；手機可用拍照。自動偵測失敗時仍可拖曳四角完成匯入。
+    可上傳、貼上或拖曳圖片至圖片框；手機雙指、電腦滾輪縮放。
   </div>
   <canvas id="warped-canvas" width="900" height="900" hidden></canvas>
   <input id="image-file-input" type="file" accept="image/*" hidden>
@@ -2323,6 +2327,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   const SOURCE_MAX = 1200;
   const OUTER_MARGIN_CELLS = 0.68;
   const sourceCanvas = document.getElementById("source-canvas");
+  const imageViewport = document.getElementById("import-image-viewport");
+  const imageTransform = document.getElementById("import-image-transform");
   const warpedCanvas = document.getElementById("warped-canvas");
   const srcCtx = sourceCanvas.getContext("2d");
   const warpCtx = warpedCanvas.getContext("2d");
@@ -2381,6 +2387,39 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     classificationMeta: [],
   };
 
+  // Only visual CSS transforms are changed: recognition uses fixed 900px coordinates.
+  const imageView = { zoom: 1, x: 0, y: 0 };
+  const imageTouches = new Map();
+  let pinch = null;
+  let consumedGesture = false;
+
+  function renderImageView() {
+    const width = imageViewport.clientWidth, height = imageViewport.clientHeight;
+    imageView.x = clamp(imageView.x, width * (1 - imageView.zoom), 0);
+    imageView.y = clamp(imageView.y, height * (1 - imageView.zoom), 0);
+    imageTransform.style.transform =
+      `translate(${imageView.x}px, ${imageView.y}px) scale(${imageView.zoom})`;
+  }
+
+  function resetImageView() {
+    imageView.zoom = 1; imageView.x = 0; imageView.y = 0;
+    imageTouches.clear(); pinch = null; consumedGesture = false;
+    renderImageView();
+  }
+
+  function zoomImageAt(factor, clientX, clientY) {
+    if (!importState.sourceImage) return;
+    const rect = imageViewport.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const x = clamp(clientX - rect.left, 0, rect.width);
+    const y = clamp(clientY - rect.top, 0, rect.height);
+    const next = clamp(imageView.zoom * factor, 1, 6);
+    imageView.x = x - (x - imageView.x) * next / imageView.zoom;
+    imageView.y = y - (y - imageView.y) * next / imageView.zoom;
+    imageView.zoom = next;
+    renderImageView();
+  }
+
   function setImportStatus(text, danger = false) {
     importStatusEl.textContent = text;
     importStatusEl.classList.toggle("danger-lite", !!danger);
@@ -2403,8 +2442,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     sourceHintEl.textContent = notation
       ? "直接在任意棋盤交點標記手順；奇數手視為黑棋、偶數手視為白棋，不需要先辨識棋子。"
       : preview
-        ? "半透明標記疊在校正後原圖上；點擊任一交點可手動切換空、黑、白。"
-        : "支援上傳、貼上截圖、手機拍照；桌機拖角點，手機可從對應象限任意位置拖曳該角。";
+        ? "電腦左鍵黑子、右鍵白子；手機點擊循環切換空、黑、白。可縮放圖片檢查。"
+        : "可拖入圖片、貼上截圖或拍照；電腦滾輪、手機雙指縮放，單指仍可拖曳四角。";
     previewEditHintEl.hidden = !preview || notation;
     importCanvasCardEl.classList.toggle("preview-mode", preview);
   }
@@ -2445,6 +2484,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     importState.recognizedBoard.fill(0);
     importState.confidenceMap.fill(0);
     importState.classificationMeta = [];
+    resetImageView();
     if (!keepCv) importState.cvReady = false;
     srcCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
     srcCtx.fillStyle = "#f3f3f3";
@@ -2639,6 +2679,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
         img.src = url;
       });
       importState.sourceImage = await normalizeImage(img);
+      resetImageView();
       importState.mode = "imageLoaded";
       importState.boardCorners = [];
       importState.recognizedBoard.fill(0);
@@ -3480,7 +3521,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   }
 
   function beginCornerDrag(evt) {
-    if (!importState.boardCorners.length || isPreviewMode()) return;
+    if (!importState.boardCorners.length || isPreviewMode() || imageTouches.size > 1 || consumedGesture || (evt.button != null && evt.button !== 0)) return;
     const point = getCanvasPoint(evt, sourceCanvas);
     const idx = isTouchCornerEvent(evt) ? pickCornerByQuadrant(point) : pickCorner(point);
     if (idx >= 0) {
@@ -3496,7 +3537,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   }
 
   function moveCornerDrag(evt) {
-    if (importState.dragCorner < 0) return;
+    if (importState.dragCorner < 0 || imageTouches.size > 1 || consumedGesture) return;
     const pt = getCanvasPoint(evt, sourceCanvas);
     const offset = importState.dragOffset || { x: 0, y: 0 };
     const r = importState.sourceRect;
@@ -4127,7 +4168,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   }
 
   function editPreviewPoint(evt) {
-    if (importState.mode !== "recognized") return;
+    if (importState.mode !== "recognized" || (evt.pointerType === "mouse" && evt.button !== 0 && evt.button !== 2)) return;
     const canvasPoint = getCanvasPoint(evt, sourceCanvas);
     const imagePoint = {
       x: canvasPoint.x * (WARP_SIZE / sourceCanvas.width),
@@ -4138,7 +4179,13 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     const step = getRefinedGridStep();
     if (column.distance > step * 0.48 || row.distance > step * 0.48) return;
     const index = row.index * SIZE + column.index;
-    importState.recognizedBoard[index] = (importState.recognizedBoard[index] + 1) % 3;
+    const old = importState.recognizedBoard[index];
+    if (evt.pointerType === "mouse") {
+      const color = evt.button === 2 ? 2 : 1;
+      importState.recognizedBoard[index] = old === color ? 0 : color;
+    } else {
+      importState.recognizedBoard[index] = (old + 1) % 3;
+    }
     importState.confidenceMap[index] = 1;
     renderRecognitionPreview();
     const black = importState.recognizedBoard.filter(value => value === 1).length;
@@ -4736,6 +4783,79 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     await loadFromFileList(evt.target.files);
     cameraFileInput.value = "";
   });
+  // Drop image files onto the same image frame used for recognition.
+  const hasFiles = e => Array.from(e.dataTransfer?.types || []).includes("Files");
+  imageViewport.addEventListener("dragenter", e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); imageViewport.classList.add("is-dragover");
+  });
+  imageViewport.addEventListener("dragover", e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); e.dataTransfer.dropEffect = "copy";
+    imageViewport.classList.add("is-dragover");
+  });
+  imageViewport.addEventListener("dragleave", e => {
+    if (!imageViewport.contains(e.relatedTarget)) imageViewport.classList.remove("is-dragover");
+  });
+  imageViewport.addEventListener("drop", async e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); imageViewport.classList.remove("is-dragover");
+    const file = Array.from(e.dataTransfer.files || []).find(f => f.type.startsWith("image/"));
+    if (!file) { setImportStatus("請拖入圖片檔案。", true); return; }
+    try { await loadFromFileList([file]); }
+    catch (error) { console.error(error); setImportStatus("圖片讀取失敗，請重試。", true); }
+  });
+
+  imageViewport.addEventListener("wheel", e => {
+    if (!importState.sourceImage) return;
+    e.preventDefault();
+    zoomImageAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+  }, { passive: false });
+
+  function pinchInfo() {
+    const pts = Array.from(imageTouches.values()).slice(0, 2);
+    return { distance: Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)),
+      x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  }
+  imageViewport.addEventListener("pointerdown", e => {
+    if (!importState.sourceImage || e.pointerType !== "touch") return;
+    const rect = imageViewport.getBoundingClientRect();
+    imageTouches.set(e.pointerId, { x:e.clientX-rect.left, y:e.clientY-rect.top });
+    if (imageTouches.size >= 2) {
+      const p = pinchInfo();
+      pinch = { distance:p.distance, zoom:imageView.zoom,
+        anchorX:(p.x-imageView.x)/imageView.zoom, anchorY:(p.y-imageView.y)/imageView.zoom };
+      consumedGesture = true;
+      endCornerDrag();
+    }
+  }, true);
+  imageViewport.addEventListener("pointermove", e => {
+    if (!imageTouches.has(e.pointerId)) return;
+    const rect = imageViewport.getBoundingClientRect();
+    imageTouches.set(e.pointerId, { x:e.clientX-rect.left, y:e.clientY-rect.top });
+    if (!pinch || imageTouches.size < 2) return;
+    const p = pinchInfo();
+    imageView.zoom = clamp(pinch.zoom * p.distance / pinch.distance, 1, 6);
+    imageView.x = p.x - pinch.anchorX * imageView.zoom;
+    imageView.y = p.y - pinch.anchorY * imageView.zoom;
+    renderImageView();
+    e.preventDefault();
+  }, true);
+  function finishImageTouch(e) {
+    if (!imageTouches.has(e.pointerId)) return;
+    const blocked = consumedGesture || !!pinch;
+    imageTouches.delete(e.pointerId);
+    if (imageTouches.size < 2) pinch = null;
+    if (!imageTouches.size) consumedGesture = false;
+    if (blocked) { e.preventDefault(); e.stopPropagation(); }
+  }
+  imageViewport.addEventListener("pointerup", finishImageTouch, true);
+  imageViewport.addEventListener("pointercancel", finishImageTouch, true);
+  imageViewport.addEventListener("contextmenu", e => {
+    if (importState.mode === "recognized") e.preventDefault();
+  });
+  window.addEventListener("resize", renderImageView);
+
   sourceCanvas.addEventListener("mousedown", beginCornerDrag);
   sourceCanvas.addEventListener("mousemove", moveCornerDrag);
   window.addEventListener("mouseup", endCornerDrag);
@@ -4751,7 +4871,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 </script>
 
 <!-- 手機棋盤自適應 -->
-<script src="makevcf-mobile.js?v=20261008-static-workbench1"></script>
+<script src="makevcf-mobile.js?v=20261122-image-zoom1"></script>
 <!-- VCF 題目產生器：固定載入順序，不再由功能檔動態插入腳本 -->
 <script src="emoji/emoji.js"></script>
 <script src="eval/EvaluatorJScript.js"></script>
