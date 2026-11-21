@@ -168,8 +168,10 @@
     const totalRoot = d.rootNodes.reduce((sum, item) => sum + item.nodes, 0);
     const lines = [
       "單組 VCF 搜尋診斷（原始座標，不旋轉棋盤）",
+      "距離限制：" + (info.distanceLimited
+        ? "啟用（快速分階段試探；失敗後完整搜尋）"
+        : "未啟用（原始 DFS）"),
       ...(info.distanceLimited ? [
-        "距離限制：啟用（快速分階段試探；失敗後完整搜尋）",
         ...((info.searchAttempts || []).map(attempt =>
           attempt.name + "：" + format(attempt.nodes) + " 節點、" +
           (attempt.elapsedMs / 1000).toFixed(3) + " 秒" +
@@ -223,6 +225,9 @@
           maxDepth: 200,
           maxNode: 5000000,
         });
+        if (distanceLimited && info?.distanceLimited !== true) {
+          throw new Error("距離限制設定未生效，請重新整理頁面並確認新版引擎已載入");
+        }
         renderSingleSearchDiagnostics(info);
         if (info && info.winMoves && info.winMoves[0] && info.winMoves[0].length) {
           lastVCFMoves = info.winMoves[0];
