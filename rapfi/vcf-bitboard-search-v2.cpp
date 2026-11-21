@@ -21,6 +21,44 @@
 #undef vcfBbScanPointsModeV3
 #undef vcfBbSearchV2SelfTest
 
+// 驗證四方向加權與原盤不變。雙方向連接應優先於單方向連接；
+// 同方向重疊視窗只能取最佳一段，不能多次累加。
+static int candidateDirectionScoreSelfTest()
+{
+    std::array<uint8_t, BOARD_CELLS> board {};
+    const int row = 7 * BOARD_SIZE;
+    for (int col : {6, 7, 8})
+        board[row + col] = BLACK;
+    board[6 * BOARD_SIZE + 9] = BLACK;
+    board[8 * BOARD_SIZE + 9] = BLACK;
+
+    Position position;
+    position.load(board.data());
+    const auto before = position.board.cells;
+    const uint64_t originalHash = position.board.hash;
+    const uint8_t left = candidateDirectionStoneScore(position, row + 5, BLACK, FREESTYLE);
+    const uint8_t right = candidateDirectionStoneScore(position, row + 9, BLACK, FREESTYLE);
+    if (left != 3 || right != 5)
+        return 1;
+    if (position.board.cells != before || position.board.hash != originalHash)
+        return 2;
+
+    CandidateBuildScratch scratch;
+    CandidateList candidates;
+    scanCandidates(position, BLACK, FREESTYLE, NIL, CENTER, scratch, candidates);
+    if (position.board.cells != before || position.board.hash != originalHash)
+        return 3;
+    int leftIndex = -1;
+    int rightIndex = -1;
+    for (int i = 0; i < candidates.count; ++i) {
+        if (candidates.items[i].idx == row + 5) leftIndex = i;
+        if (candidates.items[i].idx == row + 9) rightIndex = i;
+    }
+    if (leftIndex < 0 || rightIndex < 0 || rightIndex >= leftIndex)
+        return 4;
+    return 0;
+}
+
 static int singleFourWayTransTableV5SelfTest()
 {
     using TestTable = std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>;
@@ -184,6 +222,9 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbScanPointsModeV3(const uint8_t *
 
 extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbSearchV2SelfTest()
 {
+    const int directionResult = candidateDirectionScoreSelfTest();
+    if (directionResult != 0)
+        return 200 + directionResult;
     const int singleTtResult = singleFourWayTransTableV5SelfTest();
     if (singleTtResult != 0)
         return 100 + singleTtResult;
