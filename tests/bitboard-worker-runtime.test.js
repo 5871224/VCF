@@ -116,6 +116,39 @@ function normalized(result) {
   }
   if (!rejectedExponent) throw new Error("invalid transposition table exponent was accepted");
 
+  // The opt-in distance mode must leave the original single mode intact.
+  // The merged diagnosis must account for every distance probe and fallback.
+  const distanceResult = await call("findVCF", {
+    arr: singleBoard, color: 1, rules: 2, mode: "single",
+    distanceLimited: true, ttExponent: 20, maxDepth: 11, maxNode: 25000,
+  });
+  const distanceDiag = distanceResult.searchDiagnostics;
+  if (!distanceResult.distanceLimited || !distanceResult.searchAttempts?.length
+      || !distanceResult.vcfCount || !distanceResult.winMoves[0]?.length
+      || distanceDiag.countedNodes !== distanceResult.nodeCount
+      || distanceDiag.hits > distanceDiag.probes
+      || distanceDiag.depthNodes.reduce((n, x) => n + x.nodes, 0) !== distanceResult.nodeCount
+      || distanceDiag.rootNodes.reduce((n, x) => n + x.nodes, 0) !== distanceResult.nodeCount
+      || distanceResult.searchAttempts.reduce((n, x) => n + x.nodes, 0) !== distanceResult.nodeCount) {
+    throw new Error("distance-limited single VCF probe or aggregate diagnostics mismatch");
+  }
+  const distanceValid = await call("isVCF", {
+    arr: singleBoard, color: 1, rules: 2, moves: distanceResult.winMoves[0],
+    maxNode: 200000,
+  });
+  if (!distanceValid.valid) throw new Error("distance-limited VCF proof failed validation");
+
+  const emptyDistance = await call("findVCF", {
+    arr: new Array(225).fill(0), color: 1, rules: 2, mode: "single",
+    distanceLimited: true, ttExponent: 20, maxDepth: 11, maxNode: 25000,
+  });
+  if (emptyDistance.vcfCount !== 0 || emptyDistance.aborted ||
+      emptyDistance.searchAttempts?.length !== 4 ||
+      emptyDistance.searchAttempts.at(-1)?.name !== "原始完整 DFS" ||
+      emptyDistance.nodeCount !== emptyDistance.searchDiagnostics.countedNodes) {
+    throw new Error("distance probe did not fall back to the exhaustive single VCF engine");
+  }
+
   const catchFoul = new Array(225).fill(0);
   for (let x = 0; x <= 3; x++) catchFoul[7 * 15 + x] = 1;
   catchFoul[7 * 15 + 5] = 1;

@@ -2,6 +2,7 @@
 
 (function initBitboardDashboard() {
   const simplifyCheck = document.getElementById("vcf-simplify-route");
+  const distanceCheck = document.getElementById("vcf-distance-limited");
   const pruningSelect = document.getElementById("vcf-multi-pruning");
   const multiTimeInput = document.getElementById("vcf-multi-time-seconds");
   const multiNodeInput = document.getElementById("vcf-multi-node-millions");
@@ -17,6 +18,7 @@
 
   try {
     simplifyCheck.checked = localStorage.getItem("vcf_simplify_route") === "1";
+    distanceCheck.checked = localStorage.getItem("vcf_distance_limited") === "1";
     pruningSelect.value = localStorage.getItem("vcf_multi_pruning") === "strict" ? "strict" : "fast";
     const storedAddMode = localStorage.getItem("vcf_add_search_mode");
     addModeSelect.value = storedAddMode === "shortest" || storedAddMode === "shortest-one"
@@ -33,6 +35,9 @@
 
   simplifyCheck.addEventListener("change", () => {
     try { localStorage.setItem("vcf_simplify_route", simplifyCheck.checked ? "1" : "0"); } catch (_) {}
+  });
+  distanceCheck.addEventListener("change", () => {
+    try { localStorage.setItem("vcf_distance_limited", distanceCheck.checked ? "1" : "0"); } catch (_) {}
   });
   pruningSelect.addEventListener("change", () => {
     try { localStorage.setItem("vcf_multi_pruning", pruningSelect.value); } catch (_) {}
@@ -94,6 +99,7 @@
   window.vcfRegisterBusyHook?.("workbench-settings", value => {
     const busy = Boolean(value);
     simplifyCheck.disabled = busy;
+    distanceCheck.disabled = busy;
     pruningSelect.disabled = busy;
     multiTimeInput.disabled = busy;
     multiNodeInput.disabled = busy;
@@ -162,6 +168,13 @@
     const totalRoot = d.rootNodes.reduce((sum, item) => sum + item.nodes, 0);
     const lines = [
       "單組 VCF 搜尋診斷（原始座標，不旋轉棋盤）",
+      ...(info.distanceLimited ? [
+        "距離限制：啟用（快速分階段試探；失敗後完整搜尋）",
+        ...((info.searchAttempts || []).map(attempt =>
+          attempt.name + "：" + format(attempt.nodes) + " 節點、" +
+          (attempt.elapsedMs / 1000).toFixed(3) + " 秒" +
+          (attempt.found ? "，找到 VCF" : "，未找到"))),
+      ] : []),
       "狀態：" + (info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
       "統計節點：" + format(d.countedNodes) + " / 引擎回報：" + format(info.nodeCount),
       "同型表容量：2^" + d.ttExponent + " = " + format(2 ** d.ttExponent) + " 筆",
@@ -195,7 +208,8 @@
       notifyVcfResultChanged();
       diagnosticPanel.hidden = true;
       const simplify = Boolean(simplifyCheck.checked);
-      setStatus(`正在搜索 ${color===1?"黑子":"白子"} VCF${simplify ? "並精簡手順" : ""}...`);
+      const distanceLimited = Boolean(distanceCheck.checked);
+      setStatus(`正在搜索 ${color===1?"黑子":"白子"} VCF${distanceLimited ? "（距離限制）" : ""}${simplify ? "並精簡手順" : ""}...`);
       try {
         const t0 = performance.now();
         const info = await engine.findVCF({
@@ -204,6 +218,7 @@
           mode: "single",
           simplify,
           ttExponent: selectedSingleTtExponent(),
+          distanceLimited,
           maxVCF: 1,
           maxDepth: 200,
           maxNode: 5000000,

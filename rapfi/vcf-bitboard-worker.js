@@ -134,7 +134,78 @@ function findVCF(param) {
   moduleInstance.HEAPU16.fill(0, ptr.lengths >>> 1, (ptr.lengths >>> 1) + MAX_ROUTES);
 
   let count;
-  if (api.findModeV3) {
+  let combinedStats = null;
+  let combinedDiagnostics = null;
+  let searchAttempts = null;
+  const distanceLimited = mode === 0 && param.distanceLimited === true;
+
+  if (distanceLimited) {
+    if (!api.findDistanceV1 || !api.findModeV3) {
+      throw new Error("目前 VCF 引擎不支援距離限制搜尋");
+    }
+
+    // The standalone probes use their own DFS and their own per-search TT
+    // generations. They are *not* negative proofs. The unchanged full search
+    // is always attempted with its original maxNode budget if all probes fail.
+    combinedStats = { nodeCount: 0, elapsedMs: 0, routeCount: 0,
+      candidateCount: 0, maxPly: 0, aborted: false, nodesPerSecond: 0 };
+    combinedDiagnostics = { version: 1, countedNodes: 0, probes: 0,
+      hits: 0, writes: 0, replacements: 0, rootCandidates: 0,
+      maxPly: 0, depthNodes: [], rootNodes: [] };
+    searchAttempts = [];
+    const byDepth = new Map();
+    const byRoot = new Map();
+
+    const accumulate = (name, found) => {
+      const stats = readStats();
+      const diag = readSingleDiagnostics();
+      combinedStats.nodeCount += stats.nodeCount;
+      combinedStats.elapsedMs += stats.elapsedMs;
+      combinedStats.routeCount = stats.routeCount;
+      combinedStats.candidateCount = stats.candidateCount;
+      combinedStats.maxPly = Math.max(combinedStats.maxPly, stats.maxPly);
+      // Only the final attempted search determines whether the result is incomplete.
+      combinedStats.aborted = stats.aborted;
+      if (diag) {
+        combinedDiagnostics.countedNodes += diag.countedNodes;
+        combinedDiagnostics.probes += diag.probes;
+        combinedDiagnostics.hits += diag.hits;
+        combinedDiagnostics.writes += diag.writes;
+        combinedDiagnostics.replacements += diag.replacements;
+        combinedDiagnostics.rootCandidates = Math.max(combinedDiagnostics.rootCandidates, diag.rootCandidates);
+        combinedDiagnostics.maxPly = Math.max(combinedDiagnostics.maxPly, diag.maxPly);
+        for (const entry of diag.depthNodes) byDepth.set(entry.attack, (byDepth.get(entry.attack) || 0) + entry.nodes);
+        for (const entry of diag.rootNodes) byRoot.set(entry.point, (byRoot.get(entry.point) || 0) + entry.nodes);
+      }
+      searchAttempts.push({ name, nodes: stats.nodeCount, elapsedMs: stats.elapsedMs, found: found > 0 });
+    };
+
+    const searchColor = Number(param.color) || 1;
+    const searchRules = normalizeRules(param.rules ?? currentRules);
+    for (const [phase, cap] of [[0, 200000], [1, 300000], [2, 500000]]) {
+      const budget = Math.max(1, Math.min(cap, Math.floor(maxNode / 10)));
+      count = api.findDistanceV1(
+        ptr.board, searchColor, searchRules, simplify ? 1 : 0, phase,
+        maxDepth, budget, ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
+      );
+      accumulate("距離試探 " + (phase + 1), count);
+      if (count > 0) break;
+    }
+    if (count === 0) {
+      count = api.findModeV3(
+        ptr.board, searchColor, searchRules, 0, simplify ? 1 : 0,
+        pruning, 1, maxDepth, maxNode,
+        ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
+      );
+      accumulate("原始完整 DFS", count);
+    }
+    combinedDiagnostics.depthNodes = Array.from(byDepth, ([attack, nodes]) => ({ attack, nodes }))
+      .sort((a, b) => a.attack - b.attack);
+    combinedDiagnostics.rootNodes = Array.from(byRoot, ([point, nodes]) => ({ point, nodes }))
+      .sort((a, b) => a.point - b.point);
+    combinedStats.nodesPerSecond = combinedStats.elapsedMs > 0
+      ? combinedStats.nodeCount * 1000 / combinedStats.elapsedMs : 0;
+  } else if (api.findModeV3) {
     count = api.findModeV3(
       ptr.board,
       Number(param.color) || 1,
@@ -188,14 +259,15 @@ function findVCF(param) {
     winMoves.push(Array.from(moduleInstance.HEAPU8.subarray(start, start + length)));
   }
   return {
-    ...readStats(),
+    ...(combinedStats || readStats()),
     vcfCount: count,
     winMoves,
     searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
     pruning: pruning ? "fast" : "strict",
     simplified: simplify,
+    ...(distanceLimited ? { distanceLimited: true, searchAttempts } : {}),
     ...(mode === 0 ? {
-      searchDiagnostics: { ...readSingleDiagnostics(), ttExponent: requestedExponent },
+      searchDiagnostics: { ...(combinedDiagnostics || readSingleDiagnostics()), ttExponent: requestedExponent },
     } : {}),
   };
 }
@@ -798,6 +870,9 @@ async function init(url, runSmokeCheck = true) {
       findMode: moduleInstance.cwrap("vcfBbFindMode", "number", Array(12).fill("number")),
       setSingleTTExponent: moduleInstance._vcfBbSetSingleTTExponent
         ? moduleInstance.cwrap("vcfBbSetSingleTTExponent", "number", ["number"])
+        : null,
+      findDistanceV1: moduleInstance._vcfBbFindDistanceV1
+        ? moduleInstance.cwrap("vcfBbFindDistanceV1", "number", Array(11).fill("number"))
         : null,
       getSingleDiagnostics: moduleInstance._vcfBbGetSingleSearchDiagnostics
         ? moduleInstance.cwrap("vcfBbGetSingleSearchDiagnostics", "number", ["number", "number"])
