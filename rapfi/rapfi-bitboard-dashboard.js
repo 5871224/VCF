@@ -109,6 +109,54 @@
     }, 50);
   }
 
+  const diagnosticPanel = document.getElementById("vcf-search-diagnostics");
+  const diagnosticText = document.getElementById("vcf-search-diagnostics-text");
+  const diagnosticCopy = document.getElementById("vcf-search-diagnostics-copy");
+  let currentDiagnosticText = "";
+  diagnosticCopy?.addEventListener("click", async () => {
+    if (!currentDiagnosticText) return;
+    try {
+      await navigator.clipboard.writeText(currentDiagnosticText);
+      diagnosticCopy.textContent = "已複製";
+    } catch (error) {
+      diagnosticCopy.textContent = "複製失敗";
+      console.error("VCF 搜尋統計複製失敗", error);
+    }
+  });
+  function renderSingleSearchDiagnostics(info) {
+    diagnosticPanel.hidden = true;
+    diagnosticText.textContent = "";
+    currentDiagnosticText = "";
+    diagnosticCopy.textContent = "複製統計";
+    const d = info?.searchDiagnostics;
+    if (!d) return;
+    const format = value => Math.round(Number(value) || 0).toLocaleString("zh-TW");
+    const percentage = (n, total) => total ? (n / total * 100).toFixed(2) + "%" : "0%";
+    const rootLabel = idx => String.fromCharCode(65 + idx % 15) + String(Math.floor(idx / 15) + 1) + "（左上起算）";
+    const totalRoot = d.rootNodes.reduce((sum, item) => sum + item.nodes, 0);
+    const lines = [
+      "單組 VCF 搜尋診斷（原始座標，不旋轉棋盤）",
+      "狀態：" + (info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
+      "統計節點：" + format(d.countedNodes) + " / 引擎回報：" + format(info.nodeCount),
+      "同型表查詢：" + format(d.probes),
+      "同型表命中：" + format(d.hits) + "（" + percentage(d.hits, d.probes) + "）",
+      "同型表寫入：" + format(d.writes),
+      "同型表覆蓋：" + format(d.replacements) + "（佔寫入 " + percentage(d.replacements, d.writes) + "）",
+      "起始候選：" + format(d.rootCandidates) + "；已嘗試起始點：" + d.rootNodes.length,
+      "已嘗試起始點累計節點：" + format(totalRoot),
+      "",
+      "各起始點耗用節點（由多至少）：",
+      ...d.rootNodes.slice().sort((a, b) => b.nodes - a.nodes)
+        .map(item => rootLabel(item.point) + "：" + format(item.nodes)),
+      "",
+      "各層進攻節點：",
+      ...d.depthNodes.map(item => "第 " + item.attack + " 次進攻：" + format(item.nodes)),
+    ];
+    currentDiagnosticText = lines.join("\n");
+    diagnosticText.textContent = currentDiagnosticText;
+    diagnosticPanel.hidden = false;
+  }
+
   async function runSingleSearch(arr, color) {
       lastParam = { arr, color };
       lastVCFMoves = null;
@@ -118,6 +166,7 @@
       window._clearAnalysis();
       resetVcfGroups();
       notifyVcfResultChanged();
+      diagnosticPanel.hidden = true;
       const simplify = Boolean(simplifyCheck.checked);
       setStatus(`正在搜索 ${color===1?"黑子":"白子"} VCF${simplify ? "並精簡手順" : ""}...`);
       try {
@@ -131,13 +180,14 @@
           maxDepth: 200,
           maxNode: 5000000,
         });
+        renderSingleSearchDiagnostics(info);
         if (info && info.winMoves && info.winMoves[0] && info.winMoves[0].length) {
           lastVCFMoves = info.winMoves[0];
           window._showVCF(lastVCFMoves, color);
           const note = simplify ? "，已精簡手順" : "";
           setStatus(`${color===1?"黑子":"白子"} VCF 找到，共 ${lastVCFMoves.length} 手${note}（${window.vcfFormatPureEngineStats(info)}）`);
         } else {
-          setStatus(`${color===1?"黑子":"白子"} VCF 未找到（${window.vcfFormatPureEngineStats(info)}）`);
+          setStatus(`${color===1?"黑子":"白子"} VCF ${info?.aborted ? "達搜尋限制，尚未找到" : "未找到"}（${window.vcfFormatPureEngineStats(info)}）`);
         }
       } catch (e) {
         console.error(e);
