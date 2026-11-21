@@ -85,9 +85,11 @@ assert.ok(files.html.includes("rapfi/rapfi-workbench-header.js?v=20261113-5db-wo
 // A newly deployed checkbox cannot work if the browser reuses an older
 // calculation script, Worker or Wasm. All Bitboard assets share one revision.
 const cacheVersion = asset => {
-  const escaped = asset.replace(/\\./g, "\\\\.");
-  const version = new RegExp(escaped + "\\\\?v=([\\\\w.-]+)").exec(files.html)?.[1];
-  assert.ok(version, "missing cache-busting version for " + asset);
+  const marker = asset + "?v=";
+  const start = files.html.indexOf(marker);
+  assert.ok(start >= 0, "missing cache-busting version for " + asset);
+  const version = files.html.slice(start + marker.length).match(/^[a-zA-Z0-9.-]+/)?.[0];
+  assert.ok(version, "invalid cache-busting version for " + asset);
   return version;
 };
 const engineRevision = cacheVersion("rapfi/engine/vcf-bitboard-engine.js");
