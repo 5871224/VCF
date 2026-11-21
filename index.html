@@ -1258,6 +1258,12 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
       <input id="vcf-multi-node-millions" type="number" min="0" max="1023" step="1" inputmode="numeric" value="20">
       百萬
     </label>
+<label class="vcf-option-number" title="僅速找 VCF；同型表採四路組相連，容量為 2 的 N 次方">
+      同型表：2 的
+      <input id="vcf-single-tt-exponent" type="number" min="18" max="22" step="1" inputmode="numeric" value="20" aria-label="同型表容量指數">
+      次方
+      <span id="vcf-single-tt-capacity" aria-live="polite">＝ 1,048,576 筆（88 MiB）</span>
+    </label>
 <label class="vcf-option-check">
       <input id="vcf-simplify-route" type="checkbox">
       精簡手順

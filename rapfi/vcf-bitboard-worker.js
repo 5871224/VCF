@@ -122,6 +122,14 @@ function findVCF(param) {
   const mode = searchModeValue(param.mode, maxVCF);
   const simplify = mode !== 0 || Boolean(param.simplify);
   const pruning = pruningModeValue(param.pruning);
+  const requestedExponent = Number(param.ttExponent ?? 20);
+  // This setting applies only to the single-VCF exact table; multi has its own table.
+  if (mode === 0) {
+    if (!Number.isInteger(requestedExponent) || requestedExponent < 18 || requestedExponent > 22
+        || !api.setSingleTTExponent || api.setSingleTTExponent(requestedExponent) !== 1) {
+      throw new RangeError("單組 VCF 同型表次方必須為 18～22");
+    }
+  }
   moduleInstance.HEAPU8.fill(0, ptr.moves, ptr.moves + MAX_ROUTES * MAX_ROUTE_PLY);
   moduleInstance.HEAPU16.fill(0, ptr.lengths >>> 1, (ptr.lengths >>> 1) + MAX_ROUTES);
 
@@ -186,7 +194,9 @@ function findVCF(param) {
     searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
     pruning: pruning ? "fast" : "strict",
     simplified: simplify,
-    ...(mode === 0 ? { searchDiagnostics: readSingleDiagnostics() } : {}),
+    ...(mode === 0 ? {
+      searchDiagnostics: { ...readSingleDiagnostics(), ttExponent: requestedExponent },
+    } : {}),
   };
 }
 
@@ -786,6 +796,9 @@ async function init(url, runSmokeCheck = true) {
     api = {
       find: moduleInstance.cwrap("vcfBbFind", "number", Array(10).fill("number")),
       findMode: moduleInstance.cwrap("vcfBbFindMode", "number", Array(12).fill("number")),
+      setSingleTTExponent: moduleInstance._vcfBbSetSingleTTExponent
+        ? moduleInstance.cwrap("vcfBbSetSingleTTExponent", "number", ["number"])
+        : null,
       getSingleDiagnostics: moduleInstance._vcfBbGetSingleSearchDiagnostics
         ? moduleInstance.cwrap("vcfBbGetSingleSearchDiagnostics", "number", ["number", "number"])
         : null,

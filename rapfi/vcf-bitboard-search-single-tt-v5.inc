@@ -1,7 +1,7 @@
 // 單組 VCF 專用精確同型表。
 //
-// 單組 VCF 容量對照測試 B：
-// - 262,144 buckets × 4 ways = 1,048,576 個表項。
+// 單組 VCF 可在搜尋前選擇 2^18～2^22 筆表項，預設 2^20。
+// - bucket 數為表項數 / 4，仍採 4-way 與位元遮罩定址。
 // - Zobrist hash 先經 SplitMix64 finalizer。
 // - tag 命中後仍完整比較黑、白 bitboard。
 // - 四路全滿時以全域循環方式覆蓋近期表項。
@@ -23,10 +23,10 @@ namespace std {
 template<class Key, class Hash>
 class VcfSingleFourWayTransTableV5 {
 private:
-    static constexpr size_t BUCKET_BITS = 18;
-    static constexpr size_t BUCKET_COUNT = size_t(1) << BUCKET_BITS;
-    static constexpr size_t BUCKET_MASK = BUCKET_COUNT - 1;
     static constexpr size_t WAY_COUNT = 4;
+    static constexpr int DEFAULT_EXPONENT = 20;
+    static constexpr int MIN_EXPONENT = 18;
+    static constexpr int MAX_EXPONENT = 22;
 
     struct Slot {
         Key key {};
@@ -44,16 +44,17 @@ private:
     struct Storage {
         SearchTelemetry telemetry {};
         vector<Slot> slots;
+        int exponent = DEFAULT_EXPONENT;
+        size_t bucketMask = ((size_t(1) << DEFAULT_EXPONENT) / WAY_COUNT) - 1;
         uint32_t generation = 0;
         uint64_t replacementCounter = 0;
 
-        Storage()
-            : slots(BUCKET_COUNT * WAY_COUNT)
-        {
-        }
-
         void beginSearch()
         {
+            // Allocate lazily: non-search Wasm instances and scan Workers need not
+            // reserve a 2^22-entry table at initialization.
+            if (slots.empty())
+                slots.resize(size_t(1) << exponent);
             telemetry = {};
             generation++;
             replacementCounter = 0;
@@ -101,6 +102,20 @@ public:
     using const_iterator = const Key *;
     static SearchTelemetry readTelemetry() { return storage.telemetry; }
     static void clearTelemetry() { storage.telemetry = {}; }
+    static int configuredExponent() { return storage.exponent; }
+
+    static bool configureExponent(int exponent)
+    {
+        if (exponent < MIN_EXPONENT || exponent > MAX_EXPONENT || !currentSession.expired())
+            return false;
+        if (storage.exponent == exponent)
+            return true;
+        // Discard the previous size without retaining a second large buffer.
+        vector<Slot>().swap(storage.slots);
+        storage.exponent = exponent;
+        storage.bucketMask = ((size_t(1) << exponent) / WAY_COUNT) - 1;
+        return true;
+    }
 
     VcfSingleFourWayTransTableV5()
     {
@@ -123,7 +138,7 @@ public:
     {
         const uint64_t hash = mixHash(key.hash);
         const uint64_t tag = hash | 1ULL;
-        const size_t base = (size_t(hash) & BUCKET_MASK) * WAY_COUNT;
+        const size_t base = (size_t(hash) & storage.bucketMask) * WAY_COUNT;
         storage.telemetry.probes++;
 
         for (size_t way = 0; way < WAY_COUNT; way++) {
@@ -140,7 +155,7 @@ public:
     {
         const uint64_t hash = mixHash(key.hash);
         const uint64_t tag = hash | 1ULL;
-        const size_t base = (size_t(hash) & BUCKET_MASK) * WAY_COUNT;
+        const size_t base = (size_t(hash) & storage.bucketMask) * WAY_COUNT;
 
         for (size_t way = 0; way < WAY_COUNT; way++) {
             Slot &slot = storage.slots[base + way];

@@ -88,6 +88,34 @@ function normalized(result) {
     throw new Error("single VCF diagnostics counters are inconsistent");
   }
 
+  // Identical tactical position must give the same answer across 2^18..2^22.
+  let sameVCF = null;
+  for (const exponent of [18, 19, 20, 21, 22, 20]) {
+    const result = await call("findVCF", {
+      arr: singleBoard, color: 1, rules: 2, mode: "single",
+      ttExponent: exponent, maxDepth: 11, maxNode: 25000,
+    });
+    if (result.searchDiagnostics?.ttExponent !== exponent ||
+        result.searchDiagnostics?.countedNodes !== result.nodeCount) {
+      throw new Error(`2^${exponent} diagnostic mismatch`);
+    }
+    const route = JSON.stringify(result.winMoves);
+    if (sameVCF !== null && route !== sameVCF) {
+      throw new Error(`2^${exponent} changed VCF route`);
+    }
+    sameVCF = route;
+  }
+  let rejectedExponent = false;
+  try {
+    await call("findVCF", {
+      arr: singleBoard, color: 1, rules: 2, mode: "single",
+      ttExponent: 23, maxDepth: 11, maxNode: 25000,
+    });
+  } catch (error) {
+    rejectedExponent = /18～22/.test(String(error.message));
+  }
+  if (!rejectedExponent) throw new Error("invalid transposition table exponent was accepted");
+
   const catchFoul = new Array(225).fill(0);
   for (let x = 0; x <= 3; x++) catchFoul[7 * 15 + x] = 1;
   catchFoul[7 * 15 + 5] = 1;

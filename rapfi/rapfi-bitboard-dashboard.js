@@ -5,6 +5,8 @@
   const pruningSelect = document.getElementById("vcf-multi-pruning");
   const multiTimeInput = document.getElementById("vcf-multi-time-seconds");
   const multiNodeInput = document.getElementById("vcf-multi-node-millions");
+  const singleTtExponentInput = document.getElementById("vcf-single-tt-exponent");
+  const singleTtCapacity = document.getElementById("vcf-single-tt-capacity");
   const addModeSelect = document.getElementById("vcf-add-search-mode");
 
   const clampInteger = (value, min, max, fallback) => {
@@ -22,9 +24,11 @@
       : "single";
     multiTimeInput.value = String(clampInteger(localStorage.getItem("vcf_multi_time_seconds"), 0, 2097151, 30));
     multiNodeInput.value = String(clampInteger(localStorage.getItem("vcf_multi_node_millions"), 0, 1023, 20));
+    singleTtExponentInput.value = String(clampInteger(localStorage.getItem("vcf_single_tt_exponent"), 18, 22, 20));
   } catch (_) {
     multiTimeInput.value = "30";
     multiNodeInput.value = "20";
+    singleTtExponentInput.value = "20";
   }
 
   simplifyCheck.addEventListener("change", () => {
@@ -45,6 +49,26 @@
   };
   multiTimeInput.addEventListener("change", () => normalizeLimitInput(multiTimeInput, "vcf_multi_time_seconds", 2097151, 30));
   multiNodeInput.addEventListener("change", () => normalizeLimitInput(multiNodeInput, "vcf_multi_node_millions", 1023, 20));
+
+  const updateSingleTtCapacity = () => {
+    const exponent = Number(singleTtExponentInput.value);
+    if (!Number.isInteger(exponent) || exponent < 18 || exponent > 22) {
+      singleTtCapacity.textContent = "（限 18～22）";
+      return;
+    }
+    const entries = 2 ** exponent;
+    const mib = entries * 88 / (1024 * 1024);
+    singleTtCapacity.textContent = `＝ ${entries.toLocaleString("zh-TW")} 筆（約 ${mib.toLocaleString("zh-TW")} MiB；速找 VCF）`;
+  };
+  const selectedSingleTtExponent = () => clampInteger(singleTtExponentInput.value, 18, 22, 20);
+  singleTtExponentInput.addEventListener("input", updateSingleTtCapacity);
+  singleTtExponentInput.addEventListener("change", () => {
+    const exponent = selectedSingleTtExponent();
+    singleTtExponentInput.value = String(exponent);
+    try { localStorage.setItem("vcf_single_tt_exponent", String(exponent)); } catch (_) {}
+    updateSingleTtCapacity();
+  });
+  updateSingleTtCapacity();
 
   const selectedPruning = () => pruningSelect.value === "strict" ? "strict" : "fast";
   const pruningName = () => selectedPruning() === "fast" ? "高速剪枝" : "嚴格剪枝";
@@ -73,6 +97,7 @@
     pruningSelect.disabled = busy;
     multiTimeInput.disabled = busy;
     multiNodeInput.disabled = busy;
+    singleTtExponentInput.disabled = busy;
     addModeSelect.disabled = busy;
   });
 
@@ -83,6 +108,7 @@
         mode,
         simplify: param.simplify ?? (mode === "multi" || mode === "shortest"),
         pruning: mode === "single" ? param.pruning : (param.pruning || selectedPruning()),
+        ...(mode === "single" ? { ttExponent: selectedSingleTtExponent() } : {}),
       };
     }
     if (cmd === "getLevelPoints") {
@@ -138,6 +164,7 @@
       "單組 VCF 搜尋診斷（原始座標，不旋轉棋盤）",
       "狀態：" + (info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
       "統計節點：" + format(d.countedNodes) + " / 引擎回報：" + format(info.nodeCount),
+      "同型表容量：2^" + d.ttExponent + " = " + format(2 ** d.ttExponent) + " 筆",
       "同型表查詢：" + format(d.probes),
       "同型表命中：" + format(d.hits) + "（" + percentage(d.hits, d.probes) + "）",
       "同型表寫入：" + format(d.writes),
@@ -176,6 +203,7 @@
           color,
           mode: "single",
           simplify,
+          ttExponent: selectedSingleTtExponent(),
           maxVCF: 1,
           maxDepth: 200,
           maxNode: 5000000,
