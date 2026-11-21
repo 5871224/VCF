@@ -84,7 +84,7 @@
     function syncPresentation() {
       const active = !panel.hidden;
       tableWrap.hidden = !active;
-      const canvasHeight = Math.round(sourceCanvas.getBoundingClientRect().height);
+      const canvasHeight = Math.round(canvasWrap.getBoundingClientRect().height);
       tableWrap.style.height = active && canvasHeight > 0 ? `${canvasHeight}px` : "";
       sourceCanvas.style.cursor = active ? cursorFor(normalizeNumber(currentInput.value)) : "";
       renderBoardNumbers();
@@ -136,6 +136,11 @@
     }
 
     sourceCanvas.addEventListener("pointerdown", event => {
+      // A second finger starts a pinch, not a long-press clear action.
+      if (event.pointerType === "touch" && !event.isPrimary) {
+        cancelTouchHold();
+        return;
+      }
       if (panel.hidden || event.pointerType !== "touch" || !event.isPrimary) return;
       const row = findOrderRowAtCanvasEvent(event);
       if (!row) {
