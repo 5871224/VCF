@@ -76,6 +76,8 @@ int findModeImpl(const uint8_t *board,
                  int maxMovesPerRoute,
                  SearchStats *stats)
 {
+    singleSearchDiagnostics = SingleSearchDiagnostics {};
+    std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>::clearTelemetry();
     const double start = legacyNowMs();
     SearchContext ctx;
     int rootCandidates = 0;
