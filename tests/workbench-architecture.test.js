@@ -8,6 +8,9 @@ const files={
  cloud:read("rapfi/vcf-5db-cloud.js"),marks:read("rapfi/vcf-static-annotations.js"),
  server:read("api/5db.php"),builder:read("tools/prepare-pages-site.py"),
  srvbuild:read("tools/prepare-server-site.py"),deploy:read(".github/workflows/deploy-bd1.yml"),
+ dashboard:read("rapfi/rapfi-bitboard-dashboard.js"),
+ bitboardMain:read("rapfi/vcf-bitboard-main.js"),
+ bitboardWorker:read("rapfi/vcf-bitboard-worker.js"),
 };
 function has(which, tokens) { for(const t of tokens) assert.ok(files[which].includes(t),which+": missing "+t); }
 function lacks(which,tokens) {for(const t of tokens) assert.ok(!files[which].includes(t),which+": obsolete "+t);}
@@ -79,4 +82,28 @@ assert.ok(files.html.includes("window.VCFOverlayPlayback = {"), "SVG renderer mu
 assert.ok(files.html.includes("rapfi/rapfi-workbench-header.js?v=20261113-5db-workbench")
   && files.html.includes("rapfi/vcf-record-tools.js?v=20261113-5db-workbench"),
   "new 5DB editor and right-click handler must invalidate the previous browser cache");
+// A newly deployed checkbox cannot work if the browser reuses an older
+// calculation script, Worker or Wasm. All Bitboard assets share one revision.
+const cacheVersion = asset => {
+  const escaped = asset.replace(/\\./g, "\\\\.");
+  const version = new RegExp(escaped + "\\\\?v=([\\\\w.-]+)").exec(files.html)?.[1];
+  assert.ok(version, "missing cache-busting version for " + asset);
+  return version;
+};
+const engineRevision = cacheVersion("rapfi/engine/vcf-bitboard-engine.js");
+assert.equal(cacheVersion("rapfi/vcf-bitboard-main.js"), engineRevision);
+assert.equal(cacheVersion("rapfi/rapfi-bitboard-dashboard.js"), engineRevision);
+has("bitboardMain", [
+  'document.currentScript?.src', 'searchParams.get("v")',
+  'url.searchParams.set("v", assetRevision)',
+  'const workerURL = versionedAssetURL("rapfi/vcf-bitboard-worker.js")',
+]);
+has("bitboardWorker", [
+  'const assetRevision = moduleURL.searchParams.get("v")',
+  'assetURL.searchParams.set("v", assetRevision)',
+]);
+has("dashboard", [
+  "距離限制：", "未啟用（原始 DFS）",
+  "distanceLimited && info?.distanceLimited !== true",
+]);
 console.log("5DB workbench and deployment integration contract passed");
