@@ -1,10 +1,6 @@
         Candidate &candidate = candidates.items[i];
-        candidate.chainRank = candidate.immediate
-            ? 0
-            : candidateChainRank(position, candidate.idx, attacker, rule);
+        candidate.directionScore = candidateDirectionStoneScore(position, candidate.idx, attacker, rule);
     }
-    for (int i = augmentedCount - 1; i >= 0; i--)
-        position.undo(scratch.augmentedMoves[i]);
 
     std::stable_sort(candidates.begin(), candidates.end(), [&](const Candidate &a, const Candidate &b) {
         if (a.immediate != b.immediate)
@@ -13,8 +9,8 @@
         const bool bFree = b.defenseCount >= 2;
         if (aFree != bFree)
             return aFree > bFree;
-        if (a.chainRank != b.chainRank)
-            return a.chainRank < b.chainRank;
+        if (a.directionScore != b.directionScore)
+            return a.directionScore > b.directionScore;
         return distanceKey(a.idx, center) < distanceKey(b.idx, center);
     });
 }
