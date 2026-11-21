@@ -8,6 +8,7 @@ const BOARD_CELLS = 225;
 const MAX_ROUTES = 64;
 const MAX_ROUTE_PLY = 224;
 const STATS_BYTES = 16;
+const SINGLE_DIAG_WORDS = 8 + (MAX_ROUTE_PLY / 2 + 1) + BOARD_CELLS;
 
 const EMPTY = 0;
 const BLACK = 1;
@@ -57,6 +58,37 @@ function readStats() {
     maxPly: view.getUint16(12, true),
     aborted: Boolean(view.getUint8(14)),
     nodesPerSecond: elapsedMicros > 0 ? nodes * 1_000_000 / elapsedMicros : 0,
+  };
+}
+
+function readSingleDiagnostics() {
+  if (!api.getSingleDiagnostics || ptr.singleDiagnostics == null) return null;
+  const length = api.getSingleDiagnostics(ptr.singleDiagnostics, SINGLE_DIAG_WORDS);
+  if (length !== SINGLE_DIAG_WORDS) return null;
+  const words = moduleInstance.HEAPU32.subarray(
+    ptr.singleDiagnostics >>> 2, (ptr.singleDiagnostics >>> 2) + SINGLE_DIAG_WORDS,
+  );
+  if (words[0] !== 1) return null;
+  const depthNodes = [];
+  const rootNodes = [];
+  for (let depth = 0; depth <= MAX_ROUTE_PLY / 2; depth++) {
+    if (words[8 + depth]) depthNodes.push({ attack: depth + 1, nodes: words[8 + depth] });
+  }
+  for (let point = 0; point < BOARD_CELLS; point++) {
+    const nodes = words[8 + MAX_ROUTE_PLY / 2 + 1 + point];
+    if (nodes) rootNodes.push({ point, nodes });
+  }
+  return {
+    version: 1,
+    countedNodes: words[1],
+    probes: words[2],
+    hits: words[3],
+    writes: words[4],
+    replacements: words[5],
+    rootCandidates: words[6],
+    maxPly: words[7],
+    depthNodes,
+    rootNodes,
   };
 }
 
@@ -154,6 +186,7 @@ function findVCF(param) {
     searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
     pruning: pruning ? "fast" : "strict",
     simplified: simplify,
+    ...(mode === 0 ? { searchDiagnostics: readSingleDiagnostics() } : {}),
   };
 }
 
@@ -753,6 +786,9 @@ async function init(url, runSmokeCheck = true) {
     api = {
       find: moduleInstance.cwrap("vcfBbFind", "number", Array(10).fill("number")),
       findMode: moduleInstance.cwrap("vcfBbFindMode", "number", Array(12).fill("number")),
+      getSingleDiagnostics: moduleInstance._vcfBbGetSingleSearchDiagnostics
+        ? moduleInstance.cwrap("vcfBbGetSingleSearchDiagnostics", "number", ["number", "number"])
+        : null,
       findModeV3: moduleInstance._vcfBbFindModeV3
         ? moduleInstance.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"))
         : null,
@@ -774,6 +810,7 @@ async function init(url, runSmokeCheck = true) {
     ptr.moves = moduleInstance._malloc(MAX_ROUTES * MAX_ROUTE_PLY);
     ptr.lengths = moduleInstance._malloc(MAX_ROUTES * 2);
     ptr.stats = moduleInstance._malloc(STATS_BYTES);
+    ptr.singleDiagnostics = moduleInstance._malloc(SINGLE_DIAG_WORDS * 4);
     ptr.route = moduleInstance._malloc(MAX_ROUTE_PLY);
     ptr.indices = moduleInstance._malloc(BOARD_CELLS * 2);
     ptr.outIndices = moduleInstance._malloc(BOARD_CELLS * 2);
