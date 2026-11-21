@@ -1,8 +1,17 @@
 "use strict";
 
 (function initVCFBitboardBridge(global) {
-  const moduleURL = new URL("rapfi/engine/vcf-bitboard-engine.js", document.baseURI).href;
-  const workerURL = new URL("rapfi/vcf-bitboard-worker.js", document.baseURI).href;
+  // Keep the Worker, engine script and Wasm on the same deployed asset revision.
+  // Otherwise a new checkbox can be handled by an older cached Worker.
+  const assetRevision = new URL(document.currentScript?.src || document.baseURI)
+    .searchParams.get("v");
+  const versionedAssetURL = path => {
+    const url = new URL(path, document.baseURI);
+    if (assetRevision) url.searchParams.set("v", assetRevision);
+    return url.href;
+  };
+  const moduleURL = versionedAssetURL("rapfi/engine/vcf-bitboard-engine.js");
+  const workerURL = versionedAssetURL("rapfi/vcf-bitboard-worker.js");
   const desiredWorkers = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 8));
   const LEGACY_DEFAULT_MAX_NODES = 5_000_000;
   const ENGINE_MAX_NODES = 0xffffffff;
@@ -182,7 +191,11 @@
       const base = new URL("./", moduleURL).href;
       this.syncModule = await withTimeout(
         global.VCFBitboardModule({
-          locateFile: file => new URL(file, base).href,
+          locateFile: file => {
+            const url = new URL(file, base);
+            if (assetRevision) url.searchParams.set("v", assetRevision);
+            return url.href;
+          },
         }),
         ENGINE_INIT_TIMEOUT_MS,
         "主執行緒 Bitboard Wasm 初始化逾時",

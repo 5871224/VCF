@@ -861,10 +861,18 @@ function trimVCFGroups(param) {
 async function init(url, runSmokeCheck = true) {
   if (readyPromise) return readyPromise;
   readyPromise = (async () => {
-    const base = new URL("./", url).href;
+    const moduleURL = new URL(url);
+    const base = new URL("./", moduleURL).href;
+    const assetRevision = moduleURL.searchParams.get("v");
     self.importScripts(url);
     if (typeof self.VCFBitboardModule !== "function") throw new Error("找不到 VCFBitboardModule");
-    moduleInstance = await self.VCFBitboardModule({ locateFile: file => new URL(file, base).href });
+    moduleInstance = await self.VCFBitboardModule({
+      locateFile: file => {
+        const assetURL = new URL(file, base);
+        if (assetRevision) assetURL.searchParams.set("v", assetRevision);
+        return assetURL.href;
+      },
+    });
     api = {
       find: moduleInstance.cwrap("vcfBbFind", "number", Array(10).fill("number")),
       findMode: moduleInstance.cwrap("vcfBbFindMode", "number", Array(12).fill("number")),
