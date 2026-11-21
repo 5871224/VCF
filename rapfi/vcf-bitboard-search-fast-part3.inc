@@ -19,6 +19,16 @@
     });
 }
 
+// Read-only single-VCF diagnostics; counters never affect search decisions.
+constexpr int SINGLE_SEARCH_DEPTH_BUCKETS = MAX_ROUTE_PLY / 2 + 1;
+struct SingleSearchDiagnostics {
+    std::array<uint32_t, SINGLE_SEARCH_DEPTH_BUCKETS> depthNodes {};
+    std::array<uint32_t, BOARD_CELLS> rootNodes {};
+    uint32_t rootCandidates = 0;
+    uint32_t maxPly = 0;
+};
+SingleSearchDiagnostics singleSearchDiagnostics {};
+
 struct SearchContext {
     uint32_t maxNodes = 5000000;
     int maxDepth = 200;
@@ -220,14 +230,19 @@ struct SearchRunner {
 
         CandidateList &candidates = candidatesByDepth[std::min<size_t>(size_t(ply / 2), candidatesByDepth.size() - 1)];
         scanCandidates(position, attacker, rule, forcedPoint, center, buildScratch, candidates);
-        if (ply == 0)
+        if (ply == 0) {
             rootCandidates = candidates.count;
+            singleSearchDiagnostics.rootCandidates = uint32_t(candidates.count);
+        }
         bool foundAny = false;
 
         for (int i = 0; i < candidates.count; i++) {
             const Candidate candidate = candidates.items[i];
             if (full() || ctx->aborted || !ctx->touch(ply + 1))
                 break;
+            singleSearchDiagnostics.depthNodes[ply / 2]++;
+            singleSearchDiagnostics.maxPly = uint32_t(std::max<int>(singleSearchDiagnostics.maxPly, ply + 1));
+            const uint32_t rootStartNodes = ctx->nodes - 1;
             const size_t oldSize = route.size();
             position.play(candidate.idx, attacker);
             route.push_back(candidate.idx);
@@ -256,6 +271,8 @@ struct SearchRunner {
             }
             route.resize(oldSize);
             position.undo(candidate.idx);
+            if (ply == 0)
+                singleSearchDiagnostics.rootNodes[candidate.idx] += ctx->nodes - rootStartNodes;
 
             if (maxRoutes == 1 && foundAny)
                 return true;
@@ -291,6 +308,11 @@ std::vector<std::vector<uint8_t>> runAtDepth(Position &position,
         rootCandidates = int(immediate.size());
         ctx.nodes = uint32_t(immediate.size());
         ctx.maxPlySeen = 1;
+        singleSearchDiagnostics.rootCandidates = ctx.nodes;
+        singleSearchDiagnostics.maxPly = 1;
+        singleSearchDiagnostics.depthNodes[0] = ctx.nodes;
+        for (uint8_t idx : immediate)
+            singleSearchDiagnostics.rootNodes[idx]++;
         return routes;
     }
 
