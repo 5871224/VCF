@@ -2609,17 +2609,35 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       srcCtx.strokeStyle = "#5b94f0";
       drawProjectiveSourceGrid();
       srcCtx.setLineDash([]);
+      // Transparent corner handles: the photo remains visible through each
+      // circle. Two short edge-aligned arms indicate the board corner.
       importState.boardCorners.forEach((pt, idx) => {
+        const active = idx === importState.dragCorner;
+        const prev = importState.boardCorners[(idx + 3) % 4];
+        const next = importState.boardCorners[(idx + 1) % 4];
+        const armLength = 38;
+        const guidePoint = adjacent => {
+          const dx = adjacent.x - pt.x, dy = adjacent.y - pt.y;
+          const length = Math.hypot(dx, dy) || 1;
+          return { x: pt.x + dx * Math.min(armLength, length * 0.32) / length,
+                   y: pt.y + dy * Math.min(armLength, length * 0.32) / length };
+        };
+        const first = guidePoint(prev), second = guidePoint(next);
+        srcCtx.save();
+        srcCtx.lineJoin = "round";
+        srcCtx.lineCap = "round";
         srcCtx.beginPath();
-        srcCtx.fillStyle = idx === importState.dragCorner ? "#ff7043" : "#ffffff";
-        srcCtx.strokeStyle = "#d84315";
-        srcCtx.lineWidth = 2;
         srcCtx.arc(pt.x, pt.y, 12, 0, Math.PI * 2);
-        srcCtx.fill();
+        srcCtx.moveTo(first.x, first.y);
+        srcCtx.lineTo(pt.x, pt.y);
+        srcCtx.lineTo(second.x, second.y);
+        srcCtx.strokeStyle = "rgba(255,255,255,0.92)";
+        srcCtx.lineWidth = 6;
         srcCtx.stroke();
-        srcCtx.fillStyle = "#333";
-        srcCtx.font = "12px system-ui";
-        srcCtx.fillText(String(idx + 1), pt.x + 12, pt.y - 10);
+        srcCtx.strokeStyle = active ? "#ff7043" : "#d84315";
+        srcCtx.lineWidth = 3;
+        srcCtx.stroke();
+        srcCtx.restore();
       });
     }
   }
@@ -3512,10 +3530,13 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     return !!(evt.touches || evt.changedTouches || evt.pointerType === "touch");
   }
 
-  function pickCornerByQuadrant(pt) {
-    const rect = importState.sourceRect || { x: 0, y: 0, w: sourceCanvas.width, h: sourceCanvas.height };
-    const left = pt.x < rect.x + rect.w * 0.5;
-    const top = pt.y < rect.y + rect.h * 0.5;
+  function pickCornerByQuadrant(evt) {
+    // Touch quadrants belong to the VISIBLE image frame, not the zoomed
+    // canvas or the original photo's sourceRect. This remains stable at 1–6x.
+    const rect = imageViewport.getBoundingClientRect();
+    const touch = evt.touches?.[0] || evt.changedTouches?.[0] || evt;
+    const left = touch.clientX < rect.left + rect.width * 0.5;
+    const top = touch.clientY < rect.top + rect.height * 0.5;
     if (top) return left ? 0 : 1;
     return left ? 3 : 2;
   }
@@ -3523,7 +3544,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   function beginCornerDrag(evt) {
     if (!importState.boardCorners.length || isPreviewMode() || imageTouches.size > 1 || consumedGesture || (evt.button != null && evt.button !== 0)) return;
     const point = getCanvasPoint(evt, sourceCanvas);
-    const idx = isTouchCornerEvent(evt) ? pickCornerByQuadrant(point) : pickCorner(point);
+    const idx = isTouchCornerEvent(evt) ? pickCornerByQuadrant(evt) : pickCorner(point);
     if (idx >= 0) {
       const corner = importState.boardCorners[idx];
       importState.dragCorner = idx;

@@ -156,4 +156,48 @@ edit(pointer("mouse",0)); assert.equal(board[0],1);
 edit(pointer("touch",0)); assert.equal(board[0],2);
 edit(pointer("touch",0)); assert.equal(board[0],0);
 
+// Zoomed corner editing must select the quadrant of the fixed visible frame,
+// not the image source rect or the transformed canvas coordinates.
+const cornerStart = files.html.indexOf("  function isTouchCornerEvent(evt) {");
+const cornerEnd = files.html.indexOf("  function endCornerDrag()", cornerStart);
+assert.ok(cornerStart >= 0 && cornerEnd > cornerStart, "corner editor methods must exist");
+const cornerState = {
+  mode:"cornersEditing", dragCorner:-1, dragOffset:null,
+  sourceRect:{x:0,y:0,w:900,h:900},
+  boardCorners:[{x:100,y:100},{x:800,y:100},{x:800,y:800},{x:100,y:800}]
+};
+const viewport = {getBoundingClientRect:()=>({left:100,top:200,width:400,height:400})};
+const movedCanvasPoint = evt => {
+  const t = evt.touches[0];
+  // A translated and zoomed canvas: NOT the same coordinates as the viewport.
+  return {x:(t.clientX + 200) * 900 / 800, y:(t.clientY + 100) * 900 / 800};
+};
+const corners = new Function(
+  "imageViewport","getCanvasPoint","sourceCanvas","importState",
+  "imageTouches","consumedGesture","isPreviewMode","pickCorner","drawSource","clamp",
+  files.html.slice(cornerStart,cornerEnd) +
+  "\nreturn {pickCornerByQuadrant, beginCornerDrag, moveCornerDrag};"
+)(viewport,movedCanvasPoint,{},cornerState,new Map(),false,()=>false,()=>0,()=>{},
+  (value,min,max)=>Math.max(min,Math.min(max,value)));
+const touchAt = (x,y) => ({
+  touches:[{clientX:x,clientY:y}], preventDefault() {}
+});
+assert.equal(corners.pickCornerByQuadrant(touchAt(150,250)),0,"upper-left visible quadrant");
+assert.equal(corners.pickCornerByQuadrant(touchAt(450,250)),1,"upper-right visible quadrant");
+assert.equal(corners.pickCornerByQuadrant(touchAt(450,550)),2,"lower-right visible quadrant");
+assert.equal(corners.pickCornerByQuadrant(touchAt(150,550)),3,"lower-left visible quadrant");
+corners.beginCornerDrag(touchAt(450,550));
+assert.equal(cornerState.dragCorner,2,"zoomed touch must drag bottom-right corner");
+const prior = cornerState.boardCorners[2].x;
+corners.moveCornerDrag(touchAt(470,550));
+assert.ok(cornerState.boardCorners[2].x > prior,
+  "dragging right while zoomed must move the same image corner right");
+const handleStart = files.html.indexOf("      // Transparent corner handles:");
+const handleEnd = files.html.indexOf("  async function normalizeImage",handleStart);
+assert.ok(handleStart>=0 && handleEnd>handleStart,"transparent corner handles exist");
+const handleCode = files.html.slice(handleStart,handleEnd);
+assert.ok(handleCode.includes("srcCtx.arc(") && handleCode.includes("srcCtx.lineTo("),
+  "corner handles include hollow circles and two connected guide arms");
+assert.ok(!handleCode.includes("srcCtx.fill()"),"corner markers must not obscure the photo");
+
 console.log("5DB workbench and deployment integration contract passed");
