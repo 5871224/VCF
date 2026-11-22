@@ -135,7 +135,9 @@
     const cloud = global.VCFCloud5DB;
     if (!cloud?.fetchRecord) throw new Error("雲端讀取功能未就緒");
     const record = await cloud.fetchRecord(item.cloudId);
-    return global.FiveDB.decode(record.bytes);
+    const doc = global.FiveDB.decode(record.bytes);
+    if (doc.width !== 15 || doc.height !== 15) throw new Error("批次 VCF 僅支援 15×15 棋盤");
+    return doc;
   }
 
   async function uploadSelected() {
@@ -264,14 +266,17 @@
             phase: last?.name || "完整 DFS",
             ms: Number(info.elapsedMs || 0), wallMs: performance.now() - started,
             nodes: Number(info.nodeCount || 0), maxPly: Number(info.maxPly || 0),
-            route: hit ? (info.winMoves?.[0] || []).join(" ") : "",
+            config: { ...settings },
+            route: hit ? (info.winMoves?.[0] || []).map(index =>
+              COLS[index % 15] + (15 - Math.floor(index / 15))).join(" ") : "",
           });
           if (hit) found++;
         } catch (error) {
           if (stopped) break;
           results.set(item.key, {
             status: "錯誤：" + (error.message || error), phase: "", ms: 0,
-            wallMs: performance.now() - started, nodes: 0, maxPly: 0, route: "",
+            wallMs: performance.now() - started, nodes: 0, maxPly: 0,
+            config: { ...settings }, route: "",
           });
         }
         done++;
@@ -288,13 +293,16 @@
   }
   function exportCsv() {
     const fields = ["題號", "題名", "分類", "作者", "先手", "參考進攻數", "狀態",
-      "搜尋階段", "引擎耗時(ms)", "實際耗時(ms)", "節點數", "搜尋深度", "解答索引"];
+      "搜尋階段", "引擎耗時(ms)", "實際耗時(ms)", "節點數", "搜尋深度",
+      "規則", "節點上限", "最大深度", "同型表次方", "距離限制", "解答手順"];
     const rows = [fields];
     for (const item of items) {
       const result = results.get(item.key);
       if (!result) continue;
       rows.push([item.no, item.title, item.category, item.author, item.first, item.answerMoves,
-        result.status, result.phase, result.ms, result.wallMs, result.nodes, result.maxPly, result.route]);
+        result.status, result.phase, result.ms, result.wallMs, result.nodes, result.maxPly,
+        result.config.rules, result.config.maxNode, result.config.maxDepth,
+        result.config.ttExponent, result.config.distanceLimited ? "是" : "否", result.route]);
     }
     const csv = "\ufeff" + rows.map(row => row.map(value => '"' +
       String(value ?? "").replace(/"/g, '""') + '"').join(",")).join("\r\n");
