@@ -14,7 +14,6 @@ header('X-Content-Type-Options: nosniff');
 
 const FIVE_DB_MAX_FILE = 67108864;
 const FIVE_DB_MAX_ACCOUNT = 134217728;
-const FIVE_DB_MAX_RECORDS = 1000;
 
 function fail5(string $message, int $code = 400): never {
     http_response_code($code);
@@ -96,10 +95,13 @@ function userdir5(string $root, string $user): string {
 function manifest5($fp): array {
     rewind($fp);
     $raw = stream_get_contents($fp);
-    if ($raw === false || $raw === '') return ['next_id' => 1, 'records' => []];
+    if ($raw === false || $raw === '') return ['next_id' => 1, 'records' => [], 'next_folder_id' => 1, 'folders' => []];
     $doc = json_decode($raw, true);
     if (!is_array($doc) || !isset($doc['records']) || !is_array($doc['records']))
         fail5('雲端索引資料損壞，已停止寫入以保護現有資料', 503);
+    if (!isset($doc['folders'])) $doc['folders'] = [];
+    if (!is_array($doc['folders'])) fail5('雲端資料夾索引損壞，已停止寫入以保護現有資料', 503);
+    if (!isset($doc['next_folder_id'])) $doc['next_folder_id'] = 1;
     return $doc;
 }
 function writeManifest5($fp, array $doc): void {
@@ -127,6 +129,27 @@ function positiveId5(): int {
     if (!$id) fail5('棋譜編號不合法');
     return (int)$id;
 }
+function folderId5(array $manifest, string $field): int {
+    $value = (string)($_GET[$field] ?? '0');
+    if (!preg_match('/^(0|[1-9][0-9]*)$/D', $value) || strlen($value) > 10) fail5('資料夾編號不合法');
+    $id = (int)$value;
+    if ($id > 2147483647 || ($id > 0 && !isset($manifest['folders'][(string)$id])))
+        fail5('資料夾不存在', 404);
+    return $id;
+}
+function folderName5(): string {
+    $name = trim((string)($_GET['name'] ?? ''));
+    if ($name === '' || strlen($name) > 512 || mb_strlen($name, 'UTF-8') > 80
+        || preg_match('~[\\\\/:*?"<>|\\x00-\\x1f]~', $name))
+        fail5('資料夾名稱不合法（最多 80 字，不能包含路徑符號）');
+    return $name;
+}
+function uniqueSibling5(array $folders, int $parentId, string $name, int $except = 0): void {
+    foreach ($folders as $folder) {
+        if ((int)$folder['id'] !== $except && (int)$folder['parent_id'] === $parentId
+            && $folder['name'] === $name) fail5('同一層已有相同名稱的資料夾');
+    }
+}
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 $origin = (string)($_SERVER['HTTP_ORIGIN'] ?? '');
 $expectedOrigin = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ||
@@ -137,14 +160,14 @@ if (($origin !== '' && $origin !== $expectedOrigin) ||
     fail5('不允許的請求來源', 403);
 $action = (string)($_GET['action'] ?? '');
 $method = (string)($_SERVER['REQUEST_METHOD'] ?? '');
-if (!in_array($action, ['list','get','save','delete'], true)) fail5('不支援的 5DB 操作', 404);
+if (!in_array($action, ['list','get','save','delete','folder_create','folder_rename','folder_move','folder_delete','record_move'], true)) fail5('不支援的 5DB 操作', 404);
 if (($action === 'list' || $action === 'get') && $method !== 'GET') fail5('HTTP 方法錯誤', 405);
-if (($action === 'save' || $action === 'delete') && $method !== 'POST') fail5('HTTP 方法錯誤', 405);
+if (!in_array($action, ['list','get'], true) && $method !== 'POST') fail5('HTTP 方法錯誤', 405);
 $user = authenticate5();
 $dir = userdir5(storage5(), $user);
 $fp = @fopen($dir.DIRECTORY_SEPARATOR.'index.json', 'c+');
 if (!$fp) fail5('雲端索引不可寫入', 503);
-$write = $action === 'save' || $action === 'delete';
+$write = !in_array($action, ['list','get'], true);
 if (!flock($fp, $write ? LOCK_EX : LOCK_SH)) fail5('雲端索引無法鎖定', 503);
 $manifest = manifest5($fp);
 $records = $manifest['records'];
@@ -153,7 +176,7 @@ if ($action === 'list') {
     usort($items, static fn($a, $b) => strcmp((string)$b['updated_at'], (string)$a['updated_at']));
     foreach ($items as &$item) unset($item['filename']);
     flock($fp, LOCK_UN); fclose($fp);
-    reply5(['records' => $items]);
+    reply5(['records' => $items, 'folders' => array_values($manifest['folders'])]);
 }
 if ($action === 'get') {
     $id = positiveId5();
@@ -194,8 +217,8 @@ if ($action === 'save') {
             fail5('5DB 棋盤縮圖資料不合法');
     }
     $total = array_sum(array_map(static fn($r) => (int)($r['compressed_size'] ?? 0), $records));
-    if (count($records) >= FIVE_DB_MAX_RECORDS || $total + strlen($payload) > FIVE_DB_MAX_ACCOUNT)
-        fail5('雲端已達 1000 份棋譜或 128 MB 容量上限', 413);
+    if ($total + strlen($payload) > FIVE_DB_MAX_ACCOUNT)
+        fail5('雲端已達 128 MB 容量上限', 413);
     $title = trim((string)($_GET['title'] ?? ''));
     if (strlen($title) > 1000 || preg_match_all('/./us', $title, $matches) === false
         || count($matches[0]) > 250) fail5('棋譜標題過長');
@@ -205,6 +228,7 @@ if ($action === 'save') {
         || preg_match('~[\\\\/:*?"<>|\\x00-\\x1f]~', $fileName)
         || preg_match_all('/./us', $fileName, $fileChars) === false
         || count($fileChars[0]) > 250) fail5('檔案名稱不合法');
+    $folderId = folderId5($manifest, 'folder_id');
     $id = (int)($manifest['next_id'] ?? 1);
     if ($id <= 0 || $id >= 2147483647) fail5('棋譜編號已達上限');
     $file = $dir.DIRECTORY_SEPARATOR.$id.'.5db';
@@ -218,13 +242,66 @@ if ($action === 'save') {
     $item = [
         'id' => $id, 'file_name' => $fileName, 'title' => $title, 'record_count' => $nodeCount,
         'compressed_size' => strlen($payload), 'created_at' => $now, 'updated_at' => $now,
-        'preview' => $preview,
+        'preview' => $preview, 'folder_id' => $folderId,
     ];
     $manifest['next_id'] = $id + 1;
     $manifest['records'][(string)$id] = $item;
     writeManifest5($fp, $manifest);
     flock($fp, LOCK_UN); fclose($fp);
     reply5(['id' => $id, 'record_count' => $nodeCount, 'compressed_size' => strlen($payload)]);
+}
+if (str_starts_with($action, 'folder_') || $action === 'record_move') {
+    $folders = $manifest['folders'];
+    if ($action === 'folder_create') {
+        $parentId = folderId5($manifest, 'parent_id');
+        $name = folderName5();
+        uniqueSibling5($folders, $parentId, $name);
+        $id = (int)$manifest['next_folder_id'];
+        if ($id < 1 || $id >= 2147483647) fail5('資料夾編號已達上限');
+        $manifest['next_folder_id'] = $id + 1;
+        $folder = ['id' => $id, 'name' => $name, 'parent_id' => $parentId];
+        $manifest['folders'][(string)$id] = $folder;
+        writeManifest5($fp, $manifest);
+        reply5(['folder' => $folder]);
+    }
+    if ($action === 'record_move') {
+        $id = positiveId5();
+        if (!isset($records[(string)$id])) fail5('找不到該帳號的棋譜', 404);
+        $folderId = folderId5($manifest, 'folder_id');
+        $manifest['records'][(string)$id]['folder_id'] = $folderId;
+        writeManifest5($fp, $manifest);
+        reply5(['id' => $id, 'folder_id' => $folderId]);
+    }
+    $id = positiveId5();
+    if (!isset($folders[(string)$id])) fail5('找不到資料夾', 404);
+    if ($action === 'folder_rename') {
+        $name = folderName5();
+        uniqueSibling5($folders, (int)$folders[(string)$id]['parent_id'], $name, $id);
+        $manifest['folders'][(string)$id]['name'] = $name;
+        writeManifest5($fp, $manifest);
+        reply5(['folder' => $manifest['folders'][(string)$id]]);
+    }
+    if ($action === 'folder_move') {
+        $parentId = folderId5($manifest, 'parent_id');
+        $cursor = $parentId;
+        while ($cursor !== 0) {
+            if ($cursor === $id) fail5('不能將資料夾移到自己或下層資料夾');
+            $cursor = (int)$folders[(string)$cursor]['parent_id'];
+        }
+        uniqueSibling5($folders, $parentId, (string)$folders[(string)$id]['name'], $id);
+        $manifest['folders'][(string)$id]['parent_id'] = $parentId;
+        writeManifest5($fp, $manifest);
+        reply5(['folder' => $manifest['folders'][(string)$id]]);
+    }
+    foreach ($folders as $folder) {
+        if ((int)$folder['parent_id'] === $id) fail5('資料夾仍有子資料夾，請先移動或刪除子資料夾');
+    }
+    foreach ($records as $record) {
+        if ((int)($record['folder_id'] ?? 0) === $id) fail5('資料夾仍有棋譜，請先移動棋譜');
+    }
+    unset($manifest['folders'][(string)$id]);
+    writeManifest5($fp, $manifest);
+    reply5(['id' => $id]);
 }
 $id = positiveId5();
 if (!isset($records[(string)$id])) fail5('找不到該帳號的 5DB 棋譜', 404);
