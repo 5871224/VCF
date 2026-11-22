@@ -886,6 +886,13 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
 }
 
 .vcf-image-order-canvas-wrap{position:relative;width:100%;aspect-ratio:1;overflow:hidden;border-radius:4px}
+#import-image-empty-hint{
+  position:absolute;inset:0;z-index:4;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:12px;padding:20px;
+  text-align:center;font-size:clamp(12px,2.5vw,16px);line-height:1.55;
+  color:#6c604c;pointer-events:none;
+}
+#import-image-empty-hint[hidden]{display:none!important}
 #import-image-transform{position:relative;width:100%;height:100%;transform-origin:0 0}
 .vcf-image-order-canvas-wrap #source-canvas{position:relative;z-index:1}
 .vcf-image-order-canvas-wrap.is-dragover{outline:3px dashed #1976d2;outline-offset:-3px;background:#dceeff}
@@ -1394,6 +1401,11 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
             <canvas id="source-canvas" class="import-canvas" width="900" height="900"></canvas>
             <canvas id="vcf-image-order-overlay" hidden></canvas>
             <div id="vcf-image-order-dom-overlay"></div>
+          </div>
+          <div id="import-image-empty-hint" role="note" hidden>
+            <span>請匯入圖片、貼上截圖或拖曳圖片到此</span>
+            <span>電腦可用滾輪縮放，手機可雙指縮放</span>
+            <span>棋盤框不準時，可拖曳四角修正</span>
           </div>
         </div>
     <div class="vcf-image-order-table-wrap" hidden>
@@ -2304,6 +2316,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   const sourceCanvas = document.getElementById("source-canvas");
   const imageViewport = document.getElementById("import-image-viewport");
   const imageTransform = document.getElementById("import-image-transform");
+  const imageEmptyHintEl = document.getElementById("import-image-empty-hint");
   const warpedCanvas = document.getElementById("warped-canvas");
   const srcCtx = sourceCanvas.getContext("2d");
   const warpCtx = warpedCanvas.getContext("2d");
@@ -2417,6 +2430,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 
   function setImportButtons() {
     const hasImage = !!importState.sourceImage;
+    imageEmptyHintEl.hidden = hasImage;
     const hasCorners = importState.boardCorners.length === 4;
     const preview = isPreviewMode();
     btnImportRedetect.hidden = preview;
@@ -2456,10 +2470,6 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     srcCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
     srcCtx.fillStyle = "#f3f3f3";
     srcCtx.fillRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-    srcCtx.fillStyle = "#7a6942";
-    srcCtx.font = "22px system-ui";
-    srcCtx.textAlign = "center";
-    srcCtx.fillText("請匯入圖片或貼上截圖", sourceCanvas.width / 2, sourceCanvas.height / 2);
     resetWarpedView();
     setImportStatus("");
     setImportButtons();
