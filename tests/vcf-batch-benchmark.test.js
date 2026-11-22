@@ -50,4 +50,43 @@ assert.ok(source.includes("cloud.saveDocument(item.doc, item.fileName, destinati
 assert.ok(source.includes("descending = !descending"), "repeated table-heading clicks toggle sort order");
 assert.ok(source.includes("index + 1"), "folder-selected rows show sequential ordinals");
 assert.ok(!source.includes("puzzles: ["), "never bundle source book puzzles");
+
+// The real folder filter and sorter determine both visible sequence and batch queue.
+const filterStart = source.indexOf("  const COLS = ");
+const filterEnd = source.indexOf("  function syncControls()", filterStart);
+assert.ok(filterEnd > filterStart, "folder and sorting functions are in the batch module");
+const inputs = {
+  "vcf-batch-folder": {value: "1"},
+  "vcf-batch-include-subfolders": {checked: true},
+  "vcf-batch-filter": {value: ""},
+};
+const filter = new Function("$", "global", source.slice(filterStart, filterEnd) + "\n" +
+  "return { setData(data,folders){items=data;cloudFolders=folders;sourceKind='cloud';}," +
+  "setSort(field,reverse){sortField=field;descending=reverse;}," +
+  "currentItems };"
+)(id => inputs[id], {FiveDB});
+const folderItems = [
+  {fileName:"D",title:"根",folderId:0},
+  {fileName:"C",title:"子",folderId:1},
+  {fileName:"B",title:"孫",folderId:2},
+  {fileName:"A",title:"另一",folderId:3},
+];
+filter.setData(folderItems, [
+  {id:1,parent_id:0,name:"題庫"},
+  {id:2,parent_id:1,name:"進階"},
+  {id:3,parent_id:0,name:"其他"},
+]);
+assert.deepEqual(filter.currentItems().map(x=>x.fileName), ["C","B"], "folder contains direct and descendant files");
+inputs["vcf-batch-include-subfolders"].checked = false;
+assert.deepEqual(filter.currentItems().map(x=>x.fileName), ["C"], "child files can be excluded");
+inputs["vcf-batch-include-subfolders"].checked = true;
+filter.setSort("fileName",false);
+assert.deepEqual(filter.currentItems().map(x=>x.fileName), ["B","C"], "file name ascending");
+filter.setSort("fileName",true);
+assert.deepEqual(filter.currentItems().map(x=>x.fileName), ["C","B"], "file name descending");
+inputs["vcf-batch-folder"].value = "0";
+assert.equal(filter.currentItems().length, 4, "root includes all descendants when checked");
+inputs["vcf-batch-include-subfolders"].checked = false;
+assert.deepEqual(filter.currentItems().map(x=>x.fileName), ["D"], "root without descendants");
+
 console.log("Private batch JSON->5DB conversion, side, title, coordinates and isolated benchmark passed");
