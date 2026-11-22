@@ -22,6 +22,15 @@
     if (!match) throw new Error("座標不合法：" + value);
     return (15 - Number(match[2])) * 15 + COLS.indexOf(match[1]);
   }
+  function puzzleSerial(value) {
+    const raw = String(value ?? "").trim().toUpperCase();
+    if (/^[0-9]+$/.test(raw) && Number.isSafeInteger(Number(raw)) && Number(raw) > 0)
+      return String(Number(raw)).padStart(3, "0");
+    if (/^S[0-9]+$/.test(raw) && Number.isSafeInteger(Number(raw.slice(1)))
+        && Number(raw.slice(1)) > 0)
+      return "S" + String(Number(raw.slice(1))).padStart(2, "0");
+    throw new Error("題號不合法：" + value);
+  }
   function puzzleToDocument(p) {
     const board = Array(225).fill(0);
     for (const [key, stone] of [["black", 1], ["white", 2]]) {
@@ -33,7 +42,7 @@
       }
     }
     if (p.first !== "黑先" && p.first !== "白先") throw new Error("題目 #" + p.no + " 缺少先手");
-    const title = "第 " + String(p.no).padStart(3, "0") + " 題｜" +
+    const title = "第 " + puzzleSerial(p.no) + " 題｜" +
       (p.title || "無題") + "｜" + (p.section || "未分類") + "｜" + (p.author || "作者未記載");
     return {
       width: 15, height: 15, mode: "puzzle", phase: "setup",
@@ -48,16 +57,16 @@
     if (source.puzzles.length > 1000) throw new Error("一次最多處理 1000 題");
     const seen = new Set();
     return source.puzzles.map(p => {
-      const no = Number(p.no);
-      if (!Number.isSafeInteger(no) || no < 1 || seen.has(no))
-        throw new Error("題號無效或重複：" + p.no);
-      seen.add(no);
+      const serial = puzzleSerial(p.no);
+      if (seen.has(serial)) throw new Error("題號無效或重複：" + p.no);
+      seen.add(serial);
+      const no = /^[0-9]+$/.test(serial) ? Number(serial) : serial;
       const doc = puzzleToDocument(p);
       global.FiveDB.validate(doc);
       return {
         key: "local:" + no, no, title: label(p), category: p.section || "",
         author: p.author || "", first: p.first, answerMoves: p.moves ?? "",
-        cloudId: 0, doc, fileName: DATASET_PREFIX + String(no).padStart(3, "0"),
+        cloudId: 0, doc, fileName: DATASET_PREFIX + serial,
       };
     });
   }
@@ -117,11 +126,13 @@
     const next = records.map(record => {
       const name = String(record.file_name || "");
       const title = String(record.title || name || "無題");
-      const no = Number(name.startsWith(DATASET_PREFIX) ? name.slice(DATASET_PREFIX.length) : 0);
+      const serial = name.startsWith(DATASET_PREFIX) ? name.slice(DATASET_PREFIX.length) : "";
+      const no = /^[0-9]+$/.test(serial) && Number(serial) > 0 ? Number(serial)
+        : /^S[0-9]+$/.test(serial) ? serial : "";
       const columns = title.split("｜").map(x => x.trim());
       return {
         key: "cloud:" + record.id, cloudId: Number(record.id),
-        no: Number.isSafeInteger(no) && no > 0 ? no : "",
+        no,
         title: columns.length >= 4 ? columns[1] : title,
         category: columns.length >= 4 ? columns[2] : "",
         author: columns.length >= 4 ? columns[3] : "",
