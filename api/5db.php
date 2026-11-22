@@ -139,7 +139,7 @@ function folderId5(array $manifest, string $field): int {
 }
 function folderName5(): string {
     $name = trim((string)($_GET['name'] ?? ''));
-    if ($name === '' || strlen($name) > 512 || mb_strlen($name, 'UTF-8') > 80
+    if ($name === '' || strlen($name) > 512 || (preg_match_all('/./us', $name, $characters) === false || count($characters[0]) > 80)
         || preg_match('~[\\\\/:*?"<>|\\x00-\\x1f]~', $name))
         fail5('資料夾名稱不合法（最多 80 字，不能包含路徑符號）');
     return $name;
