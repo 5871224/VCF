@@ -20,7 +20,11 @@ assert.ok(files.html.indexOf("rapfi/5db-format.js")<files.html.indexOf("rapfi/ra
 has("html", ["vcf-tab-panel-benchmark", "vcf-batch-source", "vcf-batch-upload", "vcf-batch-run", "rapfi/vcf-batch-benchmark.js"]);
 has("cloud", ["async function saveDocument(doc, fileName = \"\")", "saveDocument, fetchRecord, list"]);
 has("builder", ["vcf-batch-benchmark.js"]);
-has("server", ["FIVE_DB_MAX_RECORDS = 1000"]);
+has("server", ["function folderId5(", "function folderName5(", "folder_create", "folder_move", "folder_delete", "record_move", "folder_id"]);
+lacks("server", ["FIVE_DB_MAX_RECORDS", "count($records) >=", "1000 份棋譜"]);
+has("cloud", ["async function listCatalog()", "createFolder, renameFolder, moveFolder, deleteFolder, moveRecord", "updateFolderBar(dialog)"]);
+has("html", ['id="vcf-batch-folder"', 'id="vcf-batch-target-folder"', 'data-sort="fileName"', 'data-sort="title"', '>序號</th>']);
+has("builder", ["vcf-batch-benchmark.js"]);
 lacks("html",['value="vcfdb"','value="yxdb"','value="lib"',"vcf-cloud-annotation-codec.js"]);
 has("codec",["function validate(doc)","function encode(doc)","function decode(value)",
   "function checksum(bytes)","currentPath","nextSide","node.stone","node.marks",
