@@ -282,7 +282,7 @@ has("html", [
   'id="vcf-image-order-status" role="status" aria-live="polite"',
   '#import-status:empty,#vcf-image-order-status:empty{display:none}',
   'setImportStatus("辨識完成：黑 "',
-  'setImportStatus("",',
+  'setImportStatus("");',
 ]);
 assert.ok(!files.html.includes('id="import-status">匯入圖片後'),
   "initial instructional status must not appear");
