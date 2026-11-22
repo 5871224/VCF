@@ -13,6 +13,8 @@
   const previewCache = new Map();
   let activePreviewObserver = null;
   let previewGeneration = 0;
+  let activeFolderId = 0;
+  let cloudFolders = [];
 
   async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
@@ -82,10 +84,10 @@
     const record = global.VCFWorkbenchRecord;
     if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
     const doc = record.export5DBDocument();
-    return saveDocument(doc, fileName);
+    return saveDocument(doc, fileName, activeFolderId);
   }
   // Save a self-contained 5DB document without changing the live board.
-  async function saveDocument(doc, fileName = "") {
+  async function saveDocument(doc, fileName = "", folderId = 0) {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     if (!global.FiveDB) throw new Error("5DB 編碼器未載入");
     const bytes = global.FiveDB.encode(doc);
@@ -94,7 +96,7 @@
     const thumbnail = shot.width <= 25 && shot.height <= 25
       ? `${shot.width}x${shot.height}:${shot.board}` : "";
     const name = normalizeFileName(fileName, defaultFileName());
-    const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "" });
+    const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "", folder_id: String(folderId) });
     const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
       method: "POST", cache: "no-store", credentials: "same-origin",
       headers: { "Content-Type": "application/octet-stream", "X-5DB-Preview": thumbnail },
@@ -103,13 +105,34 @@
     const saved = await jsonResponse(response);
     return { ...saved, recordCount: info.nodeCount, compressedSize: bytes.length, annotationCount: info.markCount };
   }
-  async function list() {
+  async function listCatalog() {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     const response = await cloudFetch(`${FIVE_DB_API_URL}?action=list`, {
       cache: "no-store", credentials: "same-origin",
     });
-    return (await jsonResponse(response)).records || [];
+    const payload = await jsonResponse(response);
+    return { records: payload.records || [], folders: payload.folders || [] };
   }
+  async function list() {
+    return (await listCatalog()).records;
+  }
+  async function folderAction(action, fields = {}) {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    const params = new URLSearchParams({ action, ...fields });
+    const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
+      method: "POST", cache: "no-store", credentials: "same-origin",
+    });
+    return jsonResponse(response);
+  }
+  const createFolder = (name, parentId = 0) =>
+    folderAction("folder_create", { name, parent_id: String(parentId) });
+  const renameFolder = (id, name) =>
+    folderAction("folder_rename", { id: String(id), name });
+  const moveFolder = (id, parentId) =>
+    folderAction("folder_move", { id: String(id), parent_id: String(parentId) });
+  const deleteFolder = id => folderAction("folder_delete", { id: String(id) });
+  const moveRecord = (id, folderId) =>
+    folderAction("record_move", { id: String(id), folder_id: String(folderId) });
   async function fetchRecord(id) {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     const recordId = Number(id);
@@ -193,16 +216,125 @@
       #vcf-shared-login-dialog .sched-email-auth-notice{line-height:1.7}
       #vcf-shared-login-dialog .sched-email-auth-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:20px}
       #vcf-shared-login-dialog .sched-email-auth-actions button{border:0;background:transparent;padding:4px;color:#725b48;font:inherit;cursor:pointer}
-      .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
+      .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-folder-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vcf-cloud-folder-toolbar label{display:flex;align-items:center;gap:6px;flex:1;min-width:150px}.vcf-cloud-folder-toolbar select{flex:1;min-width:100px;max-width:100%;padding:7px;border:1px solid #bbb0a0;border-radius:6px;background:#fff}.vcf-cloud-folder-toolbar button{padding:7px;border:1px solid #aaa;border-radius:6px;background:#fff;cursor:pointer}.vcf-cloud-folder-chooser{border:1px solid #b9b09c;border-radius:10px;padding:20px;max-width:min(440px,90vw)}.vcf-cloud-folder-chooser select{display:block;width:100%;padding:8px;margin:10px 0}.vcf-cloud-folder-chooser div{display:flex;justify-content:end;gap:8px}.vcf-cloud-folder-chooser button{padding:7px 14px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
     `;
     document.head.appendChild(style);
+  }
+  function folderEntries(folders, excludedId = 0) {
+    const byParent = new Map();
+    for (const folder of folders) {
+      const parent = Number(folder.parent_id || 0);
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push(folder);
+    }
+    for (const children of byParent.values()) {
+      children.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-Hant", { numeric: true }));
+    }
+    const entries = [{ id: 0, label: "根目錄" }];
+    const walk = (parent, depth, visited) => {
+      for (const folder of byParent.get(parent) || []) {
+        const id = Number(folder.id);
+        if (id === excludedId || visited.has(id)) continue;
+        entries.push({ id, label: "　".repeat(depth) + "📁 " + folder.name });
+        walk(id, depth + 1, new Set([...visited, id]));
+      }
+    };
+    walk(0, 1, new Set());
+    return entries;
+  }
+  function folderSelector(select, excludedId = 0) {
+    if (!select) return;
+    select.replaceChildren();
+    for (const entry of folderEntries(cloudFolders, excludedId)) {
+      const option = document.createElement("option");
+      option.value = String(entry.id);
+      option.textContent = entry.label;
+      select.appendChild(option);
+    }
+  }
+  function updateFolderBar(dialog) {
+    const select = dialog.querySelector("[data-folder-select]");
+    if (!select) return;
+    folderSelector(select);
+    if (activeFolderId > 0 && !cloudFolders.some(folder => Number(folder.id) === activeFolderId))
+      activeFolderId = 0;
+    select.value = String(activeFolderId);
+    for (const action of ["rename", "move", "delete"]) {
+      const button = dialog.querySelector("[data-folder-" + action + "]");
+      if (button) button.disabled = activeFolderId === 0;
+    }
+  }
+  function chooseDestination(title, excludedId = 0) {
+    return new Promise(resolve => {
+      const picker = document.createElement("dialog");
+      picker.className = "vcf-cloud-folder-chooser";
+      const heading = document.createElement("h3");
+      heading.textContent = title;
+      const select = document.createElement("select");
+      select.setAttribute("aria-label", "目的地資料夾");
+      folderSelector(select, excludedId);
+      const controls = document.createElement("div");
+      const ok = document.createElement("button");
+      ok.textContent = "確定"; ok.type = "button";
+      const cancel = document.createElement("button");
+      cancel.textContent = "取消"; cancel.type = "button";
+      controls.append(ok, cancel);
+      picker.append(heading, select, controls);
+      document.body.appendChild(picker);
+      let resolved = false;
+      function finish(value) {
+        if (resolved) return;
+        resolved = true;
+        picker.close();
+        picker.remove();
+        resolve(value);
+      }
+      ok.addEventListener("click", () => finish(Number(select.value)));
+      cancel.addEventListener("click", () => finish(null));
+      picker.addEventListener("cancel", event => { event.preventDefault(); finish(null); });
+      picker.showModal();
+    });
+  }
+  async function editFolder(dialog, action) {
+    const id = activeFolderId;
+    if (action === "create") {
+      const name = prompt("新增子資料夾名稱", "");
+      if (name === null) return;
+      await createFolder(name, id);
+    } else if (id > 0 && action === "rename") {
+      const name = prompt("資料夾名稱", cloudFolders.find(folder => Number(folder.id) === id)?.name || "");
+      if (name === null) return;
+      await renameFolder(id, name);
+    } else if (id > 0 && action === "move") {
+      const to = await chooseDestination("移動目前資料夾到", id);
+      if (to === null) return;
+      await moveFolder(id, to);
+    } else if (id > 0 && action === "delete") {
+      if (!confirm("刪除這個空資料夾？內有棋譜或子資料夾時無法刪除。")) return;
+      await deleteFolder(id);
+      activeFolderId = 0;
+    }
+    await refreshDialog(dialog);
   }
   function ensureDialog() {
     let dialog = document.getElementById("vcf-cloud-dialog");
     if (dialog) return dialog;
     dialog = document.createElement("dialog"); dialog.id = "vcf-cloud-dialog";
-    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-list" data-list></div></div>';
-    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close()); document.body.appendChild(dialog); return dialog;
+    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-folder-toolbar"><label>資料夾 <select data-folder-select aria-label="目前資料夾"></select></label><button type="button" data-folder-create>新增</button><button type="button" data-folder-rename>重新命名</button><button type="button" data-folder-move>移動</button><button type="button" data-folder-delete>刪除</button></div><div class="vcf-cloud-list" data-list></div></div>';
+    dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
+    const select = dialog.querySelector("[data-folder-select]");
+    if (select) {
+      select.addEventListener("change", () => {
+        activeFolderId = Number(select.value);
+        void refreshDialog(dialog);
+      });
+      for (const action of ["create", "rename", "move", "delete"]) {
+        dialog.querySelector("[data-folder-" + action + "]").addEventListener("click", () => {
+          void editFolder(dialog, action).catch(e => status(e.message || String(e)));
+        });
+      }
+    }
+    document.body.appendChild(dialog); return dialog;
   }
   function ensureLoginDialog() {
     let dialog = document.getElementById("vcf-shared-login-dialog");
@@ -443,8 +575,11 @@
     const container = dialog.querySelector("[data-list]"); container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
     let records;
     try {
-      records = await list();
-      if (!Array.isArray(records)) throw new Error("5DB 雲端列表內容不正確");
+      const catalog = await listCatalog();
+      records = catalog.records;
+      cloudFolders = catalog.folders;
+      if (!Array.isArray(records) || !Array.isArray(cloudFolders))
+        throw new Error("5DB 雲端列表內容不正確");
     } catch (error) {
       const message = error?.message || String(error);
       container.replaceChildren();
@@ -462,8 +597,10 @@
       return;
     }
     if (generation !== previewGeneration) return;
+    updateFolderBar(dialog);
+    records = records.filter(record => Number(record.folder_id || 0) === activeFolderId);
     container.replaceChildren();
-    if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">這個會員帳號目前沒有雲端棋譜。</div>'; return; }
+    if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">目前資料夾沒有棋譜。</div>'; return; }
     const missingPreviews = [];
     for (const record of records) {
       const row = document.createElement("div"); row.className = "vcf-cloud-row";
@@ -483,7 +620,21 @@
       loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${fileName}.5db」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
       const dl = document.createElement("button"); dl.textContent = "下載 .5db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `${normalizeFileName(fileName, `棋譜-${record.id}`)}.5db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
       const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${fileName}.5db」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
-      actions.append(loadButton, dl, del); row.append(previewBox, info, actions); container.appendChild(row);
+      const move = document.createElement("button");
+      move.textContent = "移動";
+      move.addEventListener("click", async () => {
+        const destination = await chooseDestination("移動「" + fileName + "」到");
+        if (destination === null) return;
+        move.disabled = true;
+        try {
+          await moveRecord(record.id, destination);
+          await refreshDialog(dialog);
+        } catch (e) { status(e.message || String(e)); }
+        finally { move.disabled = false; }
+      });
+      actions.append(loadButton, dl, move, del);
+      row.append(previewBox, info, actions);
+      container.appendChild(row);
     }
     // Existing 5DB entries have no preview metadata. Decode those files only
     // when their thumbnails are visible; never fetch every record eagerly.
@@ -566,7 +717,8 @@
 
   const api = {
     API_URL, FIVE_DB_API_URL,
-    publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, load, remove,
+    publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, listCatalog, load, remove,
+    createFolder, renameFolder, moveFolder, deleteFolder, moveRecord,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
