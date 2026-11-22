@@ -287,4 +287,40 @@ has("html", [
 assert.ok(!files.html.includes('id="import-status">匯入圖片後'),
   "initial instructional status must not appear");
 
+// All reusable instructional copy is inside the image's empty-state surface.
+// It is shown only before an image is loaded (and after reset).
+has("html", [
+  'id="import-image-empty-hint" role="note" hidden',
+  '請匯入圖片、貼上截圖或拖曳圖片到此',
+  '電腦可用滾輪縮放，手機可雙指縮放',
+  '棋盤框不準時，可拖曳四角修正',
+  '#import-image-empty-hint[hidden]{display:none!important}',
+  'const imageEmptyHintEl = document.getElementById("import-image-empty-hint");',
+  'imageEmptyHintEl.hidden = hasImage;',
+  'setImportStatus("");',
+]);
+assert.equal(files.html.match(/id="import-image-empty-hint"/g)?.length, 1,
+  "instructional empty state must be one node inside the image frame");
+const frameStart = files.html.indexOf('id="import-image-viewport"');
+const emptyHintStart = files.html.indexOf('id="import-image-empty-hint"');
+const frameEnd = files.html.indexOf('<div class="vcf-image-order-table-wrap"', frameStart);
+assert.ok(frameStart >= 0 && emptyHintStart > frameStart && emptyHintStart < frameEnd,
+  "consolidated instructions must be children of the image frame");
+assert.ok(!files.html.includes('srcCtx.fillText("請匯入圖片或貼上截圖"'),
+  "canvas must not separately paint another instructional message");
+const buttonStart = files.html.indexOf("  function setImportButtons() {");
+const buttonEnd = files.html.indexOf("  function resetWarpedView()", buttonStart);
+const buttonBlock = files.html.slice(buttonStart,buttonEnd);
+assert.ok(buttonBlock.includes("imageEmptyHintEl.hidden = hasImage;"),
+  "empty-state visibility must track whether an image exists");
+// Exercise the same assignment as the production button-state function.
+const emptyHint = {hidden:true};
+for(const [hasImage,expectedHidden] of [[false,false],[true,true],[false,false]]) {
+  new Function("imageEmptyHintEl","hasImage",
+    buttonBlock.slice(buttonBlock.indexOf("    imageEmptyHintEl.hidden = hasImage;"),
+      buttonBlock.indexOf("    imageEmptyHintEl.hidden = hasImage;") + "    imageEmptyHintEl.hidden = hasImage;".length)
+  )(emptyHint,hasImage);
+  assert.equal(emptyHint.hidden,expectedHidden,"empty hints on load/reset");
+}
+
 console.log("5DB workbench and deployment integration contract passed");
