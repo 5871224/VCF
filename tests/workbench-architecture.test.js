@@ -18,7 +18,7 @@ has("html",["rapfi/5db-format.js","rapfi/rapfi-workbench-header.js","makevcf-lay
   "rapfi/vcf-static-annotations.js",'accept=".5db,application/octet-stream"']);
 assert.ok(files.html.indexOf("rapfi/5db-format.js")<files.html.indexOf("rapfi/rapfi-workbench-header.js"));
 has("html", ["vcf-tab-panel-benchmark", "vcf-batch-source", "vcf-batch-upload", "vcf-batch-run", "rapfi/vcf-batch-benchmark.js"]);
-has("cloud", ["async function saveDocument(doc, fileName = \"\")", "saveDocument, fetchRecord, list"]);
+has("cloud", ["async function saveDocument(doc, fileName = \"\", folderId = 0)", "saveDocument, fetchRecord, list"]);
 has("builder", ["vcf-batch-benchmark.js"]);
 has("server", ["function folderId5(", "function folderName5(", "folder_create", "folder_move", "folder_delete", "record_move", "folder_id"]);
 lacks("server", ["FIVE_DB_MAX_RECORDS", "count($records) >=", "1000 份棋譜"]);
