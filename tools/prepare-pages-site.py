@@ -37,6 +37,7 @@ RAPFI_FILES = [
     "vcf-bitboard-worker.js",
     "vcf-rapfi-vcf-worker.js",
     "vcf-rapfi-vcf-benchmark.js",
+    "vcf-batch-benchmark.js",
     "vcf-bitboard-generator-compat.js",
     "rapfi-bitboard-dashboard.js",
     "vcf-shortest-vcf-ui.js",
@@ -112,6 +113,7 @@ def main() -> None:
     required_tokens = [
         "vcf-bitboard-main.js",
         "vcf-rapfi-vcf-benchmark.js",
+        "vcf-batch-benchmark.js",
         "makevcf-generator-core.js",
         "rapfi-bitboard-dashboard.js",
         "vcf-shortest-vcf-ui.js",
