@@ -69,7 +69,7 @@
       const doc = puzzleToDocument(p);
       global.FiveDB.validate(doc);
       return {
-        key: "local:" + no, no, title: label(p), category: p.section || "",
+        key: "local:" + no, no, title: doc.title, category: p.section || "",
         author: p.author || "", first: p.first, answerMoves: p.moves ?? "",
         cloudId: 0, doc, folderId: 0, fileName: DATASET_PREFIX + serial,
       };
