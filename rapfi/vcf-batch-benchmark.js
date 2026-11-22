@@ -76,6 +76,7 @@
     });
   }
   function descendants(folderId, parentId) {
+    if (parentId === 0) return true;
     let current = folderId;
     const seen = new Set();
     while (current > 0 && !seen.has(current)) {
