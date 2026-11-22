@@ -17,6 +17,10 @@ function lacks(which,tokens) {for(const t of tokens) assert.ok(!files[which].inc
 has("html",["rapfi/5db-format.js","rapfi/rapfi-workbench-header.js","makevcf-layout.js",
   "rapfi/vcf-static-annotations.js",'accept=".5db,application/octet-stream"']);
 assert.ok(files.html.indexOf("rapfi/5db-format.js")<files.html.indexOf("rapfi/rapfi-workbench-header.js"));
+has("html", ["vcf-tab-panel-benchmark", "vcf-batch-source", "vcf-batch-upload", "vcf-batch-run", "rapfi/vcf-batch-benchmark.js"]);
+has("cloud", ["async function saveDocument(doc, fileName = \"\")", "saveDocument, fetchRecord, list"]);
+has("builder", ["vcf-batch-benchmark.js"]);
+has("server", ["FIVE_DB_MAX_RECORDS = 1000"]);
 lacks("html",['value="vcfdb"','value="yxdb"','value="lib"',"vcf-cloud-annotation-codec.js"]);
 has("codec",["function validate(doc)","function encode(doc)","function decode(value)",
   "function checksum(bytes)","currentPath","nextSide","node.stone","node.marks",

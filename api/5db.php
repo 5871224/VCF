@@ -14,7 +14,7 @@ header('X-Content-Type-Options: nosniff');
 
 const FIVE_DB_MAX_FILE = 67108864;
 const FIVE_DB_MAX_ACCOUNT = 134217728;
-const FIVE_DB_MAX_RECORDS = 200;
+const FIVE_DB_MAX_RECORDS = 1000;
 
 function fail5(string $message, int $code = 400): never {
     http_response_code($code);
@@ -195,7 +195,7 @@ if ($action === 'save') {
     }
     $total = array_sum(array_map(static fn($r) => (int)($r['compressed_size'] ?? 0), $records));
     if (count($records) >= FIVE_DB_MAX_RECORDS || $total + strlen($payload) > FIVE_DB_MAX_ACCOUNT)
-        fail5('雲端已達 200 份棋譜或 128 MB 容量上限', 413);
+        fail5('雲端已達 1000 份棋譜或 128 MB 容量上限', 413);
     $title = trim((string)($_GET['title'] ?? ''));
     if (strlen($title) > 1000 || preg_match_all('/./us', $title, $matches) === false
         || count($matches[0]) > 250) fail5('棋譜標題過長');

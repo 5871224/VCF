@@ -47,7 +47,7 @@ const el = id => {
   if (!elements.has(id)) elements.set(id, new Node(id));
   return elements.get(id);
 };
-const tabs = ["calculation", "generator", "import"].map(tab => {
+const tabs = ["calculation", "generator", "import", "benchmark"].map(tab => {
   const node = el("vcf-tab-" + tab);
   node.dataset.tab = tab;
   return node;
@@ -101,7 +101,10 @@ assert.equal(store.get("vcf_workspace_tab"), "generator", "tab preference saved"
 tabs[2].dispatch("click");
 assert.equal(document.documentElement.dataset.vcfTab, "import", "image import activated");
 assert.equal(selected("import"), "true");
-tabs[2].dispatch("keydown", { key: "Home" });
+tabs[3].dispatch("click");
+assert.equal(document.documentElement.dataset.vcfTab, "benchmark", "batch benchmark tab activated");
+assert.equal(selected("benchmark"), "true");
+tabs[3].dispatch("keydown", { key: "Home" });
 assert.equal(document.documentElement.dataset.vcfTab, "calculation", "keyboard tab switching");
 // This event also exercises BOARD_SIZE/BOARD_CELLS in the SVG overlay.
 window.dispatch("vcf-record-state-changed", { nextMoves: [112] });

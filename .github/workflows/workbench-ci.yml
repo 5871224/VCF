@@ -37,6 +37,7 @@ jobs:
             rapfi/5db-format.js \
             rapfi/vcf-record-tools.js \
             rapfi/vcf-5db-cloud.js \
+            rapfi/vcf-batch-benchmark.js \
             rapfi/vcf-google-popup-auth.js; do
             node --check "$file"
           done

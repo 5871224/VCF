@@ -687,7 +687,7 @@ body {
 #vcf-app-shell>.vcf-app-header p,.vcf-card-heading p{display:none}
 .vcf-top-grid{grid-template-columns:minmax(0,570px) minmax(430px,1fr)}
 .vcf-workspace{min-width:0}
-.vcf-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-bottom:8px;padding:5px;border:1px solid var(--vcf-border,#d6c89f);border-radius:11px;background:#e8dfc9}
+.vcf-tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:8px;padding:5px;border:1px solid var(--vcf-border,#d6c89f);border-radius:11px;background:#e8dfc9}
 #vcf-app-shell .vcf-tab{min-height:42px;padding:8px 6px;border:1px solid transparent;border-radius:8px;background:transparent;color:#65583d;font-weight:700}
 #vcf-app-shell .vcf-tab[aria-selected="true"]{border-color:#b9ad8e;background:#fffdf7;color:#304f72;box-shadow:0 2px 6px #59461514}
 .vcf-tab-panel[hidden]{display:none!important}
@@ -787,21 +787,22 @@ body {
 @media(max-width:600px){#vcf-record-navigation-actions{grid-template-columns:repeat(8,38px);gap:5px}#vcf-record-navigation-actions .vcf-record-icon-button{width:38px;height:38px;min-height:38px;padding:6px}.vcf-static-marker-types button.vcf-static-marker-icon-button{width:38px;height:38px;min-height:38px;padding:6px}#vcf-record-marker-text{width:min(230px,58vw);height:38px}}
 
 /* ponytail: native HTML/CSS owns the layout; saved visibility is read before first paint. */
-html:not([data-vcf-tab="generator"]):not([data-vcf-tab="import"]) #vcf-tab-panel-generator,
-html:not([data-vcf-tab="generator"]):not([data-vcf-tab="import"]) #vcf-tab-panel-import,
+html:not([data-vcf-tab="generator"]) #vcf-tab-panel-generator,
+html:not([data-vcf-tab="import"]) #vcf-tab-panel-import,
+html:not([data-vcf-tab="benchmark"]) #vcf-tab-panel-benchmark,
 html[data-vcf-tab="generator"] #vcf-tab-panel-calculation,
-html[data-vcf-tab="generator"] #vcf-tab-panel-import,
 html[data-vcf-tab="import"] #vcf-tab-panel-calculation,
-html[data-vcf-tab="import"] #vcf-tab-panel-generator,
+html[data-vcf-tab="benchmark"] #vcf-tab-panel-calculation,
 html:not([data-vcf-calculation-settings="1"]) #vcf-calculation-settings-card,
 html:not([data-vcf-multi-settings="1"]) #vcf-multi-settings-card,
 html[data-vcf-record-title="0"] #vcf-record-title-wrap,
 html[data-vcf-record-comment="0"] .vcf-annotation-card { display: none; }
 #vcf-app-shell [hidden], .vcf-rule-radio-compat, .vcf-compat-host { display: none !important; }
 #vcf-app-shell .vcf-tab { background: transparent; border-color: transparent; color: #65583d; box-shadow: none; }
-html:not([data-vcf-tab="generator"]):not([data-vcf-tab="import"]) .vcf-tab[data-tab="calculation"],
+html:not([data-vcf-tab="generator"]):not([data-vcf-tab="import"]):not([data-vcf-tab="benchmark"]) .vcf-tab[data-tab="calculation"],
 html[data-vcf-tab="generator"] .vcf-tab[data-tab="generator"],
-html[data-vcf-tab="import"] .vcf-tab[data-tab="import"] { border-color: #b9ad8e; background: #fffdf7; color: #304f72; box-shadow: 0 2px 6px #59461514; }
+html[data-vcf-tab="import"] .vcf-tab[data-tab="import"],
+html[data-vcf-tab="benchmark"] .vcf-tab[data-tab="benchmark"] { border-color: #b9ad8e; background: #fffdf7; color: #304f72; box-shadow: 0 2px 6px #59461514; }
 html[data-vcf-calculation-settings="1"] .vcf-calculation-toggle,
 html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; background: #e8f0f8; color: #294f78; }
 #gen-three-multiplier { width: 72px; padding: 5px 7px; border: 1px solid #aaa; border-radius: 4px; text-align: center; font-size: 14px; }
@@ -1082,6 +1083,20 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
 #vcf-search-diagnostics summary{cursor:pointer;font-weight:700}
 #vcf-search-diagnostics pre{font-size:12px;white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto;margin:8px 0;line-height:1.55}
 #vcf-search-diagnostics-copy{font-size:12px;padding:5px 12px}
+#vcf-tab-panel-benchmark .vcf-section{gap:12px}
+.vcf-batch-row{display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+.vcf-batch-row label{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.vcf-batch-row input[type="search"]{min-width:170px;max-width:100%}
+.vcf-batch-row input[type="number"]{width:88px}
+.vcf-batch-row input,.vcf-batch-row select{padding:6px;border:1px solid #c6b899;border-radius:6px;background:#fff}
+.vcf-batch-row button{min-height:36px;padding:6px 10px}
+#vcf-batch-status{margin:0;font-size:13px;color:#625a48;overflow-wrap:anywhere}
+#vcf-batch-progress{width:100%}
+.vcf-batch-table-wrap{max-height:480px;overflow:auto;border:1px solid #ddd2b5;border-radius:8px}
+.vcf-batch-table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}
+.vcf-batch-table th,.vcf-batch-table td{border-bottom:1px solid #e6ddcd;padding:7px;text-align:left}
+.vcf-batch-table thead th{position:sticky;top:0;background:#f3eddc;z-index:1}
+@media(max-width:600px){.vcf-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 <script>
 // ponytail: restore layout preferences before parsing the visible workbench, without hiding the page.
@@ -1089,7 +1104,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
   try {
     const view = document.documentElement.dataset;
     const tab = localStorage.getItem("vcf_workspace_tab");
-    view.vcfTab = ["calculation", "generator", "import"].includes(tab) ? tab : "calculation";
+    view.vcfTab = ["calculation", "generator", "import", "benchmark"].includes(tab) ? tab : "calculation";
     for (const kind of ["calculation", "multi"]) {
       view[kind === "calculation" ? "vcfCalculationSettings" : "vcfMultiSettings"] =
         localStorage.getItem(`vcf_user_setting_v1:vcf-tab-panel-calculation:id:vcf-show-${kind}-settings`)
@@ -1229,6 +1244,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
         <button id="vcf-tab-calculation" type="button" class="vcf-tab" data-tab="calculation" role="tab" aria-controls="vcf-tab-panel-calculation" aria-selected="true">VCF計算</button>
         <button id="vcf-tab-generator" type="button" class="vcf-tab" data-tab="generator" role="tab" aria-controls="vcf-tab-panel-generator" aria-selected="false" tabindex="-1">VCF 題目產生器</button>
         <button id="vcf-tab-import" type="button" class="vcf-tab" data-tab="import" role="tab" aria-controls="vcf-tab-panel-import" aria-selected="false" tabindex="-1">圖片匯入</button>
+        <button id="vcf-tab-benchmark" type="button" class="vcf-tab" data-tab="benchmark" role="tab" aria-controls="vcf-tab-panel-benchmark" aria-selected="false" tabindex="-1">VCF 測速</button>
       </div>
       <section id="vcf-tab-panel-calculation" class="vcf-tab-panel vcf-calc-panel" role="tabpanel" aria-labelledby="vcf-tab-calculation">
         <section class="vcf-section"><h3 class="vcf-section-title">棋盤操作</h3><div class="vcf-actions vcf-cols-4"><button id="btn-stop" class="vcf-danger-action" disabled>停止</button><button id="btn-continue">繼續搜尋</button><button id="btn-clear-vcf" class="vcf-muted-action">清除標記</button><button id="btn-clear" class="vcf-muted-action">清空棋盤</button></div></section>
@@ -1309,6 +1325,42 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
         <div id="rule-box" class="vcf-rule-radio-compat"><label><input type="radio" name="rules" value="2" checked> 有禁</label><label><input type="radio" name="rules" value="1"> 無禁</label><label><input type="radio" name="rules" value="0"> 自由</label></div>
         <div id="btns" class="vcf-compat-host"><button id="btn-black">找黑 VCF</button><button id="btn-white">找白 VCF</button></div>
         <div id="btns2" class="vcf-compat-host"><button id="btn-vcf-prev" disabled>上一組</button><button id="btn-vcf-next" disabled>下一組</button></div>
+      </section>
+      <section id="vcf-tab-panel-benchmark" class="vcf-tab-panel" role="tabpanel" aria-labelledby="vcf-tab-benchmark">
+        <section class="vcf-section">
+          <h3 class="vcf-section-title">VCF 批次測速與雲端題庫匯入</h3>
+          <div class="vcf-batch-row">
+            <label>讀取題庫 JSON <input id="vcf-batch-source" type="file" accept=".json,application/json"></label>
+            <button id="vcf-batch-cloud" type="button">從我的雲端棋譜讀取</button>
+          </div>
+          <div class="vcf-batch-row">
+            <label>搜尋題目 <input id="vcf-batch-filter" type="search" placeholder="題號、題名、分類、作者"></label>
+            <button id="vcf-batch-all" type="button">全選顯示題目</button>
+            <button id="vcf-batch-none" type="button">取消顯示題目勾選</button>
+            <span id="vcf-batch-selected">已選取 0 題</span>
+          </div>
+          <div class="vcf-batch-row">
+            <label>規則 <select id="vcf-batch-rules"><option value="2">有禁</option><option value="1">無禁</option><option value="0">自由</option></select></label>
+            <label>節點限制（百萬） <input id="vcf-batch-nodes" type="number" min="1" max="4294" step="1" value="20"></label>
+            <label>最大深度 <input id="vcf-batch-depth" type="number" min="1" max="224" step="1" value="200"></label>
+            <label>同型表 2^ <select id="vcf-batch-tt"><option>18</option><option>19</option><option>20</option><option>21</option><option selected>22</option></select></label>
+            <label><input id="vcf-batch-distance" type="checkbox" checked>距離限制</label>
+          </div>
+          <div class="vcf-batch-row">
+            <button id="vcf-batch-upload" type="button" disabled>匯入選取題目至我的雲端棋譜</button>
+            <button id="vcf-batch-run" type="button" disabled>開始批次測速</button>
+            <button id="vcf-batch-stop" type="button" disabled>停止</button>
+            <button id="vcf-batch-csv" type="button" disabled>匯出測速 CSV</button>
+          </div>
+          <p id="vcf-batch-status" role="status" aria-live="polite">請讀取本機題庫 JSON，或登入後從我的雲端棋譜選擇題目。</p>
+          <progress id="vcf-batch-progress" value="0" max="1"></progress>
+          <div class="vcf-batch-table-wrap">
+            <table class="vcf-batch-table">
+              <thead><tr><th>選取</th><th>題號</th><th>題名</th><th>分類</th><th>作者</th><th>先手</th><th>參考步數</th><th>結果</th><th>階段</th><th>耗時(ms)</th><th>節點數</th></tr></thead>
+              <tbody id="vcf-batch-table-body"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
       <section id="vcf-tab-panel-generator" class="vcf-tab-panel" role="tabpanel" aria-labelledby="vcf-tab-generator">
         <section id="generator-panel" class="vcf-generator-card">
@@ -4956,6 +5008,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-layout.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-static-annotations.js?v=20261009-cloud2"></script>
 <script src="rapfi/5db-format.js?v=20261024-cloudpreview1"></script>
+<script src="rapfi/vcf-batch-benchmark.js?v=20261123-batch1"></script>
 <script src="rapfi/rapfi-workbench-header.js?v=20261113-5db-workbench"></script>
 <script src="rapfi/vcf-record-tools.js?v=20261113-5db-workbench"></script>
 <script src="makevcf-generator-settings-persistence.js?v=20260923-calculation-layout1"></script>

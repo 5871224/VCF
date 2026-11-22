@@ -284,6 +284,7 @@ jobs:
           test -s _site/rapfi/engine/vcf-bitboard-engine.wasm
           test -s _site/rapfi/5db-format.js
           test -s _site/api/5db.php
+          test -s _site/rapfi/vcf-batch-benchmark.js
           test -s _site/rapfi/vcf-5db-cloud.js
 
       - name: Upload BD1
