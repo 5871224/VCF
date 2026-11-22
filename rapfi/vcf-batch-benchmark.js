@@ -244,8 +244,16 @@
         const started = performance.now();
         try {
           const doc = await getDocument(item);
+          // Existing cloud records may be saved on a branch, not only at root.
+          const position = global.FiveDB.preview(doc);
+          let side = doc.nextSide;
+          if (doc.currentPath.length) {
+            let node = doc.root;
+            for (const childIndex of doc.currentPath) node = node.children[childIndex];
+            side = 3 - node.stone;
+          }
           const info = await callWorker("findVCF", {
-            arr: Array.from(doc.board), color: doc.nextSide, rules: settings.rules,
+            arr: Array.from(position.board, Number), color: side, rules: settings.rules,
             mode: "single", maxVCF: 1, ...settings,
           });
           const attempts = info.searchAttempts || [];
