@@ -265,4 +265,26 @@ assert.ok(confirmation.includes('importState.mode = "cornersEditing";') &&
   "failed confirmation keeps prior zoom and returns to corner editing"
 );
 
+// Image import descriptions are removed from the source, not hidden by
+// late-loading CSS or extra DOM patches. Keep the real status callbacks.
+for(const obsolete of [
+  'id="source-hint"', 'id="preview-edit-hint"', 'id="import-actions"',
+  '辨識預覽（可手動修正）',
+  '一般棋盤請辨識黑白子；若圖片是記譜紙',
+  '先從下表點選要開始的手順',
+  '電腦左鍵放黑子、右鍵放白子，點同色可清除',
+  'const sourceHintEl =', 'const previewEditHintEl ='
+]) assert.ok(!files.html.includes(obsolete), "old image-import explanation remains: " + obsolete);
+has("html", [
+  'id="import-view-title">原圖與棋盤框',
+  '? "辨識預覽"', '? "記譜紙手順"',
+  'id="import-status" role="status" aria-live="polite"',
+  'id="vcf-image-order-status" role="status" aria-live="polite"',
+  '#import-status:empty,#vcf-image-order-status:empty{display:none}',
+  'setImportStatus("辨識完成：黑 "',
+  'setImportStatus("");',
+]);
+assert.ok(!files.html.includes('id="import-status">匯入圖片後'),
+  "initial instructional status must not appear");
+
 console.log("5DB workbench and deployment integration contract passed");
