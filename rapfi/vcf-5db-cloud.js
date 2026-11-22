@@ -82,6 +82,12 @@
     const record = global.VCFWorkbenchRecord;
     if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
     const doc = record.export5DBDocument();
+    return saveDocument(doc, fileName);
+  }
+  // Save a self-contained 5DB document without changing the live board.
+  async function saveDocument(doc, fileName = "") {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    if (!global.FiveDB) throw new Error("5DB 編碼器未載入");
     const bytes = global.FiveDB.encode(doc);
     const info = global.FiveDB.validate(doc);
     const shot = global.FiveDB.preview(doc);
@@ -560,7 +566,7 @@
 
   const api = {
     API_URL, FIVE_DB_API_URL,
-    publicConfig, authMe, logout, saveCurrent, list, load, remove,
+    publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, load, remove,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
