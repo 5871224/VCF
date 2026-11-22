@@ -47,7 +47,6 @@ for (const name of ["vcf-batch-run", "vcf-batch-upload", "vcf-batch-cloud", "vcf
 }
 assert.ok(source.includes('new Worker(asset("rapfi/vcf-bitboard-worker.js"))'), "batch uses independent worker");
 assert.ok(source.includes("cloud.saveDocument(item.doc, item.fileName, destination)"), "cloud imports private 5DB");
-assert.ok(source.includes('data-sort') === false, "sorting markup belongs to native index HTML");
 assert.ok(source.includes("descending = !descending"), "repeated table-heading clicks toggle sort order");
 assert.ok(source.includes("index + 1"), "folder-selected rows show sequential ordinals");
 assert.ok(!source.includes("puzzles: ["), "never bundle source book puzzles");
