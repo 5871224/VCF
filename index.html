@@ -1096,6 +1096,10 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
 .vcf-batch-table{border-collapse:collapse;width:100%;font-size:12px;white-space:nowrap}
 .vcf-batch-table th,.vcf-batch-table td{border-bottom:1px solid #e6ddcd;padding:7px;text-align:left}
 .vcf-batch-table thead th{position:sticky;top:0;background:#f3eddc;z-index:1}
+.vcf-batch-table thead th[data-sort]{cursor:pointer;user-select:none}
+.vcf-batch-table thead th[aria-sort="ascending"]::after{content:" ↑";color:#376783}
+.vcf-batch-table thead th[aria-sort="descending"]::after{content:" ↓";color:#376783}
+.vcf-batch-table tbody tr:hover{background:#faf7ec}
 @media(max-width:600px){.vcf-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 <script>
@@ -1334,10 +1338,16 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
             <button id="vcf-batch-cloud" type="button">從我的雲端棋譜讀取</button>
           </div>
           <div class="vcf-batch-row">
-            <label>搜尋題目 <input id="vcf-batch-filter" type="search" placeholder="題號、題名、分類、作者"></label>
+            <label>搜尋棋譜 <input id="vcf-batch-filter" type="search" placeholder="檔名、標題"></label>
             <button id="vcf-batch-all" type="button">全選顯示題目</button>
             <button id="vcf-batch-none" type="button">取消顯示題目勾選</button>
-            <span id="vcf-batch-selected">已選取 0 題</span>
+            <span id="vcf-batch-selected">已選取 0 份棋譜</span>
+          </div>
+          <div class="vcf-batch-row">
+            <label>測速資料夾 <select id="vcf-batch-folder"><option value="-1">全部資料夾</option><option value="0">根目錄</option></select></label>
+            <label><input id="vcf-batch-include-subfolders" type="checkbox" checked>包含子資料夾</label>
+            <label>匯入目的地 <select id="vcf-batch-target-folder"><option value="0">根目錄</option></select></label>
+            <button id="vcf-batch-folder-refresh" type="button">重新讀取資料夾</button>
           </div>
           <div class="vcf-batch-row">
             <label>規則 <select id="vcf-batch-rules"><option value="2">有禁</option><option value="1">無禁</option><option value="0">自由</option></select></label>
@@ -1356,7 +1366,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
           <progress id="vcf-batch-progress" value="0" max="1"></progress>
           <div class="vcf-batch-table-wrap">
             <table class="vcf-batch-table">
-              <thead><tr><th>選取</th><th>題號</th><th>題名</th><th>分類</th><th>作者</th><th>先手</th><th>參考步數</th><th>結果</th><th>階段</th><th>耗時(ms)</th><th>節點數</th></tr></thead>
+              <thead><tr><th>選取</th><th data-sort="order" aria-sort="ascending">序號</th><th data-sort="fileName" aria-sort="none">檔名</th><th data-sort="title" aria-sort="none">標題</th><th data-sort="status" aria-sort="none">結果</th><th data-sort="phase" aria-sort="none">階段</th><th data-sort="ms" aria-sort="none">耗時(ms)</th><th data-sort="nodes" aria-sort="none">節點數</th></tr></thead>
               <tbody id="vcf-batch-table-body"></tbody>
             </table>
           </div>
@@ -5008,7 +5018,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-layout.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-static-annotations.js?v=20261009-cloud2"></script>
 <script src="rapfi/5db-format.js?v=20261024-cloudpreview1"></script>
-<script src="rapfi/vcf-batch-benchmark.js?v=20261123-batch1"></script>
+<script src="rapfi/vcf-batch-benchmark.js?v=20261123-folders1"></script>
 <script src="rapfi/rapfi-workbench-header.js?v=20261113-5db-workbench"></script>
 <script src="rapfi/vcf-record-tools.js?v=20261113-5db-workbench"></script>
 <script src="makevcf-generator-settings-persistence.js?v=20260923-calculation-layout1"></script>
