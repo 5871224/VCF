@@ -31,7 +31,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding: 10px;
   box-shadow: 0 2px 8px #0001;
 }
-#import-toolbar, #import-actions {
+#import-toolbar {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
@@ -69,23 +69,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 #warped-canvas {
   display: none;
 }
-.preview-edit-hint {
-  margin-top: 7px;
-  line-height: 1.55;
-}
-.preview-edit-hint[hidden] {
-  display: none;
-}
 .canvas-card h3 {
   font-size: 14px;
   margin-bottom: 6px;
   color: #4a3a1a;
-}
-.canvas-card p {
-  font-size: 12px;
-  color: #7a6942;
-  margin-bottom: 6px;
-  min-height: 18px;
 }
 .import-canvas {
   width: 100%;
@@ -587,8 +574,7 @@ body {
 }
 
 #generator-panel .gen-actions,
-#import-toolbar,
-#import-actions {
+#import-toolbar {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
@@ -683,8 +669,7 @@ body {
   #generator-panel .gen-controls label,
   #generator-panel .gen-controls fieldset { min-height: 34px; padding: 5px 8px; font-size: 13px; }
   #generator-panel .gen-actions,
-  #import-toolbar,
-  #import-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  #import-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   #vcf-app-shell button { min-height: 40px; padding: 7px 6px; font-size: 13px; }
   #vcf-app-shell #import-canvases { grid-template-columns: 1fr; }
   #vcf-app-shell #status { margin-top: 9px; }
@@ -695,8 +680,7 @@ body {
 
 @media (max-width: 380px) {
   #generator-panel .gen-actions,
-  #import-toolbar,
-  #import-actions { grid-template-columns: 1fr; }
+  #import-toolbar { grid-template-columns: 1fr; }
 }
 
 #vcf-app-shell{width:min(100%,1180px)}
@@ -745,8 +729,8 @@ body {
 #import-panel>.vcf-card-heading{display:none}
 #import-panel #import-toolbar{display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px!important;width:100%;margin:0 0 9px!important}
 #import-panel #import-status{margin:0 0 10px!important}
+#import-status:empty,#vcf-image-order-status:empty{display:none}
 #import-panel .canvas-card{width:100%;max-width:none;min-width:0;margin:0;padding:10px;border-radius:9px;box-shadow:none}
-#import-panel #import-actions{display:block!important;margin:9px 0 0!important;padding:8px 10px;border-radius:8px;background:#faf7ef;text-align:left;line-height:1.5}
 @media(max-width:920px){.vcf-top-grid{grid-template-columns:1fr}.vcf-workspace{width:100%}}
 @media(max-width:700px){.vcf-cols-4,#generator-panel .gen-actions,#import-panel #import-toolbar{grid-template-columns:repeat(2,minmax(0,1fr))}#generator-panel .gen-controls{grid-template-columns:1fr}}
 @media(max-width:520px){.vcf-tabs{gap:4px;padding:4px}#vcf-app-shell .vcf-tab{min-height:40px;padding:7px 4px;font-size:12px}.vcf-cols-3{grid-template-columns:1fr}.vcf-inline,.vcf-settings-grid{align-items:stretch}.vcf-inline>label,.vcf-settings-grid>label{flex:1 1 150px}}
@@ -1080,7 +1064,6 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
   background:#fffdf5;box-shadow:0 16px 44px rgba(0,0,0,.30);text-align:center
 }
 .vcf-import-mode-card h3{margin:0 0 8px;font-size:18px;color:#3f331d}
-.vcf-import-mode-card p{margin:0 0 14px;font-size:13px;line-height:1.55;color:#6d5b35}
 .vcf-import-mode-actions{display:flex;gap:10px;justify-content:center}
 .vcf-import-mode-actions button{min-width:128px;font-weight:700}
 @media(max-width:520px){
@@ -1384,7 +1367,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
     <button id="btn-import-apply" hidden>套用到棋盤</button>
     <button id="btn-import-reset" disabled>重設匯入</button>
   </div>
-  <div id="import-status">匯入圖片後，可自動抓棋盤範圍；若不準，可拖曳四角修正，再確認並套用。</div>
+  <div id="import-status" role="status" aria-live="polite"></div>
   <div id="vcf-image-order-panel" hidden>
     <div class="vcf-image-order-controls">
       <label>目前手順 <input id="vcf-image-order-current" type="number" min="1" max="999" step="1" value="1"></label>
@@ -1399,13 +1382,12 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
       <button id="vcf-image-order-compact" type="button">整理缺號</button>
       <button id="vcf-image-order-clear-selected" type="button" disabled>清除所選</button>
     </div>
-    <div id="vcf-image-order-status">先從下表點選要開始的手順，再點預覽中的棋子。</div>
+    <div id="vcf-image-order-status" role="status" aria-live="polite"></div>
 
   </div>
   <div id="import-canvases">
     <div id="import-canvas-card" class="canvas-card">
       <h3 id="import-view-title">原圖與棋盤框</h3>
-      <p id="source-hint">可將圖片拖到框內；手機雙指、電腦滾輪縮放。桌機拖角點，手機由對應象限拖曳角點。</p>
       <div id="vcf-image-order-stage">
         <div id="import-image-viewport" class="vcf-image-order-canvas-wrap">
           <div id="import-image-transform">
@@ -1421,13 +1403,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
       </table>
     </div>
       </div>
-      <div id="preview-edit-hint" class="hint preview-edit-hint" hidden>
-        電腦左鍵放黑子、右鍵放白子，點同色可清除；手機仍可循環切換空、黑、白。
-      </div>
     </div>
-  </div>
-  <div id="import-actions" class="hint">
-    可上傳、貼上或拖曳圖片至圖片框；手機雙指、電腦滾輪縮放。
   </div>
   <canvas id="warped-canvas" width="900" height="900" hidden></canvas>
   <input id="image-file-input" type="file" accept="image/*" hidden>
@@ -1474,7 +1450,6 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
 <div id="vcf-import-mode-dialog" hidden>
     <div class="vcf-import-mode-card" role="dialog" aria-modal="true" aria-labelledby="vcf-import-mode-title">
       <h3 id="vcf-import-mode-title">選擇圖片處理方式</h3>
-      <p>一般棋盤請辨識黑白子；若圖片是記譜紙，可直接依交點標記手順。</p>
       <div class="vcf-import-mode-actions">
         <button id="vcf-import-mode-recognize" type="button">辨識棋子</button>
         <button id="vcf-import-mode-order" type="button">加上手順</button>
@@ -2339,10 +2314,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
   const btnCameraCancel = document.getElementById("btn-camera-cancel");
   const btnCameraCapture = document.getElementById("btn-camera-capture");
   const importStatusEl = document.getElementById("import-status");
-  const sourceHintEl = document.getElementById("source-hint");
   const importViewTitleEl = document.getElementById("import-view-title");
   const importCanvasCardEl = document.getElementById("import-canvas-card");
-  const previewEditHintEl = document.getElementById("preview-edit-hint");
   const btnImportImage = document.getElementById("btn-import-image");
   const btnImportCamera = document.getElementById("btn-import-camera");
   const btnImportCameraLive = document.getElementById("btn-import-camera-live");
@@ -2437,14 +2410,8 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     importViewTitleEl.textContent = notation
       ? "記譜紙手順"
       : preview
-        ? "辨識預覽（可手動修正）"
+        ? "辨識預覽"
         : "原圖與棋盤框";
-    sourceHintEl.textContent = notation
-      ? "直接在任意棋盤交點標記手順；奇數手視為黑棋、偶數手視為白棋，不需要先辨識棋子。"
-      : preview
-        ? "電腦左鍵黑子、右鍵白子；手機點擊循環切換空、黑、白。可縮放圖片檢查。"
-        : "可拖入圖片、貼上截圖或拍照；電腦滾輪、手機雙指縮放，單指仍可拖曳四角。";
-    previewEditHintEl.hidden = !preview || notation;
     importCanvasCardEl.classList.toggle("preview-mode", preview);
   }
 
@@ -2494,7 +2461,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
     srcCtx.textAlign = "center";
     srcCtx.fillText("請匯入圖片或貼上截圖", sourceCanvas.width / 2, sourceCanvas.height / 2);
     resetWarpedView();
-    setImportStatus("匯入圖片後，可自動抓棋盤範圍；若不準，可拖曳四角修正，再確認並套用。");
+    setImportStatus("");
     setImportButtons();
   }
 
@@ -2737,7 +2704,6 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
       drawSource();
       resetWarpedView();
       setImportStatus("圖片已載入，正在嘗試自動偵測棋盤區域...");
-      sourceHintEl.textContent = "若棋盤框不準：桌機拖角點；手機從對應象限任意位置拖曳，角點會依手指位移相對移動。";
       setImportButtons();
       await autoDetectBoard();
     } finally {
