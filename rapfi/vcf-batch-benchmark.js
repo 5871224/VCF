@@ -8,6 +8,11 @@
   let items = [], selected = new Set(), busy = false, stopped = false, worker = null, workerId = 0;
   let pending = new Map();
   const results = new Map();
+  let cloudFolders = [];
+  let sourceKind = "local";
+  let sortField = "order";
+  let descending = false;
+  const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
 
   const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
@@ -66,14 +71,92 @@
       return {
         key: "local:" + no, no, title: label(p), category: p.section || "",
         author: p.author || "", first: p.first, answerMoves: p.moves ?? "",
-        cloudId: 0, doc, fileName: DATASET_PREFIX + serial,
+        cloudId: 0, doc, folderId: 0, fileName: DATASET_PREFIX + serial,
       };
     });
   }
+  function descendants(folderId, parentId) {
+    let current = folderId;
+    const seen = new Set();
+    while (current > 0 && !seen.has(current)) {
+      if (current === parentId) return true;
+      seen.add(current);
+      const folder = cloudFolders.find(item => Number(item.id) === current);
+      if (!folder) break;
+      current = Number(folder.parent_id || 0);
+    }
+    return false;
+  }
   function currentItems() {
     const term = $("vcf-batch-filter").value.trim().toLocaleLowerCase();
-    return items.filter(item => !term || [item.no, item.title, item.category, item.author, item.first]
-      .some(value => String(value).toLocaleLowerCase().includes(term)));
+    const chosen = Number($("vcf-batch-folder").value || -1);
+    const withChildren = $("vcf-batch-include-subfolders").checked;
+    return items.filter(item => {
+      if (sourceKind === "cloud" && chosen >= 0) {
+        const folder = Number(item.folderId || 0);
+        if (folder !== chosen && !(withChildren && descendants(folder, chosen))) return false;
+      }
+      return !term || [item.fileName, item.title].some(value =>
+        String(value).toLocaleLowerCase().includes(term));
+    }).sort((a, b) => {
+      const av = sortField === "order" ? items.indexOf(a) : sortField === "folder" ? a.folderId
+        : sortField === "status" ? (results.get(a.key)?.status || "")
+        : sortField === "phase" ? (results.get(a.key)?.phase || "")
+        : sortField === "ms" ? (results.get(a.key)?.ms ?? -1)
+        : sortField === "nodes" ? (results.get(a.key)?.nodes ?? -1)
+        : a[sortField] ?? "";
+      const bv = sortField === "order" ? items.indexOf(b) : sortField === "folder" ? b.folderId
+        : sortField === "status" ? (results.get(b.key)?.status || "")
+        : sortField === "phase" ? (results.get(b.key)?.phase || "")
+        : sortField === "ms" ? (results.get(b.key)?.ms ?? -1)
+        : sortField === "nodes" ? (results.get(b.key)?.nodes ?? -1)
+        : b[sortField] ?? "";
+      const comparison = typeof av === "number" && typeof bv === "number"
+        ? av - bv : collator.compare(String(av), String(bv));
+      return (descending ? -1 : 1) * comparison;
+    });
+  }
+  function updateFolderSelectors(folders) {
+    cloudFolders = Array.isArray(folders) ? folders : [];
+    const byParent = new Map();
+    for (const folder of cloudFolders) {
+      const parent = Number(folder.parent_id || 0);
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push(folder);
+    }
+    const options = [{ id: 0, label: "根目錄" }];
+    const walk = (id, depth, ancestors) => {
+      const children = (byParent.get(id) || []).slice().sort((a, b) =>
+        collator.compare(String(a.name), String(b.name)));
+      for (const folder of children) {
+        const nextId = Number(folder.id);
+        if (ancestors.has(nextId)) continue;
+        options.push({ id: nextId, label: "　".repeat(depth) + "📁 " + folder.name });
+        walk(nextId, depth + 1, new Set([...ancestors, nextId]));
+      }
+    };
+    walk(0, 1, new Set());
+    for (const [elementId, withAll] of [["vcf-batch-folder", true], ["vcf-batch-target-folder", false]]) {
+      const el = $(elementId), previous = el.value;
+      el.replaceChildren();
+      const entries = withAll ? [{ id: -1, label: "全部資料夾" }, ...options] : options;
+      for (const entry of entries) {
+        const option = document.createElement("option");
+        option.value = String(entry.id);
+        option.textContent = entry.label;
+        el.appendChild(option);
+      }
+      el.value = entries.some(entry => String(entry.id) === previous) ? previous : String(withAll ? -1 : 0);
+    }
+  }
+  async function loadFolders() {
+    const cloud = global.VCFCloud5DB;
+    if (!cloud?.listCatalog) throw new Error("雲端資料夾功能尚未載入，請重新整理頁面");
+    await cloud.authMe();
+    const catalog = await cloud.listCatalog();
+    updateFolderSelectors(catalog.folders);
+    if (sourceKind === "cloud") render();
+    return catalog;
   }
   function syncControls() {
     $("vcf-batch-run").disabled = busy || !selected.size;
@@ -82,22 +165,30 @@
     $("vcf-batch-csv").disabled = !results.size;
     $("vcf-batch-source").disabled = busy;
     $("vcf-batch-cloud").disabled = busy;
-    $("vcf-batch-selected").textContent = "已選取 " + selected.size + " / " + items.length + " 題";
+    $("vcf-batch-folder-refresh").disabled = busy;
+    $("vcf-batch-target-folder").disabled = busy || sourceKind !== "local";
+    $("vcf-batch-folder").disabled = busy || sourceKind !== "cloud";
+    const visible = currentItems();
+    $("vcf-batch-selected").textContent = "已選取 " + visible.filter(item => selected.has(item.key)).length
+      + " / " + visible.length + " 份棋譜";
   }
   function render() {
     const visible = currentItems();
-    $("vcf-batch-table-body").innerHTML = visible.map(item => {
+    $("vcf-batch-table-body").innerHTML = visible.map((item, index) => {
       const result = results.get(item.key);
       return "<tr><td><input type='checkbox' data-batch-id='" + escapeHtml(item.key) +
-        "' " + (selected.has(item.key) ? "checked" : "") + "></td><td>" + escapeHtml(item.no || "—") +
-        "</td><td>" + escapeHtml(item.title) + "</td><td>" + escapeHtml(item.category) +
-        "</td><td>" + escapeHtml(item.author) + "</td><td>" + escapeHtml(item.first) +
-        "</td><td>" + escapeHtml(item.answerMoves) + "</td><td>" +
-        escapeHtml(result ? result.status : "") + "</td><td>" +
-        escapeHtml(result ? result.phase : "") + "</td><td>" +
+        "' " + (selected.has(item.key) ? "checked" : "") + "></td><td>" + (index + 1) +
+        "</td><td>" + escapeHtml(item.fileName) + "</td><td>" + escapeHtml(item.title) +
+        "</td><td>" + escapeHtml(result?.status || "") + "</td><td>" +
+        escapeHtml(result?.phase || "") + "</td><td>" +
         escapeHtml(result ? result.ms.toFixed(3) : "") + "</td><td>" +
         escapeHtml(result ? result.nodes.toLocaleString("en-US") : "") + "</td></tr>";
     }).join("");
+    for (const head of panel.querySelectorAll("th[data-sort]")) {
+      const active = head.dataset.sort === sortField;
+      head.setAttribute("aria-sort", active ? (descending ? "descending" : "ascending") : "none");
+      head.title = active ? (descending ? "降冪，點擊切換升冪" : "升冪，點擊切換降冪") : "點擊排序";
+    }
     syncControls();
   }
   function setItems(next, note) {
@@ -112,34 +203,23 @@
   }
   async function loadJson(file) {
     if (!file) return;
+    sourceKind = "local";
     if (file.size > 8 * 1024 * 1024) throw new Error("JSON 檔案超過 8 MB");
     if (!global.FiveDB) throw new Error("5DB 編碼器未載入");
     const content = JSON.parse(await file.text());
     const next = normalizePuzzles(content);
-    setItems(next, "已載入 " + next.length + " 題；請勾選要測速或存入雲端的題目。");
+    setItems(next, "已載入 " + next.length + " 題；請勾選測速或匯入的題目。");
+    try { await loadFolders(); } catch (_) { /* Local testing works without login. */ }
   }
   async function loadCloud() {
-    const cloud = global.VCFCloud5DB;
-    if (!cloud) throw new Error("雲端模組未載入，請重新整理頁面");
-    await cloud.authMe();
-    const records = await cloud.list();
-    const next = records.map(record => {
-      const name = String(record.file_name || "");
-      const title = String(record.title || name || "無題");
-      const serial = name.startsWith(DATASET_PREFIX) ? name.slice(DATASET_PREFIX.length) : "";
-      const no = /^[0-9]+$/.test(serial) && Number(serial) > 0 ? Number(serial)
-        : /^S[0-9]+$/.test(serial) ? serial : "";
-      const columns = title.split("｜").map(x => x.trim());
-      return {
-        key: "cloud:" + record.id, cloudId: Number(record.id),
-        no,
-        title: columns.length >= 4 ? columns[1] : title,
-        category: columns.length >= 4 ? columns[2] : "",
-        author: columns.length >= 4 ? columns[3] : "",
-        first: "（由 5DB 判定）", answerMoves: "", doc: null, fileName: name,
-      };
-    }).sort((a, b) => Number(a.no || 999999) - Number(b.no || 999999));
-    setItems(next, "已讀取我的雲端棋譜，共 " + next.length + " 份。可勾選任意題目測速。");
+    const catalog = await loadFolders();
+    sourceKind = "cloud";
+    const next = catalog.records.map(record => ({
+      key: "cloud:" + record.id, cloudId: Number(record.id),
+      title: String(record.title || ""), fileName: String(record.file_name || "棋譜-" + record.id),
+      folderId: Number(record.folder_id || 0), doc: null,
+    }));
+    setItems(next, "已讀取雲端 " + next.length + " 份棋譜，請選擇資料夾並勾選測速項目。");
   }
   async function getDocument(item) {
     if (item.doc) return item.doc;
@@ -154,11 +234,13 @@
   async function uploadSelected() {
     const cloud = global.VCFCloud5DB;
     if (!cloud?.saveDocument) throw new Error("雲端匯入功能未就緒");
-    const queue = items.filter(item => item.doc && selected.has(item.key));
+    const queue = currentItems().filter(item => item.doc && selected.has(item.key));
     if (!queue.length) throw new Error("請先選擇本機 JSON 題目");
     await cloud.authMe();
     const existing = await cloud.list();
-    const names = new Set(existing.map(r => String(r.file_name || "")));
+    const destination = Number($("vcf-batch-target-folder").value || 0);
+    const names = new Set(existing.filter(r => Number(r.folder_id || 0) === destination)
+      .map(r => String(r.file_name || "")));
     busy = true; stopped = false; syncControls();
     let saved = 0, skipped = 0, failed = 0, done = 0;
     $("vcf-batch-progress").max = queue.length;
@@ -170,7 +252,7 @@
           if (names.has(item.fileName)) {
             skipped++;
           } else {
-            await cloud.saveDocument(item.doc, item.fileName);
+            await cloud.saveDocument(item.doc, item.fileName, destination);
             names.add(item.fileName);
             saved++;
           }
@@ -231,7 +313,7 @@
     await callWorker("init", { moduleURL: asset("rapfi/engine/vcf-bitboard-engine.js"), runSmokeCheck: false });
   }
   async function runSelected() {
-    const queue = items.filter(item => selected.has(item.key));
+    const queue = currentItems().filter(item => selected.has(item.key));
     if (!queue.length) throw new Error("請先選擇題目");
     const settings = {
       rules: Number($("vcf-batch-rules").value),
@@ -303,14 +385,14 @@
     }
   }
   function exportCsv() {
-    const fields = ["題號", "題名", "分類", "作者", "先手", "參考進攻數", "狀態",
-      "搜尋階段", "引擎耗時(ms)", "實際耗時(ms)", "節點數", "搜尋深度",
-      "規則", "節點上限", "最大深度", "同型表次方", "距離限制", "解答手順"];
+    const fields = ["序號", "檔名", "標題", "狀態", "搜尋階段", "引擎耗時(ms)",
+      "實際耗時(ms)", "節點數", "搜尋深度", "規則", "節點上限",
+      "最大深度", "同型表次方", "距離限制", "解答手順"];
     const rows = [fields];
-    for (const item of items) {
+    for (const [index, item] of currentItems().entries()) {
       const result = results.get(item.key);
       if (!result) continue;
-      rows.push([item.no, item.title, item.category, item.author, item.first, item.answerMoves,
+      rows.push([index + 1, item.fileName, item.title,
         result.status, result.phase, result.ms, result.wallMs, result.nodes, result.maxPly,
         result.config.rules, result.config.maxNode, result.config.maxDepth,
         result.config.ttExponent, result.config.distanceLimited ? "是" : "否", result.route]);
@@ -331,6 +413,17 @@
     event.target.value = "";
   });
   $("vcf-batch-cloud").addEventListener("click", () => action(loadCloud));
+  $("vcf-batch-folder-refresh").addEventListener("click", () => action(loadFolders));
+  $("vcf-batch-folder").addEventListener("change", render);
+  $("vcf-batch-include-subfolders").addEventListener("change", render);
+  panel.querySelector(".vcf-batch-table thead").addEventListener("click", event => {
+    const header = event.target.closest("th[data-sort]");
+    if (!header) return;
+    const field = header.dataset.sort;
+    if (field === sortField) descending = !descending;
+    else { sortField = field; descending = false; }
+    render();
+  });
   $("vcf-batch-filter").addEventListener("input", render);
   $("vcf-batch-table-body").addEventListener("change", event => {
     const key = event.target.dataset.batchId;
