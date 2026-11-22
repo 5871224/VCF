@@ -13,6 +13,8 @@
   const previewCache = new Map();
   let activePreviewObserver = null;
   let previewGeneration = 0;
+  let activeFolderId = 0;
+  let cloudFolders = [];
 
   async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
@@ -82,10 +84,10 @@
     const record = global.VCFWorkbenchRecord;
     if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
     const doc = record.export5DBDocument();
-    return saveDocument(doc, fileName);
+    return saveDocument(doc, fileName, activeFolderId);
   }
   // Save a self-contained 5DB document without changing the live board.
-  async function saveDocument(doc, fileName = "") {
+  async function saveDocument(doc, fileName = "", folderId = 0) {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     if (!global.FiveDB) throw new Error("5DB 編碼器未載入");
     const bytes = global.FiveDB.encode(doc);
@@ -94,7 +96,7 @@
     const thumbnail = shot.width <= 25 && shot.height <= 25
       ? `${shot.width}x${shot.height}:${shot.board}` : "";
     const name = normalizeFileName(fileName, defaultFileName());
-    const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "" });
+    const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "", folder_id: String(folderId) });
     const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
       method: "POST", cache: "no-store", credentials: "same-origin",
       headers: { "Content-Type": "application/octet-stream", "X-5DB-Preview": thumbnail },
@@ -103,13 +105,34 @@
     const saved = await jsonResponse(response);
     return { ...saved, recordCount: info.nodeCount, compressedSize: bytes.length, annotationCount: info.markCount };
   }
-  async function list() {
+  async function listCatalog() {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     const response = await cloudFetch(`${FIVE_DB_API_URL}?action=list`, {
       cache: "no-store", credentials: "same-origin",
     });
-    return (await jsonResponse(response)).records || [];
+    const payload = await jsonResponse(response);
+    return { records: payload.records || [], folders: payload.folders || [] };
   }
+  async function list() {
+    return (await listCatalog()).records;
+  }
+  async function folderAction(action, fields = {}) {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    const params = new URLSearchParams({ action, ...fields });
+    const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
+      method: "POST", cache: "no-store", credentials: "same-origin",
+    });
+    return jsonResponse(response);
+  }
+  const createFolder = (name, parentId = 0) =>
+    folderAction("folder_create", { name, parent_id: String(parentId) });
+  const renameFolder = (id, name) =>
+    folderAction("folder_rename", { id: String(id), name });
+  const moveFolder = (id, parentId) =>
+    folderAction("folder_move", { id: String(id), parent_id: String(parentId) });
+  const deleteFolder = id => folderAction("folder_delete", { id: String(id) });
+  const moveRecord = (id, folderId) =>
+    folderAction("record_move", { id: String(id), folder_id: String(folderId) });
   async function fetchRecord(id) {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     const recordId = Number(id);
@@ -566,7 +589,8 @@
 
   const api = {
     API_URL, FIVE_DB_API_URL,
-    publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, load, remove,
+    publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, listCatalog, load, remove,
+    createFolder, renameFolder, moveFolder, deleteFolder, moveRecord,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
