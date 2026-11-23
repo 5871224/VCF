@@ -351,6 +351,7 @@
       tab.tabIndex = selected ? 0 : -1;
     }
     try { localStorage.setItem("vcf_workspace_tab", key); } catch (_) {}
+    window.dispatchEvent(new CustomEvent("vcf-workbench-tab-changed", { detail: { tab: key } }));
   }
   for (const tab of tabs) {
     tab.addEventListener("click", () => activate(tab.dataset.tab));
