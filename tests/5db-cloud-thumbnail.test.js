@@ -267,6 +267,15 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
   const nestedFolder = folderParent.children[1].children[0];
   const nestedName = nestedFolder.children[0].children[1];
   const rootName = treeRoot.children[0].children[1];
+  // A parent folder cannot be dropped into its own descendant.
+  const parentName = folderParent.children[0].children[1];
+  parentName.listeners.dragstart[0]({dataTransfer:transfer,stopPropagation(){},preventDefault(){}});
+  let rejectedDrag = true;
+  nestedName.listeners.dragover[0]({dataTransfer:transfer,preventDefault(){rejectedDrag=false;}});
+  nestedName.listeners.drop[0]({dataTransfer:transfer,preventDefault(){rejectedDrag=false;}});
+  assert.equal(rejectedDrag, true, "folder-to-descendant drop is rejected locally");
+  assert.equal(folderMoveRequests.length, 0, "invalid destination causes no network request");
+  parentName.listeners.dragend[0]();
   nestedName.listeners.dragstart[0]({dataTransfer:transfer,stopPropagation(){},preventDefault(){}});
   rootName.listeners.dragover[0]({dataTransfer:transfer,preventDefault(){}});
   rootName.listeners.drop[0]({dataTransfer:transfer,preventDefault(){},stopPropagation(){}});
