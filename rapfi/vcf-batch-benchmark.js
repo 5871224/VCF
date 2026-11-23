@@ -228,9 +228,9 @@
     return cloudLoadPromise;
   }
   function openBenchmarkTab() {
-    // The cloud catalog must be available as soon as the benchmark tab opens.
-    // Preserve a locally loaded JSON dataset until the user selects cloud storage.
-    if (!busy && !items.length) action(loadCloudOnce);
+    // The cloud API is injected after this module on the production site.
+    // On initial page load, defer until it has been installed.
+    if (!busy && !items.length && global.VCFCloud5DB?.listCatalog) action(loadCloudOnce);
   }
   async function getDocument(item) {
     if (item.doc) return item.doc;
@@ -462,4 +462,7 @@
   });
   syncControls();
   if (document.documentElement.dataset.vcfTab === "benchmark") openBenchmarkTab();
+  global.addEventListener("load", () => {
+    if (document.documentElement.dataset.vcfTab === "benchmark") openBenchmarkTab();
+  }, { once: true });
 })(window);
