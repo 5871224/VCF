@@ -1254,11 +1254,10 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
         <section class="vcf-section"><h3 class="vcf-section-title">棋盤操作</h3><div class="vcf-actions vcf-cols-4"><button id="btn-stop" class="vcf-danger-action" disabled>停止</button><button id="btn-continue">繼續搜尋</button><button id="btn-clear-vcf" class="vcf-muted-action">清除標記</button><button id="btn-clear" class="vcf-muted-action">清空棋盤</button></div></section>
         <section class="vcf-section"><h3 class="vcf-section-title">分析</h3><div class="vcf-inline"><div id="analysis-box">分析色：<label><input type="radio" name="acolor" value="1" checked> 黑</label><label><input type="radio" name="acolor" value="2"> 白</label></div></div></section>
         <section class="vcf-section"><div class="vcf-search-heading"><h3 class="vcf-section-title">VCF 搜尋</h3><label class="vcf-rule-select-label">規則 <select id="vcf-rule-select" aria-label="VCF 計算規則"><option value="2">有禁</option><option value="1">無禁</option><option value="0">自由</option></select></label></div>
-          <div class="vcf-actions vcf-cols-4">
+          <div class="vcf-actions vcf-cols-3">
             <button id="btn-fast-vcf" type="button" title="依目前分析色搜尋第一組 VCF">速找 VCF</button>
             <button id="btn-shortest-vcf" type="button">最短 VCF</button>
-            <button id="btn-rapfi-vcf-benchmark" type="button">Rapfi VCF 計算</button>
-            <label class="vcf-setting-toggle vcf-calculation-toggle"><input id="vcf-show-calculation-settings" type="checkbox">計算設定</label>
+                        <label class="vcf-setting-toggle vcf-calculation-toggle"><input id="vcf-show-calculation-settings" type="checkbox">計算設定</label>
           </div>
           <div id="vcf-calculation-settings-card" class="vcf-settings-card"><h3>計算設定</h3><div class="vcf-settings-grid"><label class="vcf-option-number">
       時間限制：
@@ -5012,7 +5011,6 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <!-- 正式 HTML 已包含完整版面；各模組只綁定功能與狀態。 -->
 <script src="rapfi/rapfi-bitboard-dashboard.js?v=20261121-distance-cache1"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20261105-workbench2"></script>
-<script src="rapfi/vcf-rapfi-vcf-benchmark.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-forbidden-overlay.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-open-four-stop.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-layout.js?v=20261105-workbench2"></script>
