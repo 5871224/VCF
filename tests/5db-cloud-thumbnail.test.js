@@ -257,7 +257,7 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
   await new Promise(setImmediate);
   assert.equal(bulkMoveRequests.length,1,"multiple selected files move in a single request");
   assert.deepEqual(bulkMoveRequests[0].ids,[1,2],"drag carries complete selection");
-  assert.equal(new URL(bulkMoveRequests[0].url).searchParams.get("folder_id"),"7");
+  assert.equal(new URL(bulkMoveRequests[0].url, "https://example.test").searchParams.get("folder_id"),"7");
   assert.equal(catalogRequests,beforeDragLists,"file move doesn't refetch cloud catalog");
   assert.equal(fileGets,beforeDragFiles,"file move doesn't transfer binary 5DB");
   assert.equal(list.children[0].textContent.includes("目前資料夾沒有棋譜"),true);
