@@ -8,7 +8,7 @@ class Element {
     this.tag = tag; this.children = []; this.attrs = {};
     this.listeners = {}; this.parentNode = null; this.id = "";
     this.className = ""; this.hidden = false; this.disabled = false;
-    this._text = ""; this._html = ""; this.open = false; this.dataset = {};
+    this._text = ""; this._html = ""; this.open = false; this.dataset = {}; this.style = {};
   }
   set textContent(v) { this._text = String(v); this.children = []; }
   get textContent() { return this._text || this.children.map(x => x.textContent).join(""); }
@@ -22,8 +22,21 @@ class Element {
     } else if (html.includes('data-list')) {
       const head = new Element(); const close = new Element("button");
       close.attrs["data-close"] = ""; head.append(close);
-      const list = new Element(); list.attrs["data-list"] = "";
-      this.append(head, list);
+      const toolbar = new Element();
+      for (const key of ["folder-create", "folder-rename", "folder-move", "folder-delete"]) {
+        const button = new Element("button"); button.attrs["data-" + key] = ""; toolbar.append(button);
+      }
+      const tree = new Element(); tree.attrs["data-tree"] = "";
+      const path = new Element(); path.attrs["data-folder-path"] = "";
+      const buttons = new Element();
+      const count = new Element(); count.attrs["data-selected-count"] = ""; buttons.append(count);
+      for (const key of ["select-all", "batch-move", "batch-delete", "view-thumbnails", "view-details"]) {
+        const button = new Element("button"); button.attrs["data-" + key] = "";
+        buttons.append(button);
+      }
+      const scroll = new Element(); scroll.attrs["data-file-scroll"] = "";
+      const list = new Element(); list.attrs["data-list"] = ""; scroll.append(list);
+      this.append(head, toolbar, tree, path, buttons, scroll);
     } else if (html.includes('class="sched-email-auth-heading"')) {
       const create = (parent, key, tag = "div") => {
         const node = new Element(tag); node.attrs[`data-${key}`] = ""; parent.append(node); return node;
@@ -45,7 +58,7 @@ class Element {
       const actions = create(this, "actions", "nav");
       create(actions, "register", "button"); create(actions, "forgot", "button"); create(actions, "back", "button");
     } else if (html.includes("vcf-cloud-title")) {
-      this.append(new Element(), new Element());
+      this.append(new Element(), new Element(), new Element());
     }
   }
   get firstElementChild() { return this.children[0] || null; }
@@ -57,8 +70,21 @@ class Element {
   replaceChildren(...xs) { this.children = []; this.append(...xs); }
   remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(x => x !== this); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
+  querySelectorAll(selector) {
+    const list = [];
+    const matches = el => selector.startsWith(".") && el.className.split(" ").includes(selector.slice(1));
+    const walk = node => {
+      for (const child of node.children) {
+        if (matches(child)) list.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return list;
+  }
   querySelector(selector) {
     for (const child of this.children) {
+      if (selector.startsWith(".") && child.className.split(" ").includes(selector.slice(1))) return child;
       if (selector[0] === "#" && child.id === selector.slice(1)) return child;
       if (selector[0] === "[" && Object.hasOwn(child.attrs, selector.slice(1, -1))) return child;
       if (selector === `[name="${child.attrs.name}"]` && child.attrs.name) return child;
