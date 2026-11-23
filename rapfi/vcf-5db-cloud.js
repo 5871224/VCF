@@ -18,6 +18,8 @@
   let cloudRecords = [];
   const selectedRecordIds = new Set();
   const expandedFolderIds = new Set([0]);
+  let activeDrag = null;
+  let moveBusy = false;
   let lastSelectionIndex = -1;
   let explorerView = global.localStorage?.getItem("vcf_cloud_explorer_view") === "details" ? "details" : "thumbnails";
 
@@ -142,6 +144,32 @@
   const deleteFolder = id => folderAction("folder_delete", { id: String(id) });
   const moveRecord = (id, folderId) =>
     folderAction("record_move", { id: String(id), folder_id: String(folderId) });
+  async function moveRecords(ids, folderId) {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    const unique = Array.from(new Set(ids.map(Number)));
+    if (!unique.length || unique.some(id => !Number.isSafeInteger(id) || id < 1))
+      throw new Error("沒有可移動的棋譜");
+    const movedIds = [];
+    for (let i = 0; i < unique.length; i += 2000) {
+      const batch = unique.slice(i, i + 2000);
+      const params = new URLSearchParams({ action: "records_move", folder_id: String(folderId) });
+      try {
+        const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
+          method: "POST", cache: "no-store", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: batch }),
+        });
+        const payload = await jsonResponse(response);
+        if (!Array.isArray(payload.ids) || payload.ids.length !== batch.length)
+          throw new Error("雲端批次移動回應不完整，請重新讀取");
+        movedIds.push(...batch);
+      } catch (error) {
+        error.movedIds = movedIds;
+        throw error;
+      }
+    }
+    return { movedIds, folderId };
+  }
   async function fetchRecord(id) {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     const recordId = Number(id);
@@ -241,6 +269,10 @@
       #vcf-cloud-dialog .vcf-cloud-tree-toggle{flex:0 0 22px;min-height:26px;border:0;background:transparent;cursor:pointer;padding:0}
       #vcf-cloud-dialog .vcf-cloud-tree-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;min-height:29px;padding:4px 5px;border:0;border-radius:5px;background:transparent;color:#3d3a31;cursor:pointer;font:inherit}
       #vcf-cloud-dialog .vcf-cloud-tree-name:hover{background:#e9eef0}
+      #vcf-cloud-dialog .vcf-cloud-tree-name[draggable="true"]{cursor:grab}
+      #vcf-cloud-dialog .vcf-cloud-tree-name.vcf-cloud-drop-target{background:#bfe4c7;color:#164c32;outline:2px solid #329456;outline-offset:-2px}
+      #vcf-cloud-dialog .vcf-cloud-row[draggable="true"]{cursor:grab}
+      #vcf-cloud-dialog .vcf-cloud-row[draggable="true"]:active{cursor:grabbing}
       #vcf-cloud-dialog .vcf-cloud-tree-name[aria-current="true"]{background:#dce9f4;color:#1b4e75;font-weight:700}
       #vcf-cloud-dialog .vcf-cloud-files{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
       #vcf-cloud-dialog .vcf-cloud-files-toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px 10px;flex-wrap:wrap;border-bottom:1px solid #ddd5c5;background:#fcfbf7}
@@ -339,6 +371,62 @@
     renderFolderTree(dialog);
     renderFolderContents(dialog);
   }
+  function isFolderDescendant(folderId, ancestorId) {
+    const seen = new Set();
+    let current = folderId;
+    while (current > 0 && !seen.has(current)) {
+      if (current === ancestorId) return true;
+      seen.add(current);
+      const folder = cloudFolders.find(entry => Number(entry.id) === current);
+      if (!folder) break;
+      current = Number(folder.parent_id || 0);
+    }
+    return false;
+  }
+  function canDropIntoFolder(destination) {
+    if (!activeDrag || moveBusy) return false;
+    if (activeDrag.kind === "records") {
+      return activeDrag.source !== destination && activeDrag.ids.length > 0;
+    }
+    if (activeDrag.kind === "folder") {
+      const folder = cloudFolders.find(entry => Number(entry.id) === activeDrag.id);
+      return !!folder && Number(folder.parent_id || 0) !== destination
+        && !isFolderDescendant(destination, activeDrag.id);
+    }
+    return false;
+  }
+  function clearCloudDrag(dialog) {
+    activeDrag = null;
+    const tree = dialog?.querySelector("[data-tree]");
+    for (const node of tree?.querySelectorAll?.(".vcf-cloud-drop-target") || []) {
+      node.classList.remove("vcf-cloud-drop-target");
+    }
+  }
+  async function dropIntoFolder(dialog, payload, destination) {
+    if (!payload) return;
+    if (payload.kind === "records") {
+      await moveSelectedToFolder(dialog, payload.ids, destination);
+      return;
+    }
+    if (payload.kind !== "folder") return;
+    const id = payload.id;
+    if (destination === id || isFolderDescendant(destination, id)) {
+      explorerNotice(dialog, "不能將資料夾移到自己或其子資料夾。");
+      return;
+    }
+    const folder = cloudFolders.find(entry => Number(entry.id) === id);
+    if (!folder || Number(folder.parent_id || 0) === destination) return;
+    if (moveBusy) return;
+    moveBusy = true;
+    try {
+      explorerNotice(dialog, "正在移動資料夾…");
+      const result = await moveFolder(id, destination);
+      folder.parent_id = Number(result.folder?.parent_id ?? destination);
+      expandedFolderIds.add(destination);
+      renderFolderTree(dialog);
+      explorerNotice(dialog, "資料夾已移動。");
+    } finally { moveBusy = false; }
+  }
   function renderFolderTree(dialog) {
     const tree = dialog.querySelector("[data-tree]");
     if (!tree) return;
@@ -392,6 +480,36 @@
       choose.title = name;
       choose.setAttribute("aria-current", String(id === activeFolderId));
       choose.addEventListener("click", () => selectFolder(dialog, id));
+      choose.draggable = id > 0;
+      if (id > 0) {
+        choose.title = name + "（可拖曳移動資料夾）";
+        choose.addEventListener("dragstart", event => {
+          if (moveBusy) { event.preventDefault(); return; }
+          activeDrag = { kind: "folder", id };
+          event.dataTransfer?.setData("text/plain", "VCF5DB_FOLDER");
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+          event.stopPropagation?.();
+        });
+        choose.addEventListener("dragend", () => clearCloudDrag(dialog));
+      }
+      choose.addEventListener("dragover", event => {
+        if (!canDropIntoFolder(id)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        choose.classList?.add("vcf-cloud-drop-target");
+      });
+      choose.addEventListener("dragleave", event => {
+        if (!choose.contains?.(event.relatedTarget)) choose.classList?.remove("vcf-cloud-drop-target");
+      });
+      choose.addEventListener("drop", event => {
+        if (!canDropIntoFolder(id)) return;
+        event.preventDefault();
+        event.stopPropagation?.();
+        const payload = activeDrag;
+        clearCloudDrag(dialog);
+        void dropIntoFolder(dialog, payload, id).catch(error =>
+          explorerNotice(dialog, error.message || String(error)));
+      });
       const group = document.createElement("div");
       group.setAttribute("role", "group");
       group.hidden = !expandedFolderIds.has(id);
@@ -464,22 +582,47 @@
     lastSelectionIndex = index;
     updateSelectionUI(dialog);
   }
+  function applyMovedRecords(dialog, ids, destination) {
+    const moved = new Set(ids.map(Number));
+    for (const record of cloudRecords) {
+      if (moved.has(Number(record.id))) record.folder_id = destination;
+    }
+    for (const id of moved) selectedRecordIds.delete(id);
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
+  }
+  async function moveSelectedToFolder(dialog, ids, destination) {
+    if (moveBusy) return;
+    const current = visibleCloudRecords();
+    const valid = new Set(current.map(record => Number(record.id)));
+    const normalized = Array.from(new Set(ids.map(Number))).filter(id => valid.has(id));
+    if (!normalized.length) return;
+    if (destination === activeFolderId) {
+      explorerNotice(dialog, "棋譜已在目前資料夾。");
+      return;
+    }
+    if (destination !== 0 && !cloudFolders.some(folder => Number(folder.id) === destination))
+      throw new Error("目的地資料夾不存在");
+    moveBusy = true;
+    try {
+      explorerNotice(dialog, "正在移動 " + normalized.length + " 份棋譜…");
+      const result = await moveRecords(normalized, destination);
+      applyMovedRecords(dialog, result.movedIds, destination);
+      explorerNotice(dialog, "已移動 " + result.movedIds.length + " 份棋譜。");
+    } catch (error) {
+      if (error.movedIds?.length) applyMovedRecords(dialog, error.movedIds, destination);
+      explorerNotice(dialog, "部分棋譜移動失敗：" + (error.message || error));
+      throw error;
+    } finally {
+      moveBusy = false;
+    }
+  }
   async function batchMoveRecords(dialog) {
     const ids = Array.from(selectedRecordIds);
     if (!ids.length) return;
     const destination = await chooseDestination("移動 " + ids.length + " 份棋譜到");
     if (destination === null) return;
-    let moved = 0, problem = null;
-    for (const id of ids) {
-      try {
-        explorerNotice(dialog, "正在移動第 " + (moved + 1) + " / " + ids.length + " 份棋譜…");
-        await moveRecord(id, destination);
-        selectedRecordIds.delete(id);
-        moved++;
-      } catch (error) { problem = error; break; }
-    }
-    await refreshDialog(dialog);
-    explorerNotice(dialog, "已移動 " + moved + " 份棋譜。" + (problem ? " 其餘未移動：" + (problem.message || problem) : ""));
+    await moveSelectedToFolder(dialog, ids, destination);
   }
   async function batchDeleteRecords(dialog) {
     const ids = Array.from(selectedRecordIds);
@@ -530,29 +673,46 @@
     });
   }
   async function editFolder(dialog, action) {
+    if (moveBusy) return;
     const id = activeFolderId;
+    let changed = false;
     if (action === "create") {
       const name = prompt("新增子資料夾名稱", "");
       if (name === null) return;
-      const created = await createFolder(name, id);
-      expandedFolderIds.add(id);
-      if (created.folder?.id) activeFolderId = Number(created.folder.id);
+      const result = await createFolder(name, id);
+      if (result.folder?.id) {
+        cloudFolders.push(result.folder);
+        expandedFolderIds.add(id);
+        activeFolderId = Number(result.folder.id);
+        changed = true;
+      }
     } else if (id > 0 && action === "rename") {
       const name = prompt("資料夾名稱", cloudFolders.find(folder => Number(folder.id) === id)?.name || "");
       if (name === null) return;
-      await renameFolder(id, name);
+      const result = await renameFolder(id, name);
+      const folder = cloudFolders.find(folder => Number(folder.id) === id);
+      if (folder) { folder.name = result.folder?.name ?? name; changed = true; }
     } else if (id > 0 && action === "move") {
       const to = await chooseDestination("移動目前資料夾到", id);
-      if (to === null) return;
+      if (to === null || to === cloudFolders.find(folder => Number(folder.id) === id)?.parent_id) return;
       await moveFolder(id, to);
+      const folder = cloudFolders.find(folder => Number(folder.id) === id);
+      if (folder) { folder.parent_id = to; expandedFolderIds.add(to); changed = true; }
     } else if (id > 0 && action === "delete") {
       if (!confirm("刪除這個空資料夾？內有棋譜或子資料夾時無法刪除。")) return;
       await deleteFolder(id);
+      cloudFolders = cloudFolders.filter(folder => Number(folder.id) !== id);
+      expandedFolderIds.delete(id);
       activeFolderId = 0;
+      changed = true;
     }
-    await refreshDialog(dialog);
+    if (!changed) return;
+    selectedRecordIds.clear();
+    lastSelectionIndex = -1;
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
+    explorerNotice(dialog, "資料夾已更新。");
   }
-
   function ensureDialog() {
     let dialog = document.getElementById("vcf-cloud-dialog");
     if (dialog) return dialog;
@@ -876,6 +1036,8 @@
       row.className = "vcf-cloud-row";
       row.dataset.recordId = String(recordId);
       row.tabIndex = 0;
+      row.draggable = true;
+      row.title = "可拖曳所選棋譜至左側資料夾";
       row.setAttribute("aria-selected", String(selectedRecordIds.has(recordId)));
       row.setAttribute("aria-label", fileName + ".5db");
       const previewBox = document.createElement("div");
@@ -924,8 +1086,8 @@
         const destination = await chooseDestination("移動「" + fileName + "」到");
         if (destination === null) return;
         move.disabled = true;
-        try { await moveRecord(recordId, destination); selectedRecordIds.delete(recordId); await refreshDialog(dialog); }
-        catch (error) { status(error.message || String(error)); }
+        try { await moveSelectedToFolder(dialog, [recordId], destination); }
+        catch (error) { explorerNotice(dialog, error.message || String(error)); }
         finally { move.disabled = false; }
       });
       const del = document.createElement("button");
@@ -951,6 +1113,20 @@
       check.setAttribute("aria-label", "選取 " + fileName);
       check.addEventListener("click", event => event.stopPropagation?.());
       check.addEventListener("change", () => selectRecord(dialog, recordId, index, {}, check.checked));
+      row.addEventListener("dragstart", event => {
+        if (moveBusy || event.target?.closest?.("button, input")) {
+          event.preventDefault(); return;
+        }
+        if (!selectedRecordIds.has(recordId)) selectRecord(dialog, recordId, index, {});
+        activeDrag = {
+          kind: "records",
+          ids: Array.from(selectedRecordIds),
+          source: activeFolderId,
+        };
+        event.dataTransfer?.setData("text/plain", "VCF5DB_RECORDS");
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      });
+      row.addEventListener("dragend", () => clearCloudDrag(dialog));
       row.addEventListener("click", event => {
         if (event.target === check || event.target?.closest?.("button")) return;
         selectRecord(dialog, recordId, index, event);
@@ -1099,7 +1275,7 @@
   const api = {
     API_URL, FIVE_DB_API_URL,
     publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, listCatalog, load, remove,
-    createFolder, renameFolder, moveFolder, deleteFolder, moveRecord,
+    createFolder, renameFolder, moveFolder, deleteFolder, moveRecord, moveRecords,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };

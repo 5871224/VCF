@@ -9,6 +9,10 @@ class Element {
     this.listeners = {}; this.parentNode = null; this.id = "";
     this.className = ""; this.hidden = false; this.disabled = false;
     this._text = ""; this._html = ""; this.open = false; this.dataset = {}; this.style = {};
+    this.classList = {
+      add: name => { if (!this.className.split(" ").includes(name)) this.className = [this.className, name].filter(Boolean).join(" "); },
+      remove: name => { this.className = this.className.split(" ").filter(x => x !== name).join(" "); },
+    };
   }
   set textContent(v) { this._text = String(v); this.children = []; }
   get textContent() { return this._text || this.children.map(x => x.textContent).join(""); }
@@ -126,16 +130,26 @@ const old = documentFor("舊版標題", [20]);
 const newBoard = FiveDB.preview(now);
 let fileGets = 0;
 let emailLogins = 0;
-const fetch = async url => {
+let catalogRequests = 0, bulkMoveRequests = [], folderMoveRequests = [];
+const fetch = async (url, options = {}) => {
   const u = String(url);
   if (u.includes("public_config")) return { status:200, ok:true, json:async()=>({ok:true,data:{}}) };
   if (u.includes("auth_me")) return { status:200, ok:true, json:async()=>({ok:true,logged_in:true,data:{user_id:5,email:"example@gmail.com",permission:"user"}}) };
   if (u.includes("auth_email_login")) { emailLogins++; return {status:200,ok:true,json:async()=>({ok:true})}; }
   if (u.includes("auth_logout")) return { status:200, ok:true, json:async()=>({ok:true}) };
-  if (u.includes("action=list")) return { status:200,ok:true,json:async()=>({ok:true,records:[
+  if (u.includes("action=list")) { catalogRequests++; return { status:200,ok:true,json:async()=>({ok:true,records:[
     {id:1,file_name:"新棋譜",title:"新版標題",record_count:2,compressed_size:250,preview:`15x15:${newBoard.board}`},
     {id:2,file_name:"舊棋譜",title:"舊版標題",record_count:2,compressed_size:250},
-  ],folders:[{id:7,name:"一般案",parent_id:0},{id:8,name:"進階",parent_id:7}]}) };
+  ],folders:[{id:7,name:"一般案",parent_id:0},{id:8,name:"進階",parent_id:7}]}) }; }
+  if (u.includes("action=records_move")) {
+    const ids = JSON.parse(options.body).ids;
+    bulkMoveRequests.push({ids, url:u});
+    return {status:200,ok:true,json:async()=>({ok:true,ids,folder_id:7,moved:ids.length})};
+  }
+  if (u.includes("action=folder_move")) {
+    folderMoveRequests.push(u);
+    return {status:200,ok:true,json:async()=>({ok:true,folder:{parent_id:0}})};
+  }
   if (u.includes("action=get&id=2")) {
     fileGets++;
     const b = FiveDB.encode(old);
@@ -227,6 +241,48 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
   assert.equal(list.children.length, 2, "returning to root restores all root files");
   await dialog.querySelector("[data-view-thumbnails]").click();
   assert.equal(dialog.querySelector("[data-file-scroll]").dataset.view, "thumbnails");
+  // Dragging multiple selected files into a folder must use one metadata request,
+  // without reloading catalog or fetching any 5DB binary.
+  const beforeDragLists = catalogRequests;
+  const beforeDragFiles = fileGets;
+  const transfer = {effectAllowed:"",dropEffect:"",setData(type,value) {this.type=type;this.value=value;}};
+  await dialog.querySelector("[data-view-details]").click();
+  list.listeners.keydown[0]({ctrlKey:true,metaKey:false,key:"a",preventDefault(){}});
+  const firstRow = list.children[0];
+  firstRow.listeners.dragstart[0]({target:firstRow,dataTransfer:transfer,preventDefault(){}});
+  assert.equal(transfer.effectAllowed,"move","dragging a selected row enables move operation");
+  const dropFolder = tree.children[0].children[1].children[0].children[0].children[1];
+  dropFolder.listeners.dragover[0]({dataTransfer:transfer,preventDefault(){}});
+  dropFolder.listeners.drop[0]({dataTransfer:transfer,preventDefault(){},stopPropagation(){}});
+  await new Promise(setImmediate);
+  assert.equal(bulkMoveRequests.length,1,"multiple selected files move in a single request");
+  assert.deepEqual(bulkMoveRequests[0].ids,[1,2],"drag carries complete selection");
+  assert.equal(new URL(bulkMoveRequests[0].url, "https://example.test").searchParams.get("folder_id"),"7");
+  assert.equal(catalogRequests,beforeDragLists,"file move doesn't refetch cloud catalog");
+  assert.equal(fileGets,beforeDragFiles,"file move doesn't transfer binary 5DB");
+  assert.equal(list.children[0].textContent.includes("目前資料夾沒有棋譜"),true);
+  // Drag a nested folder into the root: metadata-only, no catalog refresh.
+  const treeRoot = tree.children[0];
+  const folderParent = treeRoot.children[1].children[0];
+  const nestedFolder = folderParent.children[1].children[0];
+  const nestedName = nestedFolder.children[0].children[1];
+  const rootName = treeRoot.children[0].children[1];
+  // A parent folder cannot be dropped into its own descendant.
+  const parentName = folderParent.children[0].children[1];
+  parentName.listeners.dragstart[0]({dataTransfer:transfer,stopPropagation(){},preventDefault(){}});
+  let rejectedDrag = true;
+  nestedName.listeners.dragover[0]({dataTransfer:transfer,preventDefault(){rejectedDrag=false;}});
+  nestedName.listeners.drop[0]({dataTransfer:transfer,preventDefault(){rejectedDrag=false;}});
+  assert.equal(rejectedDrag, true, "folder-to-descendant drop is rejected locally");
+  assert.equal(folderMoveRequests.length, 0, "invalid destination causes no network request");
+  parentName.listeners.dragend[0]();
+  nestedName.listeners.dragstart[0]({dataTransfer:transfer,stopPropagation(){},preventDefault(){}});
+  rootName.listeners.dragover[0]({dataTransfer:transfer,preventDefault(){}});
+  rootName.listeners.drop[0]({dataTransfer:transfer,preventDefault(){},stopPropagation(){}});
+  await new Promise(setImmediate);
+  assert.equal(folderMoveRequests.length,1,"folder move sends one metadata request");
+  assert.equal(catalogRequests,beforeDragLists,"folder move doesn't refetch catalog");
+  assert.equal(tree.children[0].children[1].children.length,2,"moved subfolder becomes root sibling");
   await window.VCFCloud5DB.logout();
   assert.equal(document.getElementById("vcf-shared-login").hidden, false,
     "logging out of Sched reveals the shared member login button");
