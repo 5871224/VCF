@@ -18,6 +18,12 @@ const fetch = async (url, options = {}) => {
     folders: [{ id: 7, name: "題庫", parent_id: 0 }, { id: 8, name: "進階", parent_id: 7 }],
   }) };
   if (action === "save") return { status: 200, ok: true, json: async () => ({ok: true, id: 13}) };
+  if (action === "records_move") {
+    const ids = JSON.parse(options.body).ids;
+    return { status: 200, ok: true, json: async () => ({
+      ok: true, ids, folder_id: Number(parsed.searchParams.get("folder_id")), moved: ids.length,
+    }) };
+  }
   if (["folder_create", "folder_rename", "folder_move", "folder_delete", "record_move"].includes(action))
     return { status: 200, ok: true, json: async () => ({ok: true}) };
   throw Error("Unknown call " + parsed.toString());
@@ -39,6 +45,24 @@ vm.runInNewContext(source, {window, document, fetch, URLSearchParams,
   await api.moveFolder(8, 0);
   await api.deleteFolder(8);
   await api.moveRecord(12, 7);
+  await api.moveRecords([12, 13, 14], 7);
+  const bulk = calls.filter(call => call.action === "records_move");
+  assert.equal(bulk.length, 1, "three files move with one authenticated POST");
+  assert.equal(bulk[0].options.method, "POST");
+  assert.equal(bulk[0].options.credentials, "same-origin");
+  assert.equal(bulk[0].params.get("folder_id"), "7");
+  assert.deepEqual(JSON.parse(bulk[0].options.body).ids, [12, 13, 14]);
+  assert.equal(bulk[0].options.headers["Content-Type"], "application/json");
+  const ids = Array.from({length: 2001}, (_, i) => i + 1);
+  await api.moveRecords(ids, 8);
+  assert.equal(calls.filter(call => call.action === "records_move").length, 3,
+    "more than 2000 records are batched into at most 2000 per request");
+  assert.ok(calls.every(call => call.action !== "get"), "moves never retrieve original 5DB files");
+  assert.ok(php.includes("if ($action === 'records_move')"), "batch route implemented");
+  assert.ok(php.includes("if ($changed > 0) writeManifest5($fp, $manifest)"),
+    "all record folder IDs updated in one manifest write per batch");
+  assert.ok(php.includes("if (!isset($records[(string)$id]))") || php.includes("!isset($records[(string)$id])"),
+    "missing record aborts before write");
   const names = calls.map(call => call.action);
   for (const name of ["folder_create", "folder_rename", "folder_move", "folder_delete", "record_move"]) {
     const call = calls.find(c => c.action === name);
