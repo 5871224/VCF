@@ -564,6 +564,18 @@
         void editFolder(dialog, action).catch(e => explorerNotice(dialog, e.message || String(e)));
       });
     }
+    dialog.querySelector("[data-list]").addEventListener("keydown", event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        for (const record of visibleCloudRecords()) selectedRecordIds.add(Number(record.id));
+        lastSelectionIndex = -1;
+        updateSelectionUI(dialog);
+      } else if (event.key === "Escape" && selectedRecordIds.size) {
+        event.preventDefault();
+        selectedRecordIds.clear();
+        updateSelectionUI(dialog);
+      }
+    });
     dialog.querySelector("[data-select-all]").addEventListener("click", () => {
       const visible = visibleCloudRecords();
       const allSelected = visible.length > 0 && visible.every(r => selectedRecordIds.has(Number(r.id)));
