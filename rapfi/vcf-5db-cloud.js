@@ -303,17 +303,186 @@
       select.appendChild(option);
     }
   }
-  function updateFolderBar(dialog) {
-    const select = dialog.querySelector("[data-folder-select]");
-    if (!select) return;
-    folderSelector(select);
-    if (activeFolderId > 0 && !cloudFolders.some(folder => Number(folder.id) === activeFolderId))
-      activeFolderId = 0;
-    select.value = String(activeFolderId);
+
+  function visibleCloudRecords() {
+    return cloudRecords.filter(record => Number(record.folder_id || 0) === activeFolderId);
+  }
+  function folderPathNames(id) {
+    const names = [];
+    const visited = new Set();
+    while (id > 0 && !visited.has(id)) {
+      visited.add(id);
+      const folder = cloudFolders.find(entry => Number(entry.id) === id);
+      if (!folder) break;
+      names.unshift(folder.name);
+      id = Number(folder.parent_id || 0);
+    }
+    return ["根目錄", ...names];
+  }
+  function selectFolder(dialog, id) {
+    if (activeFolderId === id) return;
+    activeFolderId = id;
+    selectedRecordIds.clear();
+    lastSelectionIndex = -1;
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
+  }
+  function renderFolderTree(dialog) {
+    const tree = dialog.querySelector("[data-tree]");
+    if (!tree) return;
+    tree.replaceChildren();
+    const childrenByParent = new Map();
+    for (const folder of cloudFolders) {
+      const parent = Number(folder.parent_id || 0);
+      if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+      childrenByParent.get(parent).push(folder);
+    }
+    for (const group of childrenByParent.values()) {
+      group.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-Hant", { numeric: true }));
+    }
+    const folderId = Number(activeFolderId);
+    if (folderId > 0 && !cloudFolders.some(folder => Number(folder.id) === folderId)) activeFolderId = 0;
+    for (const entry of cloudFolders) {
+      let current = Number(entry.id), guard = new Set();
+      if (current !== activeFolderId) continue;
+      while (current > 0 && !guard.has(current)) {
+        guard.add(current);
+        const node = cloudFolders.find(folder => Number(folder.id) === current);
+        if (!node) break;
+        expandedFolderIds.add(Number(node.parent_id || 0));
+        current = Number(node.parent_id || 0);
+      }
+    }
+    const countByFolder = new Map();
+    for (const record of cloudRecords) {
+      const id = Number(record.folder_id || 0);
+      countByFolder.set(id, (countByFolder.get(id) || 0) + 1);
+    }
+    const make = (id, name, depth, ancestors) => {
+      if (ancestors.has(id)) return null;
+      const node = document.createElement("div");
+      node.className = "vcf-cloud-tree-node";
+      node.setAttribute("role", "treeitem");
+      const line = document.createElement("div");
+      line.className = "vcf-cloud-tree-line";
+      line.style.paddingLeft = Math.min(depth * 14, 140) + "px";
+      const children = childrenByParent.get(id) || [];
+      const expand = document.createElement("button");
+      expand.className = "vcf-cloud-tree-toggle";
+      expand.type = "button";
+      expand.textContent = children.length ? (expandedFolderIds.has(id) ? "▾" : "▸") : " ";
+      expand.disabled = !children.length;
+      expand.setAttribute("aria-label", (expandedFolderIds.has(id) ? "收合 " : "展開 ") + name);
+      const choose = document.createElement("button");
+      choose.type = "button";
+      choose.className = "vcf-cloud-tree-name";
+      choose.textContent = (id === 0 ? "📂 " : "📁 ") + name + " (" + (countByFolder.get(id) || 0) + ")";
+      choose.title = name;
+      choose.setAttribute("aria-current", String(id === activeFolderId));
+      choose.addEventListener("click", () => selectFolder(dialog, id));
+      const group = document.createElement("div");
+      group.setAttribute("role", "group");
+      group.hidden = !expandedFolderIds.has(id);
+      if (children.length) {
+        node.setAttribute("aria-expanded", String(!group.hidden));
+        expand.addEventListener("click", () => {
+          group.hidden = !group.hidden;
+          node.setAttribute("aria-expanded", String(!group.hidden));
+          expandedFolderIds[group.hidden ? "delete" : "add"](id);
+          expand.textContent = group.hidden ? "▸" : "▾";
+          expand.setAttribute("aria-label", (group.hidden ? "展開 " : "收合 ") + name);
+        });
+      }
+      line.append(expand, choose);
+      node.append(line, group);
+      const nextAncestors = new Set([...ancestors, id]);
+      for (const child of children) {
+        const nested = make(Number(child.id), child.name, depth + 1, nextAncestors);
+        if (nested) group.appendChild(nested);
+      }
+      return node;
+    };
+    tree.appendChild(make(0, "根目錄", 0, new Set()));
+    const path = dialog.querySelector("[data-folder-path]");
+    if (path) path.textContent = folderPathNames(activeFolderId).join(" / ");
     for (const action of ["rename", "move", "delete"]) {
       const button = dialog.querySelector("[data-folder-" + action + "]");
       if (button) button.disabled = activeFolderId === 0;
     }
+  }
+  function updateSelectionUI(dialog) {
+    const current = visibleCloudRecords();
+    const valid = new Set(current.map(record => Number(record.id)));
+    for (const id of Array.from(selectedRecordIds)) if (!valid.has(id)) selectedRecordIds.delete(id);
+    const list = dialog.querySelector("[data-list]");
+    for (const row of list?.querySelectorAll?.(".vcf-cloud-row") || []) {
+      const id = Number(row.dataset.recordId);
+      const checked = selectedRecordIds.has(id);
+      row.setAttribute("aria-selected", String(checked));
+      const check = row.querySelector(".vcf-cloud-select");
+      if (check) check.checked = checked;
+    }
+    const count = selectedRecordIds.size;
+    const text = dialog.querySelector("[data-selected-count]");
+    if (text) text.textContent = "已選 " + count + " / " + current.length + " 份";
+    for (const action of ["batch-move", "batch-delete"]) {
+      const button = dialog.querySelector("[data-" + action + "]");
+      if (button) button.disabled = count === 0;
+    }
+    const all = dialog.querySelector("[data-select-all]");
+    if (all) {
+      all.disabled = current.length === 0;
+      all.textContent = count === current.length && current.length > 0 ? "取消全選" : "全選";
+    }
+  }
+  function selectRecord(dialog, id, index, event, checked = null) {
+    if (checked !== null) {
+      checked ? selectedRecordIds.add(id) : selectedRecordIds.delete(id);
+    } else if (event.shiftKey && lastSelectionIndex >= 0) {
+      const visible = visibleCloudRecords();
+      if (!event.ctrlKey && !event.metaKey) selectedRecordIds.clear();
+      const start = Math.min(lastSelectionIndex, index), end = Math.max(lastSelectionIndex, index);
+      for (let i = start; i <= end; i++) selectedRecordIds.add(Number(visible[i].id));
+    } else if (event.ctrlKey || event.metaKey) {
+      selectedRecordIds.has(id) ? selectedRecordIds.delete(id) : selectedRecordIds.add(id);
+    } else {
+      selectedRecordIds.clear();
+      selectedRecordIds.add(id);
+    }
+    lastSelectionIndex = index;
+    updateSelectionUI(dialog);
+  }
+  async function batchMoveRecords(dialog) {
+    const ids = Array.from(selectedRecordIds);
+    if (!ids.length) return;
+    const destination = await chooseDestination("移動 " + ids.length + " 份棋譜到");
+    if (destination === null) return;
+    let moved = 0, problem = null;
+    for (const id of ids) {
+      try {
+        await moveRecord(id, destination);
+        selectedRecordIds.delete(id);
+        moved++;
+      } catch (error) { problem = error; break; }
+    }
+    await refreshDialog(dialog);
+    status("已移動 " + moved + " 份棋譜。" + (problem ? " 其餘未移動：" + (problem.message || problem) : ""));
+  }
+  async function batchDeleteRecords(dialog) {
+    const ids = Array.from(selectedRecordIds);
+    if (!ids.length) return;
+    if (!confirm("確定永久刪除所選的 " + ids.length + " 份棋譜？此操作無法復原。")) return;
+    let deleted = 0, problem = null;
+    for (const id of ids) {
+      try {
+        await remove(id);
+        previewCache.delete(id);
+        selectedRecordIds.delete(id);
+        deleted++;
+      } catch (error) { problem = error; break; }
+    }
+    await refreshDialog(dialog);
+    status("已刪除 " + deleted + " 份棋譜。" + (problem ? " 其餘未刪除：" + (problem.message || problem) : ""));
   }
   function chooseDestination(title, excludedId = 0) {
     return new Promise(resolve => {
@@ -351,7 +520,9 @@
     if (action === "create") {
       const name = prompt("新增子資料夾名稱", "");
       if (name === null) return;
-      await createFolder(name, id);
+      const created = await createFolder(name, id);
+      expandedFolderIds.add(id);
+      if (created.folder?.id) activeFolderId = Number(created.folder.id);
     } else if (id > 0 && action === "rename") {
       const name = prompt("資料夾名稱", cloudFolders.find(folder => Number(folder.id) === id)?.name || "");
       if (name === null) return;
