@@ -249,6 +249,8 @@
       #vcf-cloud-dialog .vcf-cloud-select{grid-column:1;grid-row:1;margin:auto;cursor:pointer;accent-color:#376c99;width:16px;height:16px}
       #vcf-cloud-dialog .vcf-cloud-preview{grid-column:2;grid-row:1;width:94px}
       #vcf-cloud-dialog .vcf-cloud-info{grid-column:3;grid-row:1;min-width:0}
+      #vcf-cloud-dialog .vcf-cloud-thumb-stats{margin-top:4px;color:#756e61;font-size:12px;line-height:1.4}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-thumb-stats{display:none}
       #vcf-cloud-dialog .vcf-cloud-actions{grid-column:4;grid-row:1;justify-content:end;max-width:174px}
       #vcf-cloud-dialog .vcf-cloud-detail-count,#vcf-cloud-dialog .vcf-cloud-detail-size,#vcf-cloud-dialog .vcf-cloud-detail-date,#vcf-cloud-dialog .vcf-cloud-detail-header{display:none}
       #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-header{display:grid;position:sticky;top:0;z-index:2;grid-template-columns:26px minmax(140px,1.7fr) minmax(160px,2fr) 62px 80px 132px 162px;min-width:810px;gap:7px;padding:8px 10px;background:#f1ede3;color:#5b5245;border-bottom:1px solid #ddd2ba;font-size:12px;font-weight:700}
