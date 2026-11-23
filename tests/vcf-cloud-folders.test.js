@@ -55,8 +55,25 @@ vm.runInNewContext(source, {window, document, fetch, URLSearchParams,
   assert.equal(bulk[0].options.headers["Content-Type"], "application/json");
   const ids = Array.from({length: 2001}, (_, i) => i + 1);
   await api.moveRecords(ids, 8);
-  assert.equal(calls.filter(call => call.action === "records_move").length, 3,
-    "more than 2000 records are batched into at most 2000 per request");
+  assert.equal(calls.filter(call => call.action === "records_move").length, 2,
+    "more than 2000 records move in a single request with no record-count limit");
+  const large = Array.from({length: 100000}, (_, i) => i + 1);
+  const before = calls.length;
+  await api.moveRecords(large, 8);
+  const largeCalls = calls.slice(before).filter(call => call.action === "records_move");
+  assert.ok(largeCalls.length > 1, "very large selection is automatically split by byte size");
+  assert.equal(largeCalls.reduce((n, call) => n + JSON.parse(call.options.body).ids.length, 0),
+    large.length, "every selected item is included without truncation");
+  assert.ok(largeCalls.every(call => call.options.body.length <= 262144),
+    "all requests obey the backend payload-byte safeguard");
+  assert.ok(largeCalls.some(call => JSON.parse(call.options.body).ids.length > 2000),
+    "a batch can contain over 2000 selected records");
+  assert.equal(largeCalls.at(0).options.body.length > 200000, true,
+    "request uses most of available payload size before splitting");
+  assert.ok(php.includes("const FIVE_DB_MOVE_REQUEST_BYTES = 262144"), "backend checks request bytes");
+  assert.ok(php.includes("array_is_list($ids)"), "backend validates JSON list");
+  assert.ok(!php.includes("count($ids) > 2000"), "backend has no count ceiling");
+  assert.ok(!php.includes("一次最多移動 2000"), "obsolete count error removed");
   assert.ok(calls.every(call => call.action !== "get"), "moves never retrieve original 5DB files");
   assert.ok(php.includes("if ($action === 'records_move')"), "batch route implemented");
   assert.ok(php.includes("if ($changed > 0) writeManifest5($fp, $manifest)"),

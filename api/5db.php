@@ -14,6 +14,8 @@ header('X-Content-Type-Options: nosniff');
 
 const FIVE_DB_MAX_FILE = 67108864;
 const FIVE_DB_MAX_ACCOUNT = 134217728;
+// Limit request bytes for reliable parsing, not the number of chess records.
+const FIVE_DB_MOVE_REQUEST_BYTES = 262144;
 
 function fail5(string $message, int $code = 400): never {
     http_response_code($code);
@@ -268,13 +270,15 @@ if (str_starts_with($action, 'folder_') || $action === 'record_move' || $action 
         // Move multiple records by folder_id only. Never read or rewrite .5db binaries.
         // Validate all IDs before the single manifest write: no partial server-side move.
         $folderId = folderId5($manifest, 'folder_id');
+        if ((int)($_SERVER['CONTENT_LENGTH'] ?? 0) > FIVE_DB_MOVE_REQUEST_BYTES)
+            fail5('批次移動請求過大，請由網頁自動分批', 413);
         $raw = file_get_contents('php://input');
-        if (!is_string($raw) || strlen($raw) > 40000) fail5('批次移動資料過大', 413);
+        if (!is_string($raw) || strlen($raw) > FIVE_DB_MOVE_REQUEST_BYTES)
+            fail5('批次移動請求過大，請由網頁自動分批', 413);
         $body = json_decode($raw, true);
-        $ids = $body['ids'] ?? null;
-        if (!is_array($ids) || count($ids) < 1 || count($ids) > 2000
-            || array_keys($ids) !== range(0, count($ids) - 1))
-            fail5('一次最多移動 2000 份棋譜');
+        $ids = is_array($body) ? ($body['ids'] ?? null) : null;
+        if (!is_array($ids) || !array_is_list($ids) || !$ids)
+            fail5('批次移動資料格式不合法');
         $unique = [];
         foreach ($ids as $id) {
             if (!is_int($id) || $id <= 0 || $id >= 2147483647
