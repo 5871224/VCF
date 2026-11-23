@@ -149,9 +149,11 @@
     const unique = Array.from(new Set(ids.map(Number)));
     if (!unique.length || unique.some(id => !Number.isSafeInteger(id) || id < 1))
       throw new Error("沒有可移動的棋譜");
+    // All selected records are accepted. Split only when serialized request
+    // bytes approach the server's limit, not after an arbitrary record count.
+    const MOVE_REQUEST_BYTES = 262144;
     const movedIds = [];
-    for (let i = 0; i < unique.length; i += 2000) {
-      const batch = unique.slice(i, i + 2000);
+    async function sendBatch(batch) {
       const params = new URLSearchParams({ action: "records_move", folder_id: String(folderId) });
       try {
         const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
@@ -168,6 +170,20 @@
         throw error;
       }
     }
+    // {"ids":[]} is 10 ASCII bytes. Numeric IDs contain ASCII digits only.
+    let batch = [];
+    let bytes = 10;
+    for (const id of unique) {
+      const nextBytes = String(id).length + (batch.length ? 1 : 0);
+      if (batch.length && bytes + nextBytes > MOVE_REQUEST_BYTES) {
+        await sendBatch(batch);
+        batch = [];
+        bytes = 10;
+      }
+      bytes += String(id).length + (batch.length ? 1 : 0);
+      batch.push(id);
+    }
+    if (batch.length) await sendBatch(batch);
     return { movedIds, folderId };
   }
   async function fetchRecord(id) {
