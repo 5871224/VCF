@@ -815,75 +815,142 @@
     return true;
   }
 
-  async function refreshDialog(dialog) {
+  function renderFolderContents(dialog) {
     if (activePreviewObserver) { activePreviewObserver.disconnect(); activePreviewObserver = null; }
     const generation = ++previewGeneration;
-    const container = dialog.querySelector("[data-list]"); container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
-    let records;
-    try {
-      const catalog = await listCatalog();
-      records = catalog.records;
-      cloudFolders = catalog.folders;
-      if (!Array.isArray(records) || !Array.isArray(cloudFolders))
-        throw new Error("5DB 雲端列表內容不正確");
-    } catch (error) {
-      const message = error?.message || String(error);
-      container.replaceChildren();
-      const errorBox = document.createElement("div");
-      errorBox.className = "vcf-cloud-empty";
-      errorBox.setAttribute("role", "alert");
-      errorBox.textContent = "雲端棋譜讀取失敗：" + message;
-      const retry = document.createElement("button");
-      retry.type = "button";
-      retry.className = "bb-cloud-btn";
-      retry.textContent = "重新讀取";
-      retry.addEventListener("click", () => { void refreshDialog(dialog); });
-      container.append(errorBox, retry);
-      status("5DB 雲端棋譜讀取失敗：" + message);
+    const container = dialog.querySelector("[data-list]");
+    if (!container) return;
+    const scroll = dialog.querySelector("[data-file-scroll]");
+    if (scroll) scroll.dataset.view = explorerView;
+    for (const mode of ["thumbnails", "details"]) {
+      const control = dialog.querySelector("[data-view-" + mode + "]");
+      if (control) control.setAttribute("aria-pressed", String(explorerView === mode));
+    }
+    container.replaceChildren();
+    const records = visibleCloudRecords();
+    if (!records.length) {
+      const empty = document.createElement("div");
+      empty.className = "vcf-cloud-empty";
+      empty.textContent = "目前資料夾沒有棋譜。";
+      container.appendChild(empty);
+      updateSelectionUI(dialog);
       return;
     }
-    if (generation !== previewGeneration) return;
-    updateFolderBar(dialog);
-    records = records.filter(record => Number(record.folder_id || 0) === activeFolderId);
-    container.replaceChildren();
-    if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">目前資料夾沒有棋譜。</div>'; return; }
     const missingPreviews = [];
-    for (const record of records) {
-      const row = document.createElement("div"); row.className = "vcf-cloud-row";
+    records.forEach((record, index) => {
+      const recordId = Number(record.id);
+      const fileName = record.file_name || record.title || "棋譜-" + recordId;
+      const row = document.createElement("div");
+      row.className = "vcf-cloud-row";
+      row.dataset.recordId = String(recordId);
+      row.tabIndex = 0;
+      row.setAttribute("aria-selected", String(selectedRecordIds.has(recordId)));
+      row.setAttribute("aria-label", fileName + ".5db");
       const previewBox = document.createElement("div");
       previewBox.className = "vcf-cloud-preview";
-      previewBox.textContent = "載入縮圖…";
-      const readyPreview = parsePreview(record.preview) ? record.preview : previewCache.get(record.id);
-      if (readyPreview) showBoardThumbnail(previewBox, readyPreview);
-      else missingPreviews.push({ record, previewBox });
-      const info = document.createElement("div"); info.innerHTML = `<div class="vcf-cloud-title"></div><div class="vcf-cloud-meta"></div>`;
-      const fileName = record.file_name || record.title || `棋譜-${record.id}`;
-      info.firstElementChild.textContent = fileName + ".5db";
-      info.lastElementChild.textContent = (record.file_name && record.title ? `棋譜標題：${record.title} · ` : "") +
-        `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
-      const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
-      const loadButton = document.createElement("button"); loadButton.textContent = "載入 5DB";
-      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${fileName}.5db」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
-      const dl = document.createElement("button"); dl.textContent = "下載 .5db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `${normalizeFileName(fileName, `棋譜-${record.id}`)}.5db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
-      const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${fileName}.5db」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
+      if (explorerView === "thumbnails") {
+        previewBox.textContent = "載入縮圖…";
+        const ready = parsePreview(record.preview) ? record.preview : previewCache.get(recordId);
+        if (ready) showBoardThumbnail(previewBox, ready);
+        else missingPreviews.push({ record, previewBox });
+      }
+      const info = document.createElement("div");
+      info.className = "vcf-cloud-info";
+      info.innerHTML = '<div class="vcf-cloud-title"></div><div class="vcf-cloud-meta"></div><div class="vcf-cloud-thumb-stats"></div>';
+      info.children[0].textContent = fileName + ".5db";
+      info.children[1].textContent = record.title || "（無標題）";
+      info.children[2].textContent = (record.record_count || 0) + " 個局面 · " +
+        formatBytes(record.compressed_size) + " · " + (record.updated_at || "");
+      const actions = document.createElement("div");
+      actions.className = "vcf-cloud-actions";
+      const loadButton = document.createElement("button"); loadButton.type = "button"; loadButton.textContent = "載入";
+      loadButton.addEventListener("click", async event => {
+        event.stopPropagation?.();
+        loadButton.disabled = true;
+        try {
+          const loaded = await load(recordId);
+          status("已載入「" + fileName + ".5db」：" + (loaded.imported?.nodeCount ?? record.record_count ?? 0) + " 個局面");
+          dialog.close();
+        } catch (error) { status(error.message || String(error)); }
+        finally { loadButton.disabled = false; }
+      });
+      const dl = document.createElement("button");
+      dl.type = "button"; dl.textContent = "下載";
+      dl.addEventListener("click", async event => {
+        event.stopPropagation?.();
+        dl.disabled = true;
+        try {
+          const result = await fetchRecord(recordId);
+          download(result.bytes, normalizeFileName(fileName, "棋譜-" + recordId) + ".5db");
+        } catch (error) { status(error.message || String(error)); }
+        finally { dl.disabled = false; }
+      });
       const move = document.createElement("button");
-      move.textContent = "移動";
-      move.addEventListener("click", async () => {
+      move.type = "button"; move.textContent = "移動";
+      move.addEventListener("click", async event => {
+        event.stopPropagation?.();
         const destination = await chooseDestination("移動「" + fileName + "」到");
         if (destination === null) return;
         move.disabled = true;
-        try {
-          await moveRecord(record.id, destination);
-          await refreshDialog(dialog);
-        } catch (e) { status(e.message || String(e)); }
+        try { await moveRecord(recordId, destination); selectedRecordIds.delete(recordId); await refreshDialog(dialog); }
+        catch (error) { status(error.message || String(error)); }
         finally { move.disabled = false; }
       });
+      const del = document.createElement("button");
+      del.type = "button"; del.textContent = "刪除";
+      del.addEventListener("click", async event => {
+        event.stopPropagation?.();
+        if (!confirm("確定永久刪除「" + fileName + ".5db」？")) return;
+        del.disabled = true;
+        try {
+          await remove(recordId);
+          previewCache.delete(recordId);
+          selectedRecordIds.delete(recordId);
+          await refreshDialog(dialog);
+          status("已刪除。");
+        } catch (error) { status(error.message || String(error)); }
+        finally { del.disabled = false; }
+      });
       actions.append(loadButton, dl, move, del);
-      row.append(previewBox, info, actions);
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.className = "vcf-cloud-select";
+      check.checked = selectedRecordIds.has(recordId);
+      check.setAttribute("aria-label", "選取 " + fileName);
+      check.addEventListener("click", event => event.stopPropagation?.());
+      check.addEventListener("change", () => selectRecord(dialog, recordId, index, {}, check.checked));
+      row.addEventListener("click", event => {
+        if (event.target === check || event.target?.closest?.("button")) return;
+        selectRecord(dialog, recordId, index, event);
+      });
+      row.addEventListener("keydown", event => {
+        if (event.target !== row) return;
+        if (event.key === " " || event.key === "Spacebar") {
+          event.preventDefault();
+          selectRecord(dialog, recordId, index, {ctrlKey:true});
+        }
+        if (event.key === "Enter") { event.preventDefault(); loadButton.click(); }
+      });
+      row.addEventListener("dblclick", event => {
+        if (event.target?.closest?.("button, input")) return;
+        loadButton.click();
+      });
+      const detailCount = document.createElement("div");
+      detailCount.className = "vcf-cloud-detail-count";
+      detailCount.textContent = String(record.record_count || 0);
+      const detailSize = document.createElement("div");
+      detailSize.className = "vcf-cloud-detail-size";
+      detailSize.textContent = formatBytes(record.compressed_size);
+      const detailDate = document.createElement("div");
+      detailDate.className = "vcf-cloud-detail-date";
+      detailDate.textContent = String(record.updated_at || "");
+      row.append(previewBox, info, actions, check, detailCount, detailSize, detailDate);
       container.appendChild(row);
-    }
-    // Existing 5DB entries have no preview metadata. Decode those files only
-    // when their thumbnails are visible; never fetch every record eagerly.
+    });
+    updateSelectionUI(dialog);
+    if (explorerView !== "thumbnails" || !missingPreviews.length) return;
+    // Older 5DB files have no compact preview. Decode only visible items, at
+    // most two requests concurrently; details mode makes no preview requests.
     const queue = [];
     let inFlight = 0;
     const pump = () => {
@@ -893,15 +960,15 @@
         fetchRecord(item.record.id).then(result => {
           if (generation !== previewGeneration) return;
           const shot = global.FiveDB.preview(global.FiveDB.decode(result.bytes));
-          const encoded = shot.width <= 25 && shot.height <= 25 ? `${shot.width}x${shot.height}:${shot.board}` : "";
-          if (encoded) previewCache.set(item.record.id, encoded);
+          const encoded = shot.width <= 25 && shot.height <= 25
+            ? shot.width + "x" + shot.height + ":" + shot.board : "";
+          if (encoded) previewCache.set(Number(item.record.id), encoded);
           showBoardThumbnail(item.previewBox, encoded);
         }).catch(() => {
           if (generation === previewGeneration) item.previewBox.textContent = "無法預覽";
         }).finally(() => { inFlight--; pump(); });
       }
     };
-    const add = item => { queue.push(item); pump(); };
     if (typeof IntersectionObserver === "function") {
       const awaiting = new Map(missingPreviews.map(item => [item.previewBox, item]));
       const observer = new IntersectionObserver(entries => {
@@ -911,14 +978,50 @@
           if (!item) continue;
           awaiting.delete(entry.target);
           observer.unobserve(entry.target);
-          add(item);
+          queue.push(item);
         }
-      }, { root: container, rootMargin: "100px" });
+        pump();
+      }, { root: scroll || container, rootMargin: "100px" });
       activePreviewObserver = observer;
       for (const item of missingPreviews) observer.observe(item.previewBox);
-    } else {
-      for (const item of missingPreviews) add(item);
+    } else { queue.push(...missingPreviews); pump(); }
+  }
+  async function refreshDialog(dialog) {
+    if (activePreviewObserver) { activePreviewObserver.disconnect(); activePreviewObserver = null; }
+    const generation = ++previewGeneration;
+    const container = dialog.querySelector("[data-list]");
+    if (container) container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
+    let catalog;
+    try {
+      catalog = await listCatalog();
+      if (!Array.isArray(catalog.records) || !Array.isArray(catalog.folders))
+        throw new Error("5DB 雲端列表內容不正確");
+    } catch (error) {
+      if (generation !== previewGeneration) return;
+      const message = error.message || String(error);
+      if (container) {
+        container.replaceChildren();
+        const failure = document.createElement("div");
+        failure.className = "vcf-cloud-empty";
+        failure.setAttribute("role", "alert");
+        failure.textContent = "雲端棋譜讀取失敗：" + message;
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "bb-cloud-btn";
+        retry.textContent = "重新讀取";
+        retry.addEventListener("click", () => { void refreshDialog(dialog); });
+        container.append(failure, retry);
+      }
+      status("5DB 雲端棋譜讀取失敗：" + message);
+      return;
     }
+    if (generation !== previewGeneration) return;
+    cloudRecords = catalog.records;
+    cloudFolders = catalog.folders;
+    const existing = new Set(cloudRecords.map(record => Number(record.id)));
+    for (const id of Array.from(selectedRecordIds)) if (!existing.has(id)) selectedRecordIds.delete(id);
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
   }
   function refreshAuthUI() {
     const login = document.getElementById("vcf-shared-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
