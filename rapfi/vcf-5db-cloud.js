@@ -15,6 +15,11 @@
   let previewGeneration = 0;
   let activeFolderId = 0;
   let cloudFolders = [];
+  let cloudRecords = [];
+  const selectedRecordIds = new Set();
+  const expandedFolderIds = new Set([0]);
+  let lastSelectionIndex = -1;
+  let explorerView = global.localStorage?.getItem("vcf_cloud_explorer_view") === "details" ? "details" : "thumbnails";
 
   async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
@@ -216,6 +221,52 @@
       #vcf-shared-login-dialog .sched-email-auth-notice{line-height:1.7}
       #vcf-shared-login-dialog .sched-email-auth-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:20px}
       #vcf-shared-login-dialog .sched-email-auth-actions button{border:0;background:transparent;padding:4px;color:#725b48;font:inherit;cursor:pointer}
+
+      #vcf-cloud-dialog{width:min(1180px,calc(100vw - 20px));max-height:min(92dvh,940px)}
+      #vcf-cloud-dialog .vcf-cloud-body{display:flex;flex-direction:column;max-height:90dvh;min-height:320px}
+      #vcf-cloud-dialog .vcf-cloud-explorer{display:grid;grid-template-columns:minmax(190px,245px) minmax(0,1fr);min-height:260px;flex:1;overflow:hidden;border:1px solid #ddd5c5;border-radius:8px;background:#fff}
+      #vcf-cloud-dialog .vcf-cloud-tree-pane{display:flex;flex-direction:column;min-width:0;border-right:1px solid #ddd5c5;background:#faf8f2}
+      #vcf-cloud-dialog .vcf-cloud-tree-heading{padding:10px 12px;font-weight:700;font-size:13px;border-bottom:1px solid #e5ddcd}
+      #vcf-cloud-dialog .vcf-cloud-tree{flex:1;overflow:auto;padding:6px;font-size:13px}
+      #vcf-cloud-dialog .vcf-cloud-tree-line{display:flex;align-items:center;gap:2px;margin:1px 0;min-height:30px;white-space:nowrap}
+      #vcf-cloud-dialog .vcf-cloud-tree-toggle{flex:0 0 22px;min-height:26px;border:0;background:transparent;cursor:pointer;padding:0}
+      #vcf-cloud-dialog .vcf-cloud-tree-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;min-height:29px;padding:4px 5px;border:0;border-radius:5px;background:transparent;color:#3d3a31;cursor:pointer;font:inherit}
+      #vcf-cloud-dialog .vcf-cloud-tree-name:hover{background:#e9eef0}
+      #vcf-cloud-dialog .vcf-cloud-tree-name[aria-current="true"]{background:#dce9f4;color:#1b4e75;font-weight:700}
+      #vcf-cloud-dialog .vcf-cloud-files{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+      #vcf-cloud-dialog .vcf-cloud-files-toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px 10px;flex-wrap:wrap;border-bottom:1px solid #ddd5c5;background:#fcfbf7}
+      #vcf-cloud-dialog .vcf-cloud-path{font-size:13px;font-weight:600;color:#5c5444;min-width:0;overflow-wrap:anywhere}
+      #vcf-cloud-dialog .vcf-cloud-file-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+      #vcf-cloud-dialog .vcf-cloud-file-tools button{min-height:30px;padding:5px 9px;border:1px solid #b9ad99;border-radius:5px;background:#fff;color:#4f4536;cursor:pointer;font-size:12px}
+      #vcf-cloud-dialog .vcf-cloud-file-tools button[aria-pressed="true"]{background:#dce9f4;border-color:#83a7c4;color:#1d4d73}
+      #vcf-cloud-dialog .vcf-cloud-file-tools button:disabled{opacity:.45;cursor:default}
+      #vcf-cloud-dialog .vcf-cloud-selected-count{font-size:12px;font-variant-numeric:tabular-nums}
+      #vcf-cloud-dialog .vcf-cloud-items-scroll{min-width:0;min-height:0;overflow:auto;flex:1}
+      #vcf-cloud-dialog .vcf-cloud-list{max-height:none;overflow:visible;display:grid;gap:5px;padding:8px}
+      #vcf-cloud-dialog .vcf-cloud-row{display:grid;grid-template-columns:26px 94px minmax(0,1fr) auto;gap:8px;align-items:center;min-width:0;padding:8px;border:1px solid #e3dccf;border-radius:7px;background:#fffdf8;cursor:default}
+      #vcf-cloud-dialog .vcf-cloud-row:hover{background:#f7f9fb}
+      #vcf-cloud-dialog .vcf-cloud-row[aria-selected="true"]{background:#e2effb;border-color:#92b5d4}
+      #vcf-cloud-dialog .vcf-cloud-select{grid-column:1;grid-row:1;margin:auto;cursor:pointer;accent-color:#376c99;width:16px;height:16px}
+      #vcf-cloud-dialog .vcf-cloud-preview{grid-column:2;grid-row:1;width:94px}
+      #vcf-cloud-dialog .vcf-cloud-info{grid-column:3;grid-row:1;min-width:0}
+      #vcf-cloud-dialog .vcf-cloud-actions{grid-column:4;grid-row:1;justify-content:end;max-width:174px}
+      #vcf-cloud-dialog .vcf-cloud-detail-count,#vcf-cloud-dialog .vcf-cloud-detail-size,#vcf-cloud-dialog .vcf-cloud-detail-date,#vcf-cloud-dialog .vcf-cloud-detail-header{display:none}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-header{display:grid;position:sticky;top:0;z-index:2;grid-template-columns:26px minmax(140px,1.7fr) minmax(160px,2fr) 62px 80px 132px 162px;min-width:810px;gap:7px;padding:8px 10px;background:#f1ede3;color:#5b5245;border-bottom:1px solid #ddd2ba;font-size:12px;font-weight:700}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-list{min-width:810px;gap:0;padding:0}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-row{grid-template-columns:26px minmax(140px,1.7fr) minmax(160px,2fr) 62px 80px 132px 162px;gap:7px;padding:6px 10px;min-height:40px;border:0;border-bottom:1px solid #ebe6da;border-radius:0;background:#fff}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-row:nth-child(even){background:#faf9f6}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-row[aria-selected="true"]{background:#e2effb}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-preview{display:none}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-info{display:contents}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-title{grid-column:2;grid-row:1;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:13px}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-meta{grid-column:3;grid-row:1;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;margin:0;font-size:12px}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-count{display:block;grid-column:4;grid-row:1}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-size{display:block;grid-column:5;grid-row:1}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-date{display:block;grid-column:6;grid-row:1;font-size:11px}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-actions{grid-column:7;grid-row:1;flex-wrap:nowrap;max-width:none}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-actions button{white-space:nowrap;padding:5px;font-size:11px}
+      #vcf-cloud-dialog .vcf-cloud-row:focus-visible{outline:2px solid #276d9d;outline-offset:-2px}
+      @media(max-width:650px){#vcf-cloud-dialog .vcf-cloud-body{min-height:0}#vcf-cloud-dialog .vcf-cloud-explorer{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(90px,170px) minmax(200px,1fr);max-height:70dvh}#vcf-cloud-dialog .vcf-cloud-tree-pane{border-right:0;border-bottom:1px solid #ddd5c5}#vcf-cloud-dialog .vcf-cloud-row{grid-template-columns:22px 70px minmax(0,1fr);gap:7px}#vcf-cloud-dialog .vcf-cloud-preview{width:70px}#vcf-cloud-dialog .vcf-cloud-actions{grid-column:2/-1;grid-row:2;max-width:none}#vcf-cloud-dialog [data-view="details"] .vcf-cloud-row{grid-template-columns:26px minmax(140px,1.7fr) minmax(160px,2fr) 62px 80px 132px 162px}}
       .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-folder-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vcf-cloud-folder-toolbar label{display:flex;align-items:center;gap:6px;flex:1;min-width:150px}.vcf-cloud-folder-toolbar select{flex:1;min-width:100px;max-width:100%;padding:7px;border:1px solid #bbb0a0;border-radius:6px;background:#fff}.vcf-cloud-folder-toolbar button{padding:7px;border:1px solid #aaa;border-radius:6px;background:#fff;cursor:pointer}.vcf-cloud-folder-chooser{border:1px solid #b9b09c;border-radius:10px;padding:20px;max-width:min(440px,90vw)}.vcf-cloud-folder-chooser select{display:block;width:100%;padding:8px;margin:10px 0}.vcf-cloud-folder-chooser div{display:flex;justify-content:end;gap:8px}.vcf-cloud-folder-chooser button{padding:7px 14px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
     `;
     document.head.appendChild(style);
@@ -316,25 +367,49 @@
     }
     await refreshDialog(dialog);
   }
+
   function ensureDialog() {
     let dialog = document.getElementById("vcf-cloud-dialog");
     if (dialog) return dialog;
     dialog = document.createElement("dialog"); dialog.id = "vcf-cloud-dialog";
-    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-folder-toolbar"><label>資料夾 <select data-folder-select aria-label="目前資料夾"></select></label><button type="button" data-folder-create>新增</button><button type="button" data-folder-rename>重新命名</button><button type="button" data-folder-move>移動</button><button type="button" data-folder-delete>刪除</button></div><div class="vcf-cloud-list" data-list></div></div>';
+    dialog.innerHTML = "<div class=\"vcf-cloud-body\"><div class=\"vcf-cloud-head\"><h3>我的雲端棋譜</h3><button type=\"button\" data-close>關閉</button></div><div class=\"vcf-cloud-folder-toolbar\"><button type=\"button\" data-folder-create>新增資料夾</button><button type=\"button\" data-folder-rename>重新命名</button><button type=\"button\" data-folder-move>移動資料夾</button><button type=\"button\" data-folder-delete>刪除資料夾</button></div><div class=\"vcf-cloud-explorer\"><aside class=\"vcf-cloud-tree-pane\" aria-label=\"資料夾\"><div class=\"vcf-cloud-tree-heading\">資料夾</div><nav class=\"vcf-cloud-tree\" data-tree role=\"tree\" aria-label=\"資料夾樹\"></nav></aside><section class=\"vcf-cloud-files\" aria-label=\"所選資料夾的棋譜\"><div class=\"vcf-cloud-files-toolbar\"><span class=\"vcf-cloud-path\" data-folder-path>根目錄</span><div class=\"vcf-cloud-file-tools\"><span data-selected-count class=\"vcf-cloud-selected-count\">已選 0 份</span><button type=\"button\" data-select-all>全選</button><button type=\"button\" data-batch-move disabled>移動所選</button><button type=\"button\" data-batch-delete disabled>刪除所選</button><button type=\"button\" data-view-thumbnails aria-pressed=\"true\">縮圖</button><button type=\"button\" data-view-details aria-pressed=\"false\">詳細資料</button></div></div><div class=\"vcf-cloud-items-scroll\" data-file-scroll data-view=\"thumbnails\"><div class=\"vcf-cloud-detail-header\" data-details-head><span>選取</span><span>檔名</span><span>棋譜標題</span><span>局面數</span><span>大小</span><span>修改時間</span><span>操作</span></div><div class=\"vcf-cloud-list\" data-list></div></div></section></div></div>";
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
-    const select = dialog.querySelector("[data-folder-select]");
-    if (select) {
-      select.addEventListener("change", () => {
-        activeFolderId = Number(select.value);
-        void refreshDialog(dialog);
+    for (const action of ["create", "rename", "move", "delete"]) {
+      dialog.querySelector("[data-folder-" + action + "]").addEventListener("click", () => {
+        void editFolder(dialog, action).catch(e => status(e.message || String(e)));
       });
-      for (const action of ["create", "rename", "move", "delete"]) {
-        dialog.querySelector("[data-folder-" + action + "]").addEventListener("click", () => {
-          void editFolder(dialog, action).catch(e => status(e.message || String(e)));
-        });
-      }
     }
-    document.body.appendChild(dialog); return dialog;
+    dialog.querySelector("[data-select-all]").addEventListener("click", () => {
+      const visible = visibleCloudRecords();
+      const allSelected = visible.length > 0 && visible.every(r => selectedRecordIds.has(Number(r.id)));
+      for (const record of visible) {
+        if (allSelected) selectedRecordIds.delete(Number(record.id));
+        else selectedRecordIds.add(Number(record.id));
+      }
+      lastSelectionIndex = -1;
+      updateSelectionUI(dialog);
+    });
+    dialog.querySelector("[data-batch-move]").addEventListener("click", () => {
+      void batchMoveRecords(dialog).catch(e => status(e.message || String(e)));
+    });
+    dialog.querySelector("[data-batch-delete]").addEventListener("click", () => {
+      void batchDeleteRecords(dialog).catch(e => status(e.message || String(e)));
+    });
+    for (const mode of ["thumbnails", "details"]) {
+      dialog.querySelector("[data-view-" + mode + "]").addEventListener("click", () => {
+        if (explorerView === mode) return;
+        explorerView = mode;
+        try { global.localStorage?.setItem("vcf_cloud_explorer_view", mode); } catch (_) {}
+        renderFolderContents(dialog);
+      });
+    }
+    dialog.addEventListener("close", () => {
+      if (activePreviewObserver) activePreviewObserver.disconnect();
+      activePreviewObserver = null;
+      previewGeneration++;
+    });
+    document.body.appendChild(dialog);
+    return dialog;
   }
   function ensureLoginDialog() {
     let dialog = document.getElementById("vcf-shared-login-dialog");
