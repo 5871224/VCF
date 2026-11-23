@@ -86,7 +86,8 @@ assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') > files.html.ind
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') < files.html.indexOf('id="btn-block-vcf"'), "playback belongs inside multi VCF");
 lacks("html", ['id="btn-rapfi-vcf-benchmark"', "vcf-rapfi-vcf-benchmark.js", "Rapfi VCF 計算"]);
 lacks("builder", ["vcf-rapfi-vcf-worker.js", "vcf-rapfi-vcf-benchmark.js", "rapfi-vcf-standalone"]);
-lacks("deploy", ["rapfi-vcf-standalone", "rapfi-vcf-cache", "vcf-rapfi-vcf-worker.js", "vcf-rapfi-vcf-benchmark.js"]);
+lacks("deploy", ["rapfi-vcf-cache", "Build standalone Rapfi VCF benchmark", "RapfiVCFStandaloneModule", "_rapfiStandaloneVCF", "test -s _site/rapfi/vcf-rapfi-vcf"]);
+has("deploy", ["ftp.delete(rel)", "check_absent rapfi/vcf-rapfi-vcf-benchmark.js", "check_absent rapfi/engine/rapfi-vcf-standalone.wasm"]);
 for (const name of ["rapfi/vcf-rapfi-vcf-benchmark.js", "rapfi/vcf-rapfi-vcf-worker.js", "rapfi/vcf-rapfi-vcf-standalone.cpp", ".github/workflows/rapfi-vcf-benchmark-ci.yml"]) {
   assert.ok(!fs.existsSync(path.join(__dirname, "..", name)), "obsolete standalone Rapfi VCF file: " + name);
 }
