@@ -135,7 +135,7 @@ const fetch = async url => {
   if (u.includes("action=list")) return { status:200,ok:true,json:async()=>({ok:true,records:[
     {id:1,file_name:"新棋譜",title:"新版標題",record_count:2,compressed_size:250,preview:`15x15:${newBoard.board}`},
     {id:2,file_name:"舊棋譜",title:"舊版標題",record_count:2,compressed_size:250},
-  ]}) };
+  ],folders:[{id:7,name:"一般案",parent_id:0},{id:8,name:"進階",parent_id:7}]}) };
   if (u.includes("action=get&id=2")) {
     fileGets++;
     const b = FiveDB.encode(old);
@@ -192,6 +192,35 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
   assert.equal(previous.children[0].children[0].children.filter(x=>x.tag==="circle").length,2);
   await document.getElementById("bb-cloud-open").click();
   assert.equal(fileGets,1,"older previews are kept in session cache");
+  const tree = dialog.querySelector("[data-tree]");
+  assert.equal(tree.children.length, 1, "tree starts with root folder");
+  const root = tree.children[0];
+  const folder = root.children[1].children[0];
+  assert.equal(folder.children[0].children[1].textContent.includes("一般案"), true, "nested folder is shown");
+  assert.equal(folder.children[1].children.length, 1, "second-level folder appears in tree");
+  // View switching must preserve the file list, avoid preview downloads and not touch the board.
+  await dialog.querySelector("[data-view-details]").click();
+  assert.equal(dialog.querySelector("[data-file-scroll]").dataset.view, "details");
+  assert.equal(dialog.querySelector("[data-view-details]").attrs["aria-pressed"], "true");
+  assert.equal(fileGets, 1, "details mode must not download old previews");
+  assert.equal(list.children.length, 2, "details view contains the same records");
+  const firstCheckbox = list.children[0].children[3];
+  firstCheckbox.checked = true;
+  firstCheckbox.listeners.change[0]();
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 1 / 2"), true);
+  assert.equal(dialog.querySelector("[data-batch-move]").disabled, false);
+  await dialog.querySelector("[data-select-all]").click();
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 2 / 2"), true);
+  await dialog.querySelector("[data-select-all]").click();
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 0 / 2"), true);
+  // Selecting a nested folder switches contents locally without refetching catalog.
+  await folder.children[0].children[1].click();
+  assert.equal(list.children[0].textContent.includes("目前資料夾沒有棋譜"), true);
+  assert.equal(dialog.querySelector("[data-folder-path]").textContent, "根目錄 / 一般案");
+  await tree.children[0].children[0].children[1].click();
+  assert.equal(list.children.length, 2, "returning to root restores all root files");
+  await dialog.querySelector("[data-view-thumbnails]").click();
+  assert.equal(dialog.querySelector("[data-file-scroll]").dataset.view, "thumbnails");
   await window.VCFCloud5DB.logout();
   assert.equal(document.getElementById("vcf-shared-login").hidden, false,
     "logging out of Sched reveals the shared member login button");
