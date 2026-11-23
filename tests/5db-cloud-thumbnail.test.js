@@ -213,6 +213,12 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
   assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 2 / 2"), true);
   await dialog.querySelector("[data-select-all]").click();
   assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 0 / 2"), true);
+  let prevented = 0;
+  list.listeners.keydown[0]({ctrlKey:true,metaKey:false,key:"a",preventDefault() { prevented++; }});
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 2 / 2"), true, "Ctrl+A selects folder files");
+  list.listeners.keydown[0]({ctrlKey:false,metaKey:false,key:"Escape",preventDefault() { prevented++; }});
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 0 / 2"), true, "Escape clears multi-selection");
+  assert.equal(prevented, 2);
   // Selecting a nested folder switches contents locally without refetching catalog.
   await folder.children[0].children[1].click();
   assert.equal(list.children[0].textContent.includes("目前資料夾沒有棋譜"), true);
