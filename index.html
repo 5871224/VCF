@@ -1257,7 +1257,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
           <div class="vcf-actions vcf-cols-3">
             <button id="btn-fast-vcf" type="button" title="依目前分析色搜尋第一組 VCF">速找 VCF</button>
             <button id="btn-shortest-vcf" type="button">最短 VCF</button>
-                        <label class="vcf-setting-toggle vcf-calculation-toggle"><input id="vcf-show-calculation-settings" type="checkbox">計算設定</label>
+            <label class="vcf-setting-toggle vcf-calculation-toggle"><input id="vcf-show-calculation-settings" type="checkbox">計算設定</label>
           </div>
           <div id="vcf-calculation-settings-card" class="vcf-settings-card"><h3>計算設定</h3><div class="vcf-settings-grid"><label class="vcf-option-number">
       時間限制：
@@ -1555,8 +1555,8 @@ for (const tab of document.querySelectorAll(".vcf-tab")) {
   if (entryName.includes(".")) return;
 
   window.__vcfRootBitboardWorkbench = true;
-  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js?v=20261121-distance-cache1"><\/script>');
-  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20261121-distance-cache1"><\/script>');
+  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js?v=20261123-distance-radius2"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20261123-distance-radius2"><\/script>');
 })();
 </script>
 <script>
@@ -5009,7 +5009,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-generator-progress.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-status-detail.js?v=20261008-static-workbench1"></script>
 <!-- 正式 HTML 已包含完整版面；各模組只綁定功能與狀態。 -->
-<script src="rapfi/rapfi-bitboard-dashboard.js?v=20261121-distance-cache1"></script>
+<script src="rapfi/rapfi-bitboard-dashboard.js?v=20261123-distance-radius2"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-forbidden-overlay.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-open-four-stop.js?v=20261008-static-workbench1"></script>
