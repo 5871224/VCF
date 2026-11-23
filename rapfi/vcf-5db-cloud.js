@@ -68,6 +68,10 @@
     });
     await jsonResponse(response);
     previewCache.clear();
+    selectedRecordIds.clear();
+    cloudRecords = [];
+    cloudFolders = [];
+    activeFolderId = 0;
     authUser = null;
     refreshAuthUI();
     status("已登出協會會員帳號。");
@@ -186,6 +190,11 @@
     return `${(n / 1048576).toFixed(2)} MB`;
   }
   function status(message) { const node = document.getElementById("bb-export-status"); if (node) node.textContent = message; }
+  function explorerNotice(dialog, message) {
+    const node = dialog?.querySelector("[data-explorer-notice]");
+    if (node) node.textContent = message;
+    status(message);
+  }
   function download(bytes, filename) {
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
     const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
@@ -241,6 +250,7 @@
       #vcf-cloud-dialog .vcf-cloud-file-tools button[aria-pressed="true"]{background:#dce9f4;border-color:#83a7c4;color:#1d4d73}
       #vcf-cloud-dialog .vcf-cloud-file-tools button:disabled{opacity:.45;cursor:default}
       #vcf-cloud-dialog .vcf-cloud-selected-count{font-size:12px;font-variant-numeric:tabular-nums}
+      #vcf-cloud-dialog .vcf-cloud-explorer-notice{font-size:12px;color:#655943;padding:0 16px 10px;min-height:14px;overflow-wrap:anywhere}
       #vcf-cloud-dialog .vcf-cloud-items-scroll{min-width:0;min-height:0;overflow:auto;flex:1}
       #vcf-cloud-dialog .vcf-cloud-list{max-height:none;overflow:visible;display:grid;gap:5px;padding:8px}
       #vcf-cloud-dialog .vcf-cloud-row{display:grid;grid-template-columns:26px 94px minmax(0,1fr) auto;gap:8px;align-items:center;min-width:0;padding:8px;border:1px solid #e3dccf;border-radius:7px;background:#fffdf8;cursor:default}
@@ -462,13 +472,14 @@
     let moved = 0, problem = null;
     for (const id of ids) {
       try {
+        explorerNotice(dialog, "正在移動第 " + (moved + 1) + " / " + ids.length + " 份棋譜…");
         await moveRecord(id, destination);
         selectedRecordIds.delete(id);
         moved++;
       } catch (error) { problem = error; break; }
     }
     await refreshDialog(dialog);
-    status("已移動 " + moved + " 份棋譜。" + (problem ? " 其餘未移動：" + (problem.message || problem) : ""));
+    explorerNotice(dialog, "已移動 " + moved + " 份棋譜。" + (problem ? " 其餘未移動：" + (problem.message || problem) : ""));
   }
   async function batchDeleteRecords(dialog) {
     const ids = Array.from(selectedRecordIds);
@@ -477,6 +488,7 @@
     let deleted = 0, problem = null;
     for (const id of ids) {
       try {
+        explorerNotice(dialog, "正在刪除第 " + (deleted + 1) + " / " + ids.length + " 份棋譜…");
         await remove(id);
         previewCache.delete(id);
         selectedRecordIds.delete(id);
@@ -484,7 +496,7 @@
       } catch (error) { problem = error; break; }
     }
     await refreshDialog(dialog);
-    status("已刪除 " + deleted + " 份棋譜。" + (problem ? " 其餘未刪除：" + (problem.message || problem) : ""));
+    explorerNotice(dialog, "已刪除 " + deleted + " 份棋譜。" + (problem ? " 其餘未刪除：" + (problem.message || problem) : ""));
   }
   function chooseDestination(title, excludedId = 0) {
     return new Promise(resolve => {
@@ -549,7 +561,7 @@
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
     for (const action of ["create", "rename", "move", "delete"]) {
       dialog.querySelector("[data-folder-" + action + "]").addEventListener("click", () => {
-        void editFolder(dialog, action).catch(e => status(e.message || String(e)));
+        void editFolder(dialog, action).catch(e => explorerNotice(dialog, e.message || String(e)));
       });
     }
     dialog.querySelector("[data-select-all]").addEventListener("click", () => {
@@ -576,6 +588,12 @@
         renderFolderContents(dialog);
       });
     }
+    const notice = document.createElement("div");
+    notice.className = "vcf-cloud-explorer-notice";
+    notice.setAttribute("data-explorer-notice", "");
+    notice.setAttribute("role", "status");
+    notice.setAttribute("aria-live", "polite");
+    dialog.appendChild(notice);
     dialog.addEventListener("close", () => {
       if (activePreviewObserver) activePreviewObserver.disconnect();
       activePreviewObserver = null;
@@ -1014,7 +1032,7 @@
         retry.addEventListener("click", () => { void refreshDialog(dialog); });
         container.append(failure, retry);
       }
-      status("5DB 雲端棋譜讀取失敗：" + message);
+      explorerNotice(dialog, "5DB 雲端棋譜讀取失敗：" + message);
       return;
     }
     if (generation !== previewGeneration) return;
