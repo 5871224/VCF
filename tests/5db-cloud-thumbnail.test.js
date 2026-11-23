@@ -8,7 +8,7 @@ class Element {
     this.tag = tag; this.children = []; this.attrs = {};
     this.listeners = {}; this.parentNode = null; this.id = "";
     this.className = ""; this.hidden = false; this.disabled = false;
-    this._text = ""; this._html = ""; this.open = false; this.dataset = {};
+    this._text = ""; this._html = ""; this.open = false; this.dataset = {}; this.style = {};
   }
   set textContent(v) { this._text = String(v); this.children = []; }
   get textContent() { return this._text || this.children.map(x => x.textContent).join(""); }
@@ -22,8 +22,21 @@ class Element {
     } else if (html.includes('data-list')) {
       const head = new Element(); const close = new Element("button");
       close.attrs["data-close"] = ""; head.append(close);
-      const list = new Element(); list.attrs["data-list"] = "";
-      this.append(head, list);
+      const toolbar = new Element();
+      for (const key of ["folder-create", "folder-rename", "folder-move", "folder-delete"]) {
+        const button = new Element("button"); button.attrs["data-" + key] = ""; toolbar.append(button);
+      }
+      const tree = new Element(); tree.attrs["data-tree"] = "";
+      const path = new Element(); path.attrs["data-folder-path"] = "";
+      const buttons = new Element();
+      const count = new Element(); count.attrs["data-selected-count"] = ""; buttons.append(count);
+      for (const key of ["select-all", "batch-move", "batch-delete", "view-thumbnails", "view-details"]) {
+        const button = new Element("button"); button.attrs["data-" + key] = "";
+        buttons.append(button);
+      }
+      const scroll = new Element(); scroll.attrs["data-file-scroll"] = "";
+      const list = new Element(); list.attrs["data-list"] = ""; scroll.append(list);
+      this.append(head, toolbar, tree, path, buttons, scroll);
     } else if (html.includes('class="sched-email-auth-heading"')) {
       const create = (parent, key, tag = "div") => {
         const node = new Element(tag); node.attrs[`data-${key}`] = ""; parent.append(node); return node;
@@ -45,7 +58,7 @@ class Element {
       const actions = create(this, "actions", "nav");
       create(actions, "register", "button"); create(actions, "forgot", "button"); create(actions, "back", "button");
     } else if (html.includes("vcf-cloud-title")) {
-      this.append(new Element(), new Element());
+      this.append(new Element(), new Element(), new Element());
     }
   }
   get firstElementChild() { return this.children[0] || null; }
@@ -57,8 +70,21 @@ class Element {
   replaceChildren(...xs) { this.children = []; this.append(...xs); }
   remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(x => x !== this); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
+  querySelectorAll(selector) {
+    const list = [];
+    const matches = el => selector.startsWith(".") && el.className.split(" ").includes(selector.slice(1));
+    const walk = node => {
+      for (const child of node.children) {
+        if (matches(child)) list.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return list;
+  }
   querySelector(selector) {
     for (const child of this.children) {
+      if (selector.startsWith(".") && child.className.split(" ").includes(selector.slice(1))) return child;
       if (selector[0] === "#" && child.id === selector.slice(1)) return child;
       if (selector[0] === "[" && Object.hasOwn(child.attrs, selector.slice(1, -1))) return child;
       if (selector === `[name="${child.attrs.name}"]` && child.attrs.name) return child;
@@ -109,7 +135,7 @@ const fetch = async url => {
   if (u.includes("action=list")) return { status:200,ok:true,json:async()=>({ok:true,records:[
     {id:1,file_name:"新棋譜",title:"新版標題",record_count:2,compressed_size:250,preview:`15x15:${newBoard.board}`},
     {id:2,file_name:"舊棋譜",title:"舊版標題",record_count:2,compressed_size:250},
-  ]}) };
+  ],folders:[{id:7,name:"一般案",parent_id:0},{id:8,name:"進階",parent_id:7}]}) };
   if (u.includes("action=get&id=2")) {
     fileGets++;
     const b = FiveDB.encode(old);
@@ -166,6 +192,41 @@ vm.runInNewContext(fs.readFileSync("rapfi/vcf-5db-cloud.js", "utf8"), {
   assert.equal(previous.children[0].children[0].children.filter(x=>x.tag==="circle").length,2);
   await document.getElementById("bb-cloud-open").click();
   assert.equal(fileGets,1,"older previews are kept in session cache");
+  const tree = dialog.querySelector("[data-tree]");
+  assert.equal(tree.children.length, 1, "tree starts with root folder");
+  const root = tree.children[0];
+  const folder = root.children[1].children[0];
+  assert.equal(folder.children[0].children[1].textContent.includes("一般案"), true, "nested folder is shown");
+  assert.equal(folder.children[1].children.length, 1, "second-level folder appears in tree");
+  // View switching must preserve the file list, avoid preview downloads and not touch the board.
+  await dialog.querySelector("[data-view-details]").click();
+  assert.equal(dialog.querySelector("[data-file-scroll]").dataset.view, "details");
+  assert.equal(dialog.querySelector("[data-view-details]").attrs["aria-pressed"], "true");
+  assert.equal(fileGets, 1, "details mode must not download old previews");
+  assert.equal(list.children.length, 2, "details view contains the same records");
+  const firstCheckbox = list.children[0].children[3];
+  firstCheckbox.checked = true;
+  firstCheckbox.listeners.change[0]();
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 1 / 2"), true);
+  assert.equal(dialog.querySelector("[data-batch-move]").disabled, false);
+  await dialog.querySelector("[data-select-all]").click();
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 2 / 2"), true);
+  await dialog.querySelector("[data-select-all]").click();
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 0 / 2"), true);
+  let prevented = 0;
+  list.listeners.keydown[0]({ctrlKey:true,metaKey:false,key:"a",preventDefault() { prevented++; }});
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 2 / 2"), true, "Ctrl+A selects folder files");
+  list.listeners.keydown[0]({ctrlKey:false,metaKey:false,key:"Escape",preventDefault() { prevented++; }});
+  assert.equal(dialog.querySelector("[data-selected-count]").textContent.includes("已選 0 / 2"), true, "Escape clears multi-selection");
+  assert.equal(prevented, 2);
+  // Selecting a nested folder switches contents locally without refetching catalog.
+  await folder.children[0].children[1].click();
+  assert.equal(list.children[0].textContent.includes("目前資料夾沒有棋譜"), true);
+  assert.equal(dialog.querySelector("[data-folder-path]").textContent, "根目錄 / 一般案");
+  await tree.children[0].children[0].children[1].click();
+  assert.equal(list.children.length, 2, "returning to root restores all root files");
+  await dialog.querySelector("[data-view-thumbnails]").click();
+  assert.equal(dialog.querySelector("[data-file-scroll]").dataset.view, "thumbnails");
   await window.VCFCloud5DB.logout();
   assert.equal(document.getElementById("vcf-shared-login").hidden, false,
     "logging out of Sched reveals the shared member login button");

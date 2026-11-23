@@ -15,6 +15,11 @@
   let previewGeneration = 0;
   let activeFolderId = 0;
   let cloudFolders = [];
+  let cloudRecords = [];
+  const selectedRecordIds = new Set();
+  const expandedFolderIds = new Set([0]);
+  let lastSelectionIndex = -1;
+  let explorerView = global.localStorage?.getItem("vcf_cloud_explorer_view") === "details" ? "details" : "thumbnails";
 
   async function jsonResponse(response) {
     const payload = await response.json().catch(() => null);
@@ -63,6 +68,10 @@
     });
     await jsonResponse(response);
     previewCache.clear();
+    selectedRecordIds.clear();
+    cloudRecords = [];
+    cloudFolders = [];
+    activeFolderId = 0;
     authUser = null;
     refreshAuthUI();
     status("已登出協會會員帳號。");
@@ -181,6 +190,11 @@
     return `${(n / 1048576).toFixed(2)} MB`;
   }
   function status(message) { const node = document.getElementById("bb-export-status"); if (node) node.textContent = message; }
+  function explorerNotice(dialog, message) {
+    const node = dialog?.querySelector("[data-explorer-notice]");
+    if (node) node.textContent = message;
+    status(message);
+  }
   function download(bytes, filename) {
     const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
     const a = document.createElement("a"); a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
@@ -216,6 +230,55 @@
       #vcf-shared-login-dialog .sched-email-auth-notice{line-height:1.7}
       #vcf-shared-login-dialog .sched-email-auth-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:16px;margin-top:20px}
       #vcf-shared-login-dialog .sched-email-auth-actions button{border:0;background:transparent;padding:4px;color:#725b48;font:inherit;cursor:pointer}
+
+      #vcf-cloud-dialog{width:min(1180px,calc(100vw - 20px));max-height:min(92dvh,940px)}
+      #vcf-cloud-dialog .vcf-cloud-body{display:flex;flex-direction:column;max-height:90dvh;min-height:320px}
+      #vcf-cloud-dialog .vcf-cloud-explorer{display:grid;grid-template-columns:minmax(190px,245px) minmax(0,1fr);min-height:260px;flex:1;overflow:hidden;border:1px solid #ddd5c5;border-radius:8px;background:#fff}
+      #vcf-cloud-dialog .vcf-cloud-tree-pane{display:flex;flex-direction:column;min-width:0;border-right:1px solid #ddd5c5;background:#faf8f2}
+      #vcf-cloud-dialog .vcf-cloud-tree-heading{padding:10px 12px;font-weight:700;font-size:13px;border-bottom:1px solid #e5ddcd}
+      #vcf-cloud-dialog .vcf-cloud-tree{flex:1;overflow:auto;padding:6px;font-size:13px}
+      #vcf-cloud-dialog .vcf-cloud-tree-line{display:flex;align-items:center;gap:2px;margin:1px 0;min-height:30px;white-space:nowrap}
+      #vcf-cloud-dialog .vcf-cloud-tree-toggle{flex:0 0 22px;min-height:26px;border:0;background:transparent;cursor:pointer;padding:0}
+      #vcf-cloud-dialog .vcf-cloud-tree-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;min-height:29px;padding:4px 5px;border:0;border-radius:5px;background:transparent;color:#3d3a31;cursor:pointer;font:inherit}
+      #vcf-cloud-dialog .vcf-cloud-tree-name:hover{background:#e9eef0}
+      #vcf-cloud-dialog .vcf-cloud-tree-name[aria-current="true"]{background:#dce9f4;color:#1b4e75;font-weight:700}
+      #vcf-cloud-dialog .vcf-cloud-files{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+      #vcf-cloud-dialog .vcf-cloud-files-toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px 10px;flex-wrap:wrap;border-bottom:1px solid #ddd5c5;background:#fcfbf7}
+      #vcf-cloud-dialog .vcf-cloud-path{font-size:13px;font-weight:600;color:#5c5444;min-width:0;overflow-wrap:anywhere}
+      #vcf-cloud-dialog .vcf-cloud-file-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+      #vcf-cloud-dialog .vcf-cloud-file-tools button{min-height:30px;padding:5px 9px;border:1px solid #b9ad99;border-radius:5px;background:#fff;color:#4f4536;cursor:pointer;font-size:12px}
+      #vcf-cloud-dialog .vcf-cloud-file-tools button[aria-pressed="true"]{background:#dce9f4;border-color:#83a7c4;color:#1d4d73}
+      #vcf-cloud-dialog .vcf-cloud-file-tools button:disabled{opacity:.45;cursor:default}
+      #vcf-cloud-dialog .vcf-cloud-selected-count{font-size:12px;font-variant-numeric:tabular-nums}
+      #vcf-cloud-dialog .vcf-cloud-explorer-notice{font-size:12px;color:#655943;padding:0 16px 10px;min-height:14px;overflow-wrap:anywhere}
+      #vcf-cloud-dialog .vcf-cloud-items-scroll{min-width:0;min-height:0;overflow:auto;flex:1}
+      #vcf-cloud-dialog .vcf-cloud-list{max-height:none;overflow:visible;display:grid;gap:5px;padding:8px}
+      #vcf-cloud-dialog .vcf-cloud-row{display:grid;grid-template-columns:26px 94px minmax(0,1fr) auto;gap:8px;align-items:center;min-width:0;padding:8px;border:1px solid #e3dccf;border-radius:7px;background:#fffdf8;cursor:default}
+      #vcf-cloud-dialog .vcf-cloud-row:hover{background:#f7f9fb}
+      #vcf-cloud-dialog .vcf-cloud-row[aria-selected="true"]{background:#e2effb;border-color:#92b5d4}
+      #vcf-cloud-dialog .vcf-cloud-select{grid-column:1;grid-row:1;margin:auto;cursor:pointer;accent-color:#376c99;width:16px;height:16px}
+      #vcf-cloud-dialog .vcf-cloud-preview{grid-column:2;grid-row:1;width:94px}
+      #vcf-cloud-dialog .vcf-cloud-info{grid-column:3;grid-row:1;min-width:0}
+      #vcf-cloud-dialog .vcf-cloud-thumb-stats{margin-top:4px;color:#756e61;font-size:12px;line-height:1.4}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-thumb-stats{display:none}
+      #vcf-cloud-dialog .vcf-cloud-actions{grid-column:4;grid-row:1;justify-content:end;max-width:174px}
+      #vcf-cloud-dialog .vcf-cloud-detail-count,#vcf-cloud-dialog .vcf-cloud-detail-size,#vcf-cloud-dialog .vcf-cloud-detail-date,#vcf-cloud-dialog .vcf-cloud-detail-header{display:none}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-header{display:grid;position:sticky;top:0;z-index:2;grid-template-columns:26px minmax(140px,1.7fr) minmax(160px,2fr) 62px 80px 132px 162px;min-width:810px;gap:7px;padding:8px 10px;background:#f1ede3;color:#5b5245;border-bottom:1px solid #ddd2ba;font-size:12px;font-weight:700}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-list{min-width:810px;gap:0;padding:0}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-row{grid-template-columns:26px minmax(140px,1.7fr) minmax(160px,2fr) 62px 80px 132px 162px;gap:7px;padding:6px 10px;min-height:40px;border:0;border-bottom:1px solid #ebe6da;border-radius:0;background:#fff}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-row:nth-child(even){background:#faf9f6}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-row[aria-selected="true"]{background:#e2effb}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-preview{display:none}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-info{display:contents}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-title{grid-column:2;grid-row:1;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;font-size:13px}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-meta{grid-column:3;grid-row:1;white-space:nowrap;text-overflow:ellipsis;overflow:hidden;margin:0;font-size:12px}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-count{display:block;grid-column:4;grid-row:1}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-size{display:block;grid-column:5;grid-row:1}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-detail-date{display:block;grid-column:6;grid-row:1;font-size:11px}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-actions{grid-column:7;grid-row:1;flex-wrap:nowrap;max-width:none}
+      #vcf-cloud-dialog [data-view="details"] .vcf-cloud-actions button{white-space:nowrap;padding:5px;font-size:11px}
+      #vcf-cloud-dialog .vcf-cloud-row:focus-visible{outline:2px solid #276d9d;outline-offset:-2px}
+      @media(max-width:650px){#vcf-cloud-dialog .vcf-cloud-body{min-height:0}#vcf-cloud-dialog .vcf-cloud-explorer{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(90px,170px) minmax(200px,1fr);max-height:70dvh}#vcf-cloud-dialog .vcf-cloud-tree-pane{border-right:0;border-bottom:1px solid #ddd5c5}#vcf-cloud-dialog .vcf-cloud-row{grid-template-columns:22px 70px minmax(0,1fr);gap:7px}#vcf-cloud-dialog .vcf-cloud-preview{width:70px}#vcf-cloud-dialog .vcf-cloud-actions{grid-column:2/-1;grid-row:2;max-width:none}#vcf-cloud-dialog [data-view="details"] .vcf-cloud-row{grid-template-columns:26px minmax(140px,1.7fr) minmax(160px,2fr) 62px 80px 132px 162px}}
       .vcf-cloud-body{padding:16px;display:grid;gap:12px}.vcf-cloud-folder-toolbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.vcf-cloud-folder-toolbar label{display:flex;align-items:center;gap:6px;flex:1;min-width:150px}.vcf-cloud-folder-toolbar select{flex:1;min-width:100px;max-width:100%;padding:7px;border:1px solid #bbb0a0;border-radius:6px;background:#fff}.vcf-cloud-folder-toolbar button{padding:7px;border:1px solid #aaa;border-radius:6px;background:#fff;cursor:pointer}.vcf-cloud-folder-chooser{border:1px solid #b9b09c;border-radius:10px;padding:20px;max-width:min(440px,90vw)}.vcf-cloud-folder-chooser select{display:block;width:100%;padding:8px;margin:10px 0}.vcf-cloud-folder-chooser div{display:flex;justify-content:end;gap:8px}.vcf-cloud-folder-chooser button{padding:7px 14px}.vcf-cloud-head{display:flex;justify-content:space-between;align-items:center;gap:10px}.vcf-cloud-head h3{margin:0}.vcf-cloud-list{display:grid;gap:8px;overflow:auto;max-height:55vh}.vcf-cloud-row{display:grid;grid-template-columns:112px minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px;border:1px solid #ddd5c5;border-radius:8px;background:#fffdf8}.vcf-cloud-preview{width:112px;aspect-ratio:1/1;display:grid;place-items:center;border:1px solid #d0b98c;border-radius:5px;background:#edcf9d;overflow:hidden;font-size:11px;color:#666}.vcf-cloud-preview svg{display:block;width:100%;height:100%}.vcf-cloud-title{font-weight:700;overflow-wrap:anywhere}.vcf-cloud-meta{font-size:12px;color:#6b6559;margin-top:3px;overflow-wrap:anywhere}.vcf-cloud-actions{display:flex;gap:5px;flex-wrap:wrap}.vcf-cloud-actions button,.vcf-cloud-head button{border:1px solid #aaa;border-radius:6px;background:#fff;padding:6px 8px;cursor:pointer}.vcf-cloud-empty{padding:18px;text-align:center;color:#6b6559;background:#f7f4ed;border-radius:8px}@media(max-width:600px){.vcf-cloud-row{grid-template-columns:88px minmax(0,1fr);gap:9px}.vcf-cloud-preview{width:88px}.vcf-cloud-actions{grid-column:1/-1;justify-content:flex-end}}
     `;
     document.head.appendChild(style);
@@ -252,17 +315,188 @@
       select.appendChild(option);
     }
   }
-  function updateFolderBar(dialog) {
-    const select = dialog.querySelector("[data-folder-select]");
-    if (!select) return;
-    folderSelector(select);
-    if (activeFolderId > 0 && !cloudFolders.some(folder => Number(folder.id) === activeFolderId))
-      activeFolderId = 0;
-    select.value = String(activeFolderId);
+
+  function visibleCloudRecords() {
+    return cloudRecords.filter(record => Number(record.folder_id || 0) === activeFolderId);
+  }
+  function folderPathNames(id) {
+    const names = [];
+    const visited = new Set();
+    while (id > 0 && !visited.has(id)) {
+      visited.add(id);
+      const folder = cloudFolders.find(entry => Number(entry.id) === id);
+      if (!folder) break;
+      names.unshift(folder.name);
+      id = Number(folder.parent_id || 0);
+    }
+    return ["根目錄", ...names];
+  }
+  function selectFolder(dialog, id) {
+    if (activeFolderId === id) return;
+    activeFolderId = id;
+    selectedRecordIds.clear();
+    lastSelectionIndex = -1;
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
+  }
+  function renderFolderTree(dialog) {
+    const tree = dialog.querySelector("[data-tree]");
+    if (!tree) return;
+    tree.replaceChildren();
+    const childrenByParent = new Map();
+    for (const folder of cloudFolders) {
+      const parent = Number(folder.parent_id || 0);
+      if (!childrenByParent.has(parent)) childrenByParent.set(parent, []);
+      childrenByParent.get(parent).push(folder);
+    }
+    for (const group of childrenByParent.values()) {
+      group.sort((a, b) => String(a.name).localeCompare(String(b.name), "zh-Hant", { numeric: true }));
+    }
+    const folderId = Number(activeFolderId);
+    if (folderId > 0 && !cloudFolders.some(folder => Number(folder.id) === folderId)) activeFolderId = 0;
+    for (const entry of cloudFolders) {
+      let current = Number(entry.id), guard = new Set();
+      if (current !== activeFolderId) continue;
+      while (current > 0 && !guard.has(current)) {
+        guard.add(current);
+        const node = cloudFolders.find(folder => Number(folder.id) === current);
+        if (!node) break;
+        expandedFolderIds.add(Number(node.parent_id || 0));
+        current = Number(node.parent_id || 0);
+      }
+    }
+    const countByFolder = new Map();
+    for (const record of cloudRecords) {
+      const id = Number(record.folder_id || 0);
+      countByFolder.set(id, (countByFolder.get(id) || 0) + 1);
+    }
+    const make = (id, name, depth, ancestors) => {
+      if (ancestors.has(id)) return null;
+      const node = document.createElement("div");
+      node.className = "vcf-cloud-tree-node";
+      node.setAttribute("role", "treeitem");
+      const line = document.createElement("div");
+      line.className = "vcf-cloud-tree-line";
+      line.style.paddingLeft = Math.min(depth * 14, 140) + "px";
+      const children = childrenByParent.get(id) || [];
+      const expand = document.createElement("button");
+      expand.className = "vcf-cloud-tree-toggle";
+      expand.type = "button";
+      expand.textContent = children.length ? (expandedFolderIds.has(id) ? "▾" : "▸") : " ";
+      expand.disabled = !children.length;
+      expand.setAttribute("aria-label", (expandedFolderIds.has(id) ? "收合 " : "展開 ") + name);
+      const choose = document.createElement("button");
+      choose.type = "button";
+      choose.className = "vcf-cloud-tree-name";
+      choose.textContent = (id === 0 ? "📂 " : "📁 ") + name + " (" + (countByFolder.get(id) || 0) + ")";
+      choose.title = name;
+      choose.setAttribute("aria-current", String(id === activeFolderId));
+      choose.addEventListener("click", () => selectFolder(dialog, id));
+      const group = document.createElement("div");
+      group.setAttribute("role", "group");
+      group.hidden = !expandedFolderIds.has(id);
+      if (children.length) {
+        node.setAttribute("aria-expanded", String(!group.hidden));
+        expand.addEventListener("click", () => {
+          group.hidden = !group.hidden;
+          node.setAttribute("aria-expanded", String(!group.hidden));
+          expandedFolderIds[group.hidden ? "delete" : "add"](id);
+          expand.textContent = group.hidden ? "▸" : "▾";
+          expand.setAttribute("aria-label", (group.hidden ? "展開 " : "收合 ") + name);
+        });
+      }
+      line.append(expand, choose);
+      node.append(line, group);
+      const nextAncestors = new Set([...ancestors, id]);
+      for (const child of children) {
+        const nested = make(Number(child.id), child.name, depth + 1, nextAncestors);
+        if (nested) group.appendChild(nested);
+      }
+      return node;
+    };
+    tree.appendChild(make(0, "根目錄", 0, new Set()));
+    const path = dialog.querySelector("[data-folder-path]");
+    if (path) path.textContent = folderPathNames(activeFolderId).join(" / ");
     for (const action of ["rename", "move", "delete"]) {
       const button = dialog.querySelector("[data-folder-" + action + "]");
       if (button) button.disabled = activeFolderId === 0;
     }
+  }
+  function updateSelectionUI(dialog) {
+    const current = visibleCloudRecords();
+    const valid = new Set(current.map(record => Number(record.id)));
+    for (const id of Array.from(selectedRecordIds)) if (!valid.has(id)) selectedRecordIds.delete(id);
+    const list = dialog.querySelector("[data-list]");
+    for (const row of list?.querySelectorAll?.(".vcf-cloud-row") || []) {
+      const id = Number(row.dataset.recordId);
+      const checked = selectedRecordIds.has(id);
+      row.setAttribute("aria-selected", String(checked));
+      const check = row.querySelector(".vcf-cloud-select");
+      if (check) check.checked = checked;
+    }
+    const count = selectedRecordIds.size;
+    const text = dialog.querySelector("[data-selected-count]");
+    if (text) text.textContent = "已選 " + count + " / " + current.length + " 份";
+    for (const action of ["batch-move", "batch-delete"]) {
+      const button = dialog.querySelector("[data-" + action + "]");
+      if (button) button.disabled = count === 0;
+    }
+    const all = dialog.querySelector("[data-select-all]");
+    if (all) {
+      all.disabled = current.length === 0;
+      all.textContent = count === current.length && current.length > 0 ? "取消全選" : "全選";
+    }
+  }
+  function selectRecord(dialog, id, index, event, checked = null) {
+    if (checked !== null) {
+      checked ? selectedRecordIds.add(id) : selectedRecordIds.delete(id);
+    } else if (event.shiftKey && lastSelectionIndex >= 0) {
+      const visible = visibleCloudRecords();
+      if (!event.ctrlKey && !event.metaKey) selectedRecordIds.clear();
+      const start = Math.min(lastSelectionIndex, index), end = Math.max(lastSelectionIndex, index);
+      for (let i = start; i <= end; i++) selectedRecordIds.add(Number(visible[i].id));
+    } else if (event.ctrlKey || event.metaKey) {
+      selectedRecordIds.has(id) ? selectedRecordIds.delete(id) : selectedRecordIds.add(id);
+    } else {
+      selectedRecordIds.clear();
+      selectedRecordIds.add(id);
+    }
+    lastSelectionIndex = index;
+    updateSelectionUI(dialog);
+  }
+  async function batchMoveRecords(dialog) {
+    const ids = Array.from(selectedRecordIds);
+    if (!ids.length) return;
+    const destination = await chooseDestination("移動 " + ids.length + " 份棋譜到");
+    if (destination === null) return;
+    let moved = 0, problem = null;
+    for (const id of ids) {
+      try {
+        explorerNotice(dialog, "正在移動第 " + (moved + 1) + " / " + ids.length + " 份棋譜…");
+        await moveRecord(id, destination);
+        selectedRecordIds.delete(id);
+        moved++;
+      } catch (error) { problem = error; break; }
+    }
+    await refreshDialog(dialog);
+    explorerNotice(dialog, "已移動 " + moved + " 份棋譜。" + (problem ? " 其餘未移動：" + (problem.message || problem) : ""));
+  }
+  async function batchDeleteRecords(dialog) {
+    const ids = Array.from(selectedRecordIds);
+    if (!ids.length) return;
+    if (!confirm("確定永久刪除所選的 " + ids.length + " 份棋譜？此操作無法復原。")) return;
+    let deleted = 0, problem = null;
+    for (const id of ids) {
+      try {
+        explorerNotice(dialog, "正在刪除第 " + (deleted + 1) + " / " + ids.length + " 份棋譜…");
+        await remove(id);
+        previewCache.delete(id);
+        selectedRecordIds.delete(id);
+        deleted++;
+      } catch (error) { problem = error; break; }
+    }
+    await refreshDialog(dialog);
+    explorerNotice(dialog, "已刪除 " + deleted + " 份棋譜。" + (problem ? " 其餘未刪除：" + (problem.message || problem) : ""));
   }
   function chooseDestination(title, excludedId = 0) {
     return new Promise(resolve => {
@@ -300,7 +534,9 @@
     if (action === "create") {
       const name = prompt("新增子資料夾名稱", "");
       if (name === null) return;
-      await createFolder(name, id);
+      const created = await createFolder(name, id);
+      expandedFolderIds.add(id);
+      if (created.folder?.id) activeFolderId = Number(created.folder.id);
     } else if (id > 0 && action === "rename") {
       const name = prompt("資料夾名稱", cloudFolders.find(folder => Number(folder.id) === id)?.name || "");
       if (name === null) return;
@@ -316,25 +552,67 @@
     }
     await refreshDialog(dialog);
   }
+
   function ensureDialog() {
     let dialog = document.getElementById("vcf-cloud-dialog");
     if (dialog) return dialog;
     dialog = document.createElement("dialog"); dialog.id = "vcf-cloud-dialog";
-    dialog.innerHTML = '<div class="vcf-cloud-body"><div class="vcf-cloud-head"><h3>我的雲端棋譜</h3><button type="button" data-close>關閉</button></div><div class="vcf-cloud-folder-toolbar"><label>資料夾 <select data-folder-select aria-label="目前資料夾"></select></label><button type="button" data-folder-create>新增</button><button type="button" data-folder-rename>重新命名</button><button type="button" data-folder-move>移動</button><button type="button" data-folder-delete>刪除</button></div><div class="vcf-cloud-list" data-list></div></div>';
+    dialog.innerHTML = "<div class=\"vcf-cloud-body\"><div class=\"vcf-cloud-head\"><h3>我的雲端棋譜</h3><button type=\"button\" data-close>關閉</button></div><div class=\"vcf-cloud-folder-toolbar\"><button type=\"button\" data-folder-create>新增資料夾</button><button type=\"button\" data-folder-rename>重新命名</button><button type=\"button\" data-folder-move>移動資料夾</button><button type=\"button\" data-folder-delete>刪除資料夾</button></div><div class=\"vcf-cloud-explorer\"><aside class=\"vcf-cloud-tree-pane\" aria-label=\"資料夾\"><div class=\"vcf-cloud-tree-heading\">資料夾</div><nav class=\"vcf-cloud-tree\" data-tree role=\"tree\" aria-label=\"資料夾樹\"></nav></aside><section class=\"vcf-cloud-files\" aria-label=\"所選資料夾的棋譜\"><div class=\"vcf-cloud-files-toolbar\"><span class=\"vcf-cloud-path\" data-folder-path>根目錄</span><div class=\"vcf-cloud-file-tools\"><span data-selected-count class=\"vcf-cloud-selected-count\">已選 0 份</span><button type=\"button\" data-select-all>全選</button><button type=\"button\" data-batch-move disabled>移動所選</button><button type=\"button\" data-batch-delete disabled>刪除所選</button><button type=\"button\" data-view-thumbnails aria-pressed=\"true\">縮圖</button><button type=\"button\" data-view-details aria-pressed=\"false\">詳細資料</button></div></div><div class=\"vcf-cloud-items-scroll\" data-file-scroll data-view=\"thumbnails\"><div class=\"vcf-cloud-detail-header\" data-details-head><span>選取</span><span>檔名</span><span>棋譜標題</span><span>局面數</span><span>大小</span><span>修改時間</span><span>操作</span></div><div class=\"vcf-cloud-list\" data-list></div></div></section></div></div>";
     dialog.querySelector("[data-close]").addEventListener("click", () => dialog.close());
-    const select = dialog.querySelector("[data-folder-select]");
-    if (select) {
-      select.addEventListener("change", () => {
-        activeFolderId = Number(select.value);
-        void refreshDialog(dialog);
+    for (const action of ["create", "rename", "move", "delete"]) {
+      dialog.querySelector("[data-folder-" + action + "]").addEventListener("click", () => {
+        void editFolder(dialog, action).catch(e => explorerNotice(dialog, e.message || String(e)));
       });
-      for (const action of ["create", "rename", "move", "delete"]) {
-        dialog.querySelector("[data-folder-" + action + "]").addEventListener("click", () => {
-          void editFolder(dialog, action).catch(e => status(e.message || String(e)));
-        });
-      }
     }
-    document.body.appendChild(dialog); return dialog;
+    dialog.querySelector("[data-list]").addEventListener("keydown", event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        for (const record of visibleCloudRecords()) selectedRecordIds.add(Number(record.id));
+        lastSelectionIndex = -1;
+        updateSelectionUI(dialog);
+      } else if (event.key === "Escape" && selectedRecordIds.size) {
+        event.preventDefault();
+        selectedRecordIds.clear();
+        updateSelectionUI(dialog);
+      }
+    });
+    dialog.querySelector("[data-select-all]").addEventListener("click", () => {
+      const visible = visibleCloudRecords();
+      const allSelected = visible.length > 0 && visible.every(r => selectedRecordIds.has(Number(r.id)));
+      for (const record of visible) {
+        if (allSelected) selectedRecordIds.delete(Number(record.id));
+        else selectedRecordIds.add(Number(record.id));
+      }
+      lastSelectionIndex = -1;
+      updateSelectionUI(dialog);
+    });
+    dialog.querySelector("[data-batch-move]").addEventListener("click", () => {
+      void batchMoveRecords(dialog).catch(e => status(e.message || String(e)));
+    });
+    dialog.querySelector("[data-batch-delete]").addEventListener("click", () => {
+      void batchDeleteRecords(dialog).catch(e => status(e.message || String(e)));
+    });
+    for (const mode of ["thumbnails", "details"]) {
+      dialog.querySelector("[data-view-" + mode + "]").addEventListener("click", () => {
+        if (explorerView === mode) return;
+        explorerView = mode;
+        try { global.localStorage?.setItem("vcf_cloud_explorer_view", mode); } catch (_) {}
+        renderFolderContents(dialog);
+      });
+    }
+    const notice = document.createElement("div");
+    notice.className = "vcf-cloud-explorer-notice";
+    notice.setAttribute("data-explorer-notice", "");
+    notice.setAttribute("role", "status");
+    notice.setAttribute("aria-live", "polite");
+    dialog.appendChild(notice);
+    dialog.addEventListener("close", () => {
+      if (activePreviewObserver) activePreviewObserver.disconnect();
+      activePreviewObserver = null;
+      previewGeneration++;
+    });
+    document.body.appendChild(dialog);
+    return dialog;
   }
   function ensureLoginDialog() {
     let dialog = document.getElementById("vcf-shared-login-dialog");
@@ -569,75 +847,142 @@
     return true;
   }
 
-  async function refreshDialog(dialog) {
+  function renderFolderContents(dialog) {
     if (activePreviewObserver) { activePreviewObserver.disconnect(); activePreviewObserver = null; }
     const generation = ++previewGeneration;
-    const container = dialog.querySelector("[data-list]"); container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
-    let records;
-    try {
-      const catalog = await listCatalog();
-      records = catalog.records;
-      cloudFolders = catalog.folders;
-      if (!Array.isArray(records) || !Array.isArray(cloudFolders))
-        throw new Error("5DB 雲端列表內容不正確");
-    } catch (error) {
-      const message = error?.message || String(error);
-      container.replaceChildren();
-      const errorBox = document.createElement("div");
-      errorBox.className = "vcf-cloud-empty";
-      errorBox.setAttribute("role", "alert");
-      errorBox.textContent = "雲端棋譜讀取失敗：" + message;
-      const retry = document.createElement("button");
-      retry.type = "button";
-      retry.className = "bb-cloud-btn";
-      retry.textContent = "重新讀取";
-      retry.addEventListener("click", () => { void refreshDialog(dialog); });
-      container.append(errorBox, retry);
-      status("5DB 雲端棋譜讀取失敗：" + message);
+    const container = dialog.querySelector("[data-list]");
+    if (!container) return;
+    const scroll = dialog.querySelector("[data-file-scroll]");
+    if (scroll) scroll.dataset.view = explorerView;
+    for (const mode of ["thumbnails", "details"]) {
+      const control = dialog.querySelector("[data-view-" + mode + "]");
+      if (control) control.setAttribute("aria-pressed", String(explorerView === mode));
+    }
+    container.replaceChildren();
+    const records = visibleCloudRecords();
+    if (!records.length) {
+      const empty = document.createElement("div");
+      empty.className = "vcf-cloud-empty";
+      empty.textContent = "目前資料夾沒有棋譜。";
+      container.appendChild(empty);
+      updateSelectionUI(dialog);
       return;
     }
-    if (generation !== previewGeneration) return;
-    updateFolderBar(dialog);
-    records = records.filter(record => Number(record.folder_id || 0) === activeFolderId);
-    container.replaceChildren();
-    if (!records.length) { container.innerHTML = '<div class="vcf-cloud-empty">目前資料夾沒有棋譜。</div>'; return; }
     const missingPreviews = [];
-    for (const record of records) {
-      const row = document.createElement("div"); row.className = "vcf-cloud-row";
+    records.forEach((record, index) => {
+      const recordId = Number(record.id);
+      const fileName = record.file_name || record.title || "棋譜-" + recordId;
+      const row = document.createElement("div");
+      row.className = "vcf-cloud-row";
+      row.dataset.recordId = String(recordId);
+      row.tabIndex = 0;
+      row.setAttribute("aria-selected", String(selectedRecordIds.has(recordId)));
+      row.setAttribute("aria-label", fileName + ".5db");
       const previewBox = document.createElement("div");
       previewBox.className = "vcf-cloud-preview";
-      previewBox.textContent = "載入縮圖…";
-      const readyPreview = parsePreview(record.preview) ? record.preview : previewCache.get(record.id);
-      if (readyPreview) showBoardThumbnail(previewBox, readyPreview);
-      else missingPreviews.push({ record, previewBox });
-      const info = document.createElement("div"); info.innerHTML = `<div class="vcf-cloud-title"></div><div class="vcf-cloud-meta"></div>`;
-      const fileName = record.file_name || record.title || `棋譜-${record.id}`;
-      info.firstElementChild.textContent = fileName + ".5db";
-      info.lastElementChild.textContent = (record.file_name && record.title ? `棋譜標題：${record.title} · ` : "") +
-        `${record.record_count || 0} 個局面 · ${formatBytes(record.compressed_size)} · ${record.updated_at || ""}`;
-      const actions = document.createElement("div"); actions.className = "vcf-cloud-actions";
-      const loadButton = document.createElement("button"); loadButton.textContent = "載入 5DB";
-      loadButton.addEventListener("click", async () => { loadButton.disabled = true; try { const loaded = await load(record.id); status(`已載入「${fileName}.5db」：${loaded.imported?.nodeCount ?? record.record_count ?? 0} 個局面${loaded.imported?.annotationCount ? `、${loaded.imported.annotationCount} 個標記` : ''}`); dialog.close(); } catch (e) { status(e.message || String(e)); } finally { loadButton.disabled = false; } });
-      const dl = document.createElement("button"); dl.textContent = "下載 .5db"; dl.addEventListener("click", async () => { dl.disabled = true; try { const r = await fetchRecord(record.id); download(r.bytes, `${normalizeFileName(fileName, `棋譜-${record.id}`)}.5db`); } catch (e) { status(e.message || String(e)); } finally { dl.disabled = false; } });
-      const del = document.createElement("button"); del.textContent = "刪除"; del.addEventListener("click", async () => { if (!confirm(`確定刪除「${fileName}.5db」？`)) return; del.disabled = true; try { await remove(record.id); await refreshDialog(dialog); status("已刪除。"); } catch (e) { status(e.message || String(e)); } });
+      if (explorerView === "thumbnails") {
+        previewBox.textContent = "載入縮圖…";
+        const ready = parsePreview(record.preview) ? record.preview : previewCache.get(recordId);
+        if (ready) showBoardThumbnail(previewBox, ready);
+        else missingPreviews.push({ record, previewBox });
+      }
+      const info = document.createElement("div");
+      info.className = "vcf-cloud-info";
+      info.innerHTML = '<div class="vcf-cloud-title"></div><div class="vcf-cloud-meta"></div><div class="vcf-cloud-thumb-stats"></div>';
+      info.children[0].textContent = fileName + ".5db";
+      info.children[1].textContent = record.title || "（無標題）";
+      info.children[2].textContent = (record.record_count || 0) + " 個局面 · " +
+        formatBytes(record.compressed_size) + " · " + (record.updated_at || "");
+      const actions = document.createElement("div");
+      actions.className = "vcf-cloud-actions";
+      const loadButton = document.createElement("button"); loadButton.type = "button"; loadButton.textContent = "載入";
+      loadButton.addEventListener("click", async event => {
+        event.stopPropagation?.();
+        loadButton.disabled = true;
+        try {
+          const loaded = await load(recordId);
+          status("已載入「" + fileName + ".5db」：" + (loaded.imported?.nodeCount ?? record.record_count ?? 0) + " 個局面");
+          dialog.close();
+        } catch (error) { status(error.message || String(error)); }
+        finally { loadButton.disabled = false; }
+      });
+      const dl = document.createElement("button");
+      dl.type = "button"; dl.textContent = "下載";
+      dl.addEventListener("click", async event => {
+        event.stopPropagation?.();
+        dl.disabled = true;
+        try {
+          const result = await fetchRecord(recordId);
+          download(result.bytes, normalizeFileName(fileName, "棋譜-" + recordId) + ".5db");
+        } catch (error) { status(error.message || String(error)); }
+        finally { dl.disabled = false; }
+      });
       const move = document.createElement("button");
-      move.textContent = "移動";
-      move.addEventListener("click", async () => {
+      move.type = "button"; move.textContent = "移動";
+      move.addEventListener("click", async event => {
+        event.stopPropagation?.();
         const destination = await chooseDestination("移動「" + fileName + "」到");
         if (destination === null) return;
         move.disabled = true;
-        try {
-          await moveRecord(record.id, destination);
-          await refreshDialog(dialog);
-        } catch (e) { status(e.message || String(e)); }
+        try { await moveRecord(recordId, destination); selectedRecordIds.delete(recordId); await refreshDialog(dialog); }
+        catch (error) { status(error.message || String(error)); }
         finally { move.disabled = false; }
       });
+      const del = document.createElement("button");
+      del.type = "button"; del.textContent = "刪除";
+      del.addEventListener("click", async event => {
+        event.stopPropagation?.();
+        if (!confirm("確定永久刪除「" + fileName + ".5db」？")) return;
+        del.disabled = true;
+        try {
+          await remove(recordId);
+          previewCache.delete(recordId);
+          selectedRecordIds.delete(recordId);
+          await refreshDialog(dialog);
+          status("已刪除。");
+        } catch (error) { status(error.message || String(error)); }
+        finally { del.disabled = false; }
+      });
       actions.append(loadButton, dl, move, del);
-      row.append(previewBox, info, actions);
+      const check = document.createElement("input");
+      check.type = "checkbox";
+      check.className = "vcf-cloud-select";
+      check.checked = selectedRecordIds.has(recordId);
+      check.setAttribute("aria-label", "選取 " + fileName);
+      check.addEventListener("click", event => event.stopPropagation?.());
+      check.addEventListener("change", () => selectRecord(dialog, recordId, index, {}, check.checked));
+      row.addEventListener("click", event => {
+        if (event.target === check || event.target?.closest?.("button")) return;
+        selectRecord(dialog, recordId, index, event);
+      });
+      row.addEventListener("keydown", event => {
+        if (event.target !== row) return;
+        if (event.key === " " || event.key === "Spacebar") {
+          event.preventDefault();
+          selectRecord(dialog, recordId, index, {ctrlKey:true});
+        }
+        if (event.key === "Enter") { event.preventDefault(); loadButton.click(); }
+      });
+      row.addEventListener("dblclick", event => {
+        if (event.target?.closest?.("button, input")) return;
+        loadButton.click();
+      });
+      const detailCount = document.createElement("div");
+      detailCount.className = "vcf-cloud-detail-count";
+      detailCount.textContent = String(record.record_count || 0);
+      const detailSize = document.createElement("div");
+      detailSize.className = "vcf-cloud-detail-size";
+      detailSize.textContent = formatBytes(record.compressed_size);
+      const detailDate = document.createElement("div");
+      detailDate.className = "vcf-cloud-detail-date";
+      detailDate.textContent = String(record.updated_at || "");
+      row.append(previewBox, info, actions, check, detailCount, detailSize, detailDate);
       container.appendChild(row);
-    }
-    // Existing 5DB entries have no preview metadata. Decode those files only
-    // when their thumbnails are visible; never fetch every record eagerly.
+    });
+    updateSelectionUI(dialog);
+    if (explorerView !== "thumbnails" || !missingPreviews.length) return;
+    // Older 5DB files have no compact preview. Decode only visible items, at
+    // most two requests concurrently; details mode makes no preview requests.
     const queue = [];
     let inFlight = 0;
     const pump = () => {
@@ -647,15 +992,15 @@
         fetchRecord(item.record.id).then(result => {
           if (generation !== previewGeneration) return;
           const shot = global.FiveDB.preview(global.FiveDB.decode(result.bytes));
-          const encoded = shot.width <= 25 && shot.height <= 25 ? `${shot.width}x${shot.height}:${shot.board}` : "";
-          if (encoded) previewCache.set(item.record.id, encoded);
+          const encoded = shot.width <= 25 && shot.height <= 25
+            ? shot.width + "x" + shot.height + ":" + shot.board : "";
+          if (encoded) previewCache.set(Number(item.record.id), encoded);
           showBoardThumbnail(item.previewBox, encoded);
         }).catch(() => {
           if (generation === previewGeneration) item.previewBox.textContent = "無法預覽";
         }).finally(() => { inFlight--; pump(); });
       }
     };
-    const add = item => { queue.push(item); pump(); };
     if (typeof IntersectionObserver === "function") {
       const awaiting = new Map(missingPreviews.map(item => [item.previewBox, item]));
       const observer = new IntersectionObserver(entries => {
@@ -665,14 +1010,50 @@
           if (!item) continue;
           awaiting.delete(entry.target);
           observer.unobserve(entry.target);
-          add(item);
+          queue.push(item);
         }
-      }, { root: container, rootMargin: "100px" });
+        pump();
+      }, { root: scroll || container, rootMargin: "100px" });
       activePreviewObserver = observer;
       for (const item of missingPreviews) observer.observe(item.previewBox);
-    } else {
-      for (const item of missingPreviews) add(item);
+    } else { queue.push(...missingPreviews); pump(); }
+  }
+  async function refreshDialog(dialog) {
+    if (activePreviewObserver) { activePreviewObserver.disconnect(); activePreviewObserver = null; }
+    const generation = ++previewGeneration;
+    const container = dialog.querySelector("[data-list]");
+    if (container) container.innerHTML = '<div class="vcf-cloud-empty">正在讀取……</div>';
+    let catalog;
+    try {
+      catalog = await listCatalog();
+      if (!Array.isArray(catalog.records) || !Array.isArray(catalog.folders))
+        throw new Error("5DB 雲端列表內容不正確");
+    } catch (error) {
+      if (generation !== previewGeneration) return;
+      const message = error.message || String(error);
+      if (container) {
+        container.replaceChildren();
+        const failure = document.createElement("div");
+        failure.className = "vcf-cloud-empty";
+        failure.setAttribute("role", "alert");
+        failure.textContent = "雲端棋譜讀取失敗：" + message;
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "bb-cloud-btn";
+        retry.textContent = "重新讀取";
+        retry.addEventListener("click", () => { void refreshDialog(dialog); });
+        container.append(failure, retry);
+      }
+      explorerNotice(dialog, "5DB 雲端棋譜讀取失敗：" + message);
+      return;
     }
+    if (generation !== previewGeneration) return;
+    cloudRecords = catalog.records;
+    cloudFolders = catalog.folders;
+    const existing = new Set(cloudRecords.map(record => Number(record.id)));
+    for (const id of Array.from(selectedRecordIds)) if (!existing.has(id)) selectedRecordIds.delete(id);
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
   }
   function refreshAuthUI() {
     const login = document.getElementById("vcf-shared-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
