@@ -160,7 +160,7 @@ if (($origin !== '' && $origin !== $expectedOrigin) ||
     fail5('不允許的請求來源', 403);
 $action = (string)($_GET['action'] ?? '');
 $method = (string)($_SERVER['REQUEST_METHOD'] ?? '');
-if (!in_array($action, ['list','get','save','delete','folder_create','folder_rename','folder_move','folder_delete','record_move'], true)) fail5('不支援的 5DB 操作', 404);
+if (!in_array($action, ['list','get','save','delete','folder_create','folder_rename','folder_move','folder_delete','record_move','records_move'], true)) fail5('不支援的 5DB 操作', 404);
 if (($action === 'list' || $action === 'get') && $method !== 'GET') fail5('HTTP 方法錯誤', 405);
 if (!in_array($action, ['list','get'], true) && $method !== 'POST') fail5('HTTP 方法錯誤', 405);
 $user = authenticate5();
@@ -250,7 +250,7 @@ if ($action === 'save') {
     flock($fp, LOCK_UN); fclose($fp);
     reply5(['id' => $id, 'record_count' => $nodeCount, 'compressed_size' => strlen($payload)]);
 }
-if (str_starts_with($action, 'folder_') || $action === 'record_move') {
+if (str_starts_with($action, 'folder_') || $action === 'record_move' || $action === 'records_move') {
     $folders = $manifest['folders'];
     if ($action === 'folder_create') {
         $parentId = folderId5($manifest, 'parent_id');
@@ -263,6 +263,34 @@ if (str_starts_with($action, 'folder_') || $action === 'record_move') {
         $manifest['folders'][(string)$id] = $folder;
         writeManifest5($fp, $manifest);
         reply5(['folder' => $folder]);
+    }
+    if ($action === 'records_move') {
+        // Move multiple records by folder_id only. Never read or rewrite .5db binaries.
+        // Validate all IDs before the single manifest write: no partial server-side move.
+        $folderId = folderId5($manifest, 'folder_id');
+        $raw = file_get_contents('php://input');
+        if (!is_string($raw) || strlen($raw) > 40000) fail5('批次移動資料過大', 413);
+        $body = json_decode($raw, true);
+        $ids = $body['ids'] ?? null;
+        if (!is_array($ids) || count($ids) < 1 || count($ids) > 2000
+            || array_keys($ids) !== range(0, count($ids) - 1))
+            fail5('一次最多移動 2000 份棋譜');
+        $unique = [];
+        foreach ($ids as $id) {
+            if (!is_int($id) || $id <= 0 || $id >= 2147483647
+                || !isset($records[(string)$id])) fail5('批次移動包含無效或不存在的棋譜編號', 400);
+            $unique[(string)$id] = $id;
+        }
+        $changed = 0;
+        foreach ($unique as $id) {
+            if ((int)($records[(string)$id]['folder_id'] ?? 0) !== $folderId) {
+                $manifest['records'][(string)$id]['folder_id'] = $folderId;
+                $changed++;
+            }
+        }
+        if ($changed > 0) writeManifest5($fp, $manifest);
+        flock($fp, LOCK_UN); fclose($fp);
+        reply5(['folder_id' => $folderId, 'moved' => $changed, 'ids' => array_values($unique)]);
     }
     if ($action === 'record_move') {
         $id = positiveId5();
@@ -289,8 +317,11 @@ if (str_starts_with($action, 'folder_') || $action === 'record_move') {
             $cursor = (int)$folders[(string)$cursor]['parent_id'];
         }
         uniqueSibling5($folders, $parentId, (string)$folders[(string)$id]['name'], $id);
-        $manifest['folders'][(string)$id]['parent_id'] = $parentId;
-        writeManifest5($fp, $manifest);
+        if ((int)$manifest['folders'][(string)$id]['parent_id'] !== $parentId) {
+            $manifest['folders'][(string)$id]['parent_id'] = $parentId;
+            writeManifest5($fp, $manifest);
+        }
+        flock($fp, LOCK_UN); fclose($fp);
         reply5(['folder' => $manifest['folders'][(string)$id]]);
     }
     foreach ($folders as $folder) {
