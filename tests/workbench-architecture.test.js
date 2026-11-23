@@ -22,7 +22,7 @@ has("cloud", ["async function saveDocument(doc, fileName = \"\", folderId = 0)",
 has("builder", ["vcf-batch-benchmark.js"]);
 has("server", ["function folderId5(", "function folderName5(", "folder_create", "folder_move", "folder_delete", "record_move", "folder_id"]);
 lacks("server", ["FIVE_DB_MAX_RECORDS", "count($records) >=", "1000 份棋譜"]);
-has("cloud", ["async function listCatalog()", "createFolder, renameFolder, moveFolder, deleteFolder, moveRecord", "updateFolderBar(dialog)"]);
+has("cloud", ["async function listCatalog()", "createFolder, renameFolder, moveFolder, deleteFolder, moveRecord", "renderFolderTree(dialog)", "renderFolderContents(dialog)", "selectedRecordIds", "vcf-cloud-detail-header"]);
 has("html", ['id="vcf-batch-folder"', 'id="vcf-batch-target-folder"', 'data-sort="fileName"', 'data-sort="title"', '>序號</th>']);
 has("builder", ["vcf-batch-benchmark.js"]);
 lacks("html",['value="vcfdb"','value="yxdb"','value="lib"',"vcf-cloud-annotation-codec.js"]);
