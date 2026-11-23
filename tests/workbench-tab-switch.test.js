@@ -79,14 +79,20 @@ const localStorage = {
   setItem: (key, value) => { store.set(key, String(value)); },
 };
 const events = new Map();
+const emittedTabs = [];
 const window = {
   addEventListener(name, handler) { (events.get(name) || events.set(name, []).get(name)).push(handler); },
+  dispatchEvent(event) {
+    if (event.type === "vcf-workbench-tab-changed") emittedTabs.push(event.detail.tab);
+    for (const h of events.get(event.type) || []) h(event);
+  },
   dispatch(name, detail) { for (const h of events.get(name) || []) h({ detail }); },
   VCFWorkbenchRecord: { workspace: () => ({ mode: "record" }), currentRecordText: () => "" },
 };
 vm.runInNewContext(layout, {
   window, document, localStorage, console,
   queueMicrotask, Uint8Array, Promise,
+  CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
 }, { filename: "makevcf-layout.js" });
 const selected = key => {
   const node = tabs.find(tab => tab.dataset.tab === key);
@@ -98,12 +104,14 @@ assert.equal(document.documentElement.dataset.vcfTab, "generator", "generator ta
 assert.equal(selected("generator"), "true");
 assert.equal(selected("calculation"), "false");
 assert.equal(store.get("vcf_workspace_tab"), "generator", "tab preference saved");
+assert.deepEqual(emittedTabs.slice(0, 2), ["calculation", "generator"], "tab changes emit the active tab");
 tabs[2].dispatch("click");
 assert.equal(document.documentElement.dataset.vcfTab, "import", "image import activated");
 assert.equal(selected("import"), "true");
 tabs[3].dispatch("click");
 assert.equal(document.documentElement.dataset.vcfTab, "benchmark", "batch benchmark tab activated");
 assert.equal(selected("benchmark"), "true");
+assert.equal(emittedTabs.at(-1), "benchmark", "benchmark activation event supports auto cloud loading");
 tabs[3].dispatch("keydown", { key: "Home" });
 assert.equal(document.documentElement.dataset.vcfTab, "calculation", "keyboard tab switching");
 // This event also exercises BOARD_SIZE/BOARD_CELLS in the SVG overlay.
