@@ -18,6 +18,8 @@
   let cloudRecords = [];
   const selectedRecordIds = new Set();
   const expandedFolderIds = new Set([0]);
+  let activeDrag = null;
+  let moveBusy = false;
   let lastSelectionIndex = -1;
   let explorerView = global.localStorage?.getItem("vcf_cloud_explorer_view") === "details" ? "details" : "thumbnails";
 
@@ -142,6 +144,32 @@
   const deleteFolder = id => folderAction("folder_delete", { id: String(id) });
   const moveRecord = (id, folderId) =>
     folderAction("record_move", { id: String(id), folder_id: String(folderId) });
+  async function moveRecords(ids, folderId) {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    const unique = Array.from(new Set(ids.map(Number)));
+    if (!unique.length || unique.some(id => !Number.isSafeInteger(id) || id < 1))
+      throw new Error("沒有可移動的棋譜");
+    const movedIds = [];
+    for (let i = 0; i < unique.length; i += 2000) {
+      const batch = unique.slice(i, i + 2000);
+      const params = new URLSearchParams({ action: "records_move", folder_id: String(folderId) });
+      try {
+        const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
+          method: "POST", cache: "no-store", credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: batch }),
+        });
+        const payload = await jsonResponse(response);
+        if (!Array.isArray(payload.ids) || payload.ids.length !== batch.length)
+          throw new Error("雲端批次移動回應不完整，請重新讀取");
+        movedIds.push(...batch);
+      } catch (error) {
+        error.movedIds = movedIds;
+        throw error;
+      }
+    }
+    return { movedIds, folderId };
+  }
   async function fetchRecord(id) {
     if (!authUser) throw new Error("請先登入協會會員帳號");
     const recordId = Number(id);
