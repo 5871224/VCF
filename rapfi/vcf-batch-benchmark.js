@@ -10,6 +10,7 @@
   const results = new Map();
   let cloudFolders = [];
   let sourceKind = "local";
+  let cloudLoadPromise = null;
   let sortField = "order";
   let descending = false;
   const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
@@ -89,7 +90,6 @@
     return false;
   }
   function currentItems() {
-    const term = $("vcf-batch-filter").value.trim().toLocaleLowerCase();
     const chosen = Number($("vcf-batch-folder").value || -1);
     const withChildren = $("vcf-batch-include-subfolders").checked;
     return items.filter(item => {
@@ -97,8 +97,7 @@
         const folder = Number(item.folderId || 0);
         if (folder !== chosen && !(withChildren && descendants(folder, chosen))) return false;
       }
-      return !term || [item.fileName, item.title].some(value =>
-        String(value).toLocaleLowerCase().includes(term));
+      return true;
     }).sort((a, b) => {
       const av = sortField === "order" ? items.indexOf(a) : sortField === "folder" ? a.folderId
         : sortField === "status" ? (results.get(a.key)?.status || "")
@@ -160,17 +159,18 @@
     return catalog;
   }
   function syncControls() {
-    $("vcf-batch-run").disabled = busy || !selected.size;
-    $("vcf-batch-upload").disabled = busy || !items.some(item => selected.has(item.key) && item.doc);
+    const visible = currentItems();
+    const chosen = visible.filter(item => selected.has(item.key));
+    $("vcf-batch-run").disabled = busy || chosen.length === 0;
+    $("vcf-batch-upload").disabled = busy || !chosen.some(item => item.doc);
     $("vcf-batch-stop").disabled = !busy;
     $("vcf-batch-csv").disabled = !results.size;
     $("vcf-batch-source").disabled = busy;
     $("vcf-batch-cloud").disabled = busy;
     $("vcf-batch-folder-refresh").disabled = busy;
     $("vcf-batch-target-folder").disabled = busy || sourceKind !== "local";
-    $("vcf-batch-folder").disabled = busy || sourceKind !== "cloud";
-    const visible = currentItems();
-    $("vcf-batch-selected").textContent = "已選取 " + visible.filter(item => selected.has(item.key)).length
+    $("vcf-batch-folder").disabled = busy;
+    $("vcf-batch-selected").textContent = "已選取 " + chosen.length
       + " / " + visible.length + " 份棋譜";
   }
   function render() {
@@ -221,6 +221,17 @@
       folderId: Number(record.folder_id || 0), doc: null,
     }));
     setItems(next, "已讀取雲端 " + next.length + " 份棋譜，請選擇資料夾並勾選測速項目。");
+  }
+  function loadCloudOnce() {
+    if (!cloudLoadPromise) {
+      cloudLoadPromise = loadCloud().finally(() => { cloudLoadPromise = null; });
+    }
+    return cloudLoadPromise;
+  }
+  function openBenchmarkTab() {
+    // The cloud API is injected after this module on the production site.
+    // On initial page load, defer until it has been installed.
+    if (!busy && !items.length && global.VCFCloud5DB?.listCatalog) action(loadCloudOnce);
   }
   async function getDocument(item) {
     if (item.doc) return item.doc;
@@ -413,9 +424,12 @@
     action(() => loadJson(file));
     event.target.value = "";
   });
-  $("vcf-batch-cloud").addEventListener("click", () => action(loadCloud));
+  $("vcf-batch-cloud").addEventListener("click", () => action(loadCloudOnce));
   $("vcf-batch-folder-refresh").addEventListener("click", () => action(loadFolders));
-  $("vcf-batch-folder").addEventListener("change", render);
+  $("vcf-batch-folder").addEventListener("change", () => {
+    if (sourceKind === "cloud") render();
+    else action(loadCloudOnce);
+  });
   $("vcf-batch-include-subfolders").addEventListener("change", render);
   panel.querySelector(".vcf-batch-table thead").addEventListener("click", event => {
     const header = event.target.closest("th[data-sort]");
@@ -425,7 +439,6 @@
     else { sortField = field; descending = false; }
     render();
   });
-  $("vcf-batch-filter").addEventListener("input", render);
   $("vcf-batch-table-body").addEventListener("change", event => {
     const key = event.target.dataset.batchId;
     if (!key) return;
@@ -444,5 +457,12 @@
   $("vcf-batch-run").addEventListener("click", () => action(runSelected));
   $("vcf-batch-stop").addEventListener("click", () => { stopped = true; closeWorker(); setStatus("正在停止……"); });
   $("vcf-batch-csv").addEventListener("click", exportCsv);
+  global.addEventListener("vcf-workbench-tab-changed", event => {
+    if (event.detail?.tab === "benchmark") openBenchmarkTab();
+  });
   syncControls();
+  if (document.documentElement.dataset.vcfTab === "benchmark") openBenchmarkTab();
+  global.addEventListener("load", () => {
+    if (document.documentElement.dataset.vcfTab === "benchmark") openBenchmarkTab();
+  }, { once: true });
 })(window);

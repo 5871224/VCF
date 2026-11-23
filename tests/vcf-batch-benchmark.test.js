@@ -49,6 +49,13 @@ assert.ok(source.includes('new Worker(asset("rapfi/vcf-bitboard-worker.js"))'), 
 assert.ok(source.includes("cloud.saveDocument(item.doc, item.fileName, destination)"), "cloud imports private 5DB");
 assert.ok(source.includes("descending = !descending"), "repeated table-heading clicks toggle sort order");
 assert.ok(source.includes("index + 1"), "folder-selected rows show sequential ordinals");
+const benchmarkHtml = fs.readFileSync(path.join(__dirname, "../index.html"), "utf8");
+assert.ok(!benchmarkHtml.includes('id="vcf-batch-filter"'), "batch UI has no unused search field");
+assert.ok(!source.includes("vcf-batch-filter"), "batch logic never reads or binds an obsolete search input");
+assert.ok(source.includes('$("vcf-batch-folder").disabled = busy;'),
+  "cloud folder selector is available before manually choosing the cloud source");
+assert.ok(source.includes('global.addEventListener("load"'),
+  "cloud folders load once the injected member API is ready");
 assert.ok(!source.includes("puzzles: ["), "never bundle source book puzzles");
 
 // The real folder filter and sorter determine both visible sequence and batch queue.
@@ -90,3 +97,97 @@ inputs["vcf-batch-include-subfolders"].checked = false;
 assert.deepEqual(filter.currentItems().map(x=>x.fileName), ["D"], "root without descendants");
 
 console.log("Private batch JSON->5DB conversion, side, title, coordinates and isolated benchmark passed");
+
+async function verifyLiveFolderSelector() {
+  const vm = require("node:vm");
+  class Element {
+    constructor(id = "") {
+      this.id = id;
+      this.value = "";
+      this.checked = false;
+      this.disabled = false;
+      this.children = [];
+      this.listeners = {};
+      this.dataset = {};
+      this.attributes = {};
+      this.innerHTML = "";
+      this.textContent = "";
+    }
+    addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
+    dispatch(type) {
+      for (const handler of this.listeners[type] || []) handler({ target: this, type });
+    }
+    appendChild(child) { this.children.push(child); }
+    replaceChildren(...children) { this.children = children; }
+    setAttribute(name, value) { this.attributes[name] = String(value); }
+    querySelector() { return new Element(); }
+    querySelectorAll() { return []; }
+  }
+  const elements = new Map();
+  const getElementById = id => {
+    if (!elements.has(id)) elements.set(id, new Element(id));
+    return elements.get(id);
+  };
+  const mockCatalog = {
+    folders: [{ id: 1, parent_id: 0, name: "題庫" },
+      { id: 2, parent_id: 1, name: "第二層" }],
+    records: [{ id: 10, folder_id: 0, title: "根棋譜", file_name: "ROOT" },
+      { id: 11, folder_id: 1, title: "第一層棋譜", file_name: "CHILD" },
+      { id: 12, folder_id: 2, title: "第二層棋譜", file_name: "GRANDCHILD" }],
+  };
+  let cloudRequests = 0;
+  const cloud = {
+    authMe: async () => ({ id: 1 }),
+    listCatalog: async () => { cloudRequests++; return mockCatalog; },
+  };
+  const events = new Map();
+  const global = {
+    addEventListener(type, listener) { (events.get(type) || events.set(type, []).get(type)).push(listener); },
+    emit(type, detail) {
+      for (const listener of events.get(type) || []) listener({ type, detail });
+    },
+    FiveDB,
+    // Production member API is injected after the batch script.
+    VCFCloud5DB: undefined,
+  };
+  const document = {
+    getElementById,
+    createElement: () => new Element(),
+    documentElement: { dataset: { vcfTab: "benchmark" } },
+  };
+  const context = { window: global, document, console };
+  getElementById("vcf-batch-folder").value = "-1";
+  getElementById("vcf-batch-target-folder").value = "0";
+  getElementById("vcf-batch-include-subfolders").checked = true;
+  vm.runInNewContext(source, context, { filename: "vcf-batch-benchmark.js" });
+  const folder = getElementById("vcf-batch-folder");
+  assert.equal(folder.disabled, false, "folder is immediately selectable, even before cloud import");
+  assert.equal(cloudRequests, 0, "cloud API is not called before its script has loaded");
+  global.VCFCloud5DB = cloud;
+  global.emit("load");
+  const flush = () => new Promise(resolve => setImmediate(resolve));
+  await flush();
+  assert.equal(cloudRequests, 1, "opening benchmark loads the cloud catalog without pressing read");
+  assert.deepEqual(folder.children.map(x => x.value), ["-1", "0", "1", "2"],
+    "folder choices include nested cloud folders");
+  assert.match(getElementById("vcf-batch-table-body").innerHTML, /GRANDCHILD/,
+    "records are displayed after automatic cloud loading");
+  folder.value = "1";
+  folder.dispatch("change");
+  const table = () => getElementById("vcf-batch-table-body").innerHTML;
+  assert.ok(table().includes("CHILD") && table().includes("GRANDCHILD") && !table().includes("ROOT"),
+    "selecting a folder filters cloud records with descendants");
+  getElementById("vcf-batch-include-subfolders").checked = false;
+  getElementById("vcf-batch-include-subfolders").dispatch("change");
+  assert.ok(table().includes("CHILD") && !table().includes("GRANDCHILD"),
+    "unchecking descendant folders keeps only directly contained records");
+  document.documentElement.dataset.vcfTab = "calculation";
+  global.emit("vcf-workbench-tab-changed", { tab: "calculation" });
+  document.documentElement.dataset.vcfTab = "benchmark";
+  global.emit("vcf-workbench-tab-changed", { tab: "benchmark" });
+  await flush();
+  assert.equal(cloudRequests, 1, "returning to populated benchmark does not refetch cloud data");
+}
+verifyLiveFolderSelector().then(() =>
+  console.log("VCF batch automatically loads nested cloud folders and no longer has a search field")
+).catch(error => { console.error(error); process.exitCode = 1; });
