@@ -159,8 +159,10 @@
     return catalog;
   }
   function syncControls() {
-    $("vcf-batch-run").disabled = busy || !selected.size;
-    $("vcf-batch-upload").disabled = busy || !items.some(item => selected.has(item.key) && item.doc);
+    const visible = currentItems();
+    const chosen = visible.filter(item => selected.has(item.key));
+    $("vcf-batch-run").disabled = busy || chosen.length === 0;
+    $("vcf-batch-upload").disabled = busy || !chosen.some(item => item.doc);
     $("vcf-batch-stop").disabled = !busy;
     $("vcf-batch-csv").disabled = !results.size;
     $("vcf-batch-source").disabled = busy;
@@ -168,8 +170,7 @@
     $("vcf-batch-folder-refresh").disabled = busy;
     $("vcf-batch-target-folder").disabled = busy || sourceKind !== "local";
     $("vcf-batch-folder").disabled = busy;
-    const visible = currentItems();
-    $("vcf-batch-selected").textContent = "已選取 " + visible.filter(item => selected.has(item.key)).length
+    $("vcf-batch-selected").textContent = "已選取 " + chosen.length
       + " / " + visible.length + " 份棋譜";
   }
   function render() {
@@ -424,8 +425,7 @@
     event.target.value = "";
   });
   $("vcf-batch-cloud").addEventListener("click", () => action(loadCloudOnce));
-  $("vcf-batch-folder-refresh").addEventListener("click", () =>
-    action(sourceKind === "cloud" ? loadCloudOnce : loadFolders));
+  $("vcf-batch-folder-refresh").addEventListener("click", () => action(loadFolders));
   $("vcf-batch-folder").addEventListener("change", () => {
     if (sourceKind === "cloud") render();
     else action(loadCloudOnce);
