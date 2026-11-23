@@ -492,22 +492,47 @@
     lastSelectionIndex = index;
     updateSelectionUI(dialog);
   }
+  function applyMovedRecords(dialog, ids, destination) {
+    const moved = new Set(ids.map(Number));
+    for (const record of cloudRecords) {
+      if (moved.has(Number(record.id))) record.folder_id = destination;
+    }
+    for (const id of moved) selectedRecordIds.delete(id);
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
+  }
+  async function moveSelectedToFolder(dialog, ids, destination) {
+    if (moveBusy) return;
+    const current = visibleCloudRecords();
+    const valid = new Set(current.map(record => Number(record.id)));
+    const normalized = Array.from(new Set(ids.map(Number))).filter(id => valid.has(id));
+    if (!normalized.length) return;
+    if (destination === activeFolderId) {
+      explorerNotice(dialog, "棋譜已在目前資料夾。");
+      return;
+    }
+    if (destination !== 0 && !cloudFolders.some(folder => Number(folder.id) === destination))
+      throw new Error("目的地資料夾不存在");
+    moveBusy = true;
+    try {
+      explorerNotice(dialog, "正在移動 " + normalized.length + " 份棋譜…");
+      const result = await moveRecords(normalized, destination);
+      applyMovedRecords(dialog, result.movedIds, destination);
+      explorerNotice(dialog, "已移動 " + result.movedIds.length + " 份棋譜。");
+    } catch (error) {
+      if (error.movedIds?.length) applyMovedRecords(dialog, error.movedIds, destination);
+      explorerNotice(dialog, "部分棋譜移動失敗：" + (error.message || error));
+      throw error;
+    } finally {
+      moveBusy = false;
+    }
+  }
   async function batchMoveRecords(dialog) {
     const ids = Array.from(selectedRecordIds);
     if (!ids.length) return;
     const destination = await chooseDestination("移動 " + ids.length + " 份棋譜到");
     if (destination === null) return;
-    let moved = 0, problem = null;
-    for (const id of ids) {
-      try {
-        explorerNotice(dialog, "正在移動第 " + (moved + 1) + " / " + ids.length + " 份棋譜…");
-        await moveRecord(id, destination);
-        selectedRecordIds.delete(id);
-        moved++;
-      } catch (error) { problem = error; break; }
-    }
-    await refreshDialog(dialog);
-    explorerNotice(dialog, "已移動 " + moved + " 份棋譜。" + (problem ? " 其餘未移動：" + (problem.message || problem) : ""));
+    await moveSelectedToFolder(dialog, ids, destination);
   }
   async function batchDeleteRecords(dialog) {
     const ids = Array.from(selectedRecordIds);
@@ -558,29 +583,46 @@
     });
   }
   async function editFolder(dialog, action) {
+    if (moveBusy) return;
     const id = activeFolderId;
+    let changed = false;
     if (action === "create") {
       const name = prompt("新增子資料夾名稱", "");
       if (name === null) return;
-      const created = await createFolder(name, id);
-      expandedFolderIds.add(id);
-      if (created.folder?.id) activeFolderId = Number(created.folder.id);
+      const result = await createFolder(name, id);
+      if (result.folder?.id) {
+        cloudFolders.push(result.folder);
+        expandedFolderIds.add(id);
+        activeFolderId = Number(result.folder.id);
+        changed = true;
+      }
     } else if (id > 0 && action === "rename") {
       const name = prompt("資料夾名稱", cloudFolders.find(folder => Number(folder.id) === id)?.name || "");
       if (name === null) return;
-      await renameFolder(id, name);
+      const result = await renameFolder(id, name);
+      const folder = cloudFolders.find(folder => Number(folder.id) === id);
+      if (folder) { folder.name = result.folder?.name ?? name; changed = true; }
     } else if (id > 0 && action === "move") {
       const to = await chooseDestination("移動目前資料夾到", id);
-      if (to === null) return;
+      if (to === null || to === cloudFolders.find(folder => Number(folder.id) === id)?.parent_id) return;
       await moveFolder(id, to);
+      const folder = cloudFolders.find(folder => Number(folder.id) === id);
+      if (folder) { folder.parent_id = to; expandedFolderIds.add(to); changed = true; }
     } else if (id > 0 && action === "delete") {
       if (!confirm("刪除這個空資料夾？內有棋譜或子資料夾時無法刪除。")) return;
       await deleteFolder(id);
+      cloudFolders = cloudFolders.filter(folder => Number(folder.id) !== id);
+      expandedFolderIds.delete(id);
       activeFolderId = 0;
+      changed = true;
     }
-    await refreshDialog(dialog);
+    if (!changed) return;
+    selectedRecordIds.clear();
+    lastSelectionIndex = -1;
+    renderFolderTree(dialog);
+    renderFolderContents(dialog);
+    explorerNotice(dialog, "資料夾已更新。");
   }
-
   function ensureDialog() {
     let dialog = document.getElementById("vcf-cloud-dialog");
     if (dialog) return dialog;
@@ -952,8 +994,8 @@
         const destination = await chooseDestination("移動「" + fileName + "」到");
         if (destination === null) return;
         move.disabled = true;
-        try { await moveRecord(recordId, destination); selectedRecordIds.delete(recordId); await refreshDialog(dialog); }
-        catch (error) { status(error.message || String(error)); }
+        try { await moveSelectedToFolder(dialog, [recordId], destination); }
+        catch (error) { explorerNotice(dialog, error.message || String(error)); }
         finally { move.disabled = false; }
       });
       const del = document.createElement("button");
@@ -1127,7 +1169,7 @@
   const api = {
     API_URL, FIVE_DB_API_URL,
     publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, listCatalog, load, remove,
-    createFolder, renameFolder, moveFolder, deleteFolder, moveRecord,
+    createFolder, renameFolder, moveFolder, deleteFolder, moveRecord, moveRecords,
     currentBytes: null, currentMeta: null,
     get authUser() { return authUser; },
   };
