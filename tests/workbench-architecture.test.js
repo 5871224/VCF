@@ -11,6 +11,7 @@ const files={
  dashboard:read("rapfi/rapfi-bitboard-dashboard.js"),
  bitboardMain:read("rapfi/vcf-bitboard-main.js"),
  bitboardWorker:read("rapfi/vcf-bitboard-worker.js"),
+ distanceSource:read("rapfi/vcf-bitboard-search-distance-v1.inc"),
 };
 function has(which, tokens) { for(const t of tokens) assert.ok(files[which].includes(t),which+": missing "+t); }
 function lacks(which,tokens) {for(const t of tokens) assert.ok(!files[which].includes(t),which+": obsolete "+t);}
@@ -83,7 +84,13 @@ lacks("deploy",["https://587.renju.org.tw/"]);
 assert.ok(files.html.indexOf("棋盤操作") < files.html.indexOf('<h3 class="vcf-section-title">分析'), "board controls must appear first");
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') > files.html.indexOf('id="btn-multi-vcf"'), "playback must follow multi VCF");
 assert.ok(files.html.indexOf('id="vcf-calculation-navigation"') < files.html.indexOf('id="btn-block-vcf"'), "playback belongs inside multi VCF");
-assert.ok(files.html.includes('id="btn-rapfi-vcf-benchmark"') && !files.html.includes("Rapfi VCF（獨立測速）"));
+lacks("html", ['id="btn-rapfi-vcf-benchmark"', "vcf-rapfi-vcf-benchmark.js", "Rapfi VCF 計算"]);
+lacks("builder", ["vcf-rapfi-vcf-worker.js", "vcf-rapfi-vcf-benchmark.js", "rapfi-vcf-standalone"]);
+lacks("deploy", ["rapfi-vcf-cache", "Build standalone Rapfi VCF benchmark", "RapfiVCFStandaloneModule", "_rapfiStandaloneVCF", "test -s _site/rapfi/vcf-rapfi-vcf"]);
+has("deploy", ["ftp.delete(rel)", "check_absent rapfi/vcf-rapfi-vcf-benchmark.js", "check_absent rapfi/engine/rapfi-vcf-standalone.wasm"]);
+for (const name of ["rapfi/vcf-rapfi-vcf-benchmark.js", "rapfi/vcf-rapfi-vcf-worker.js", "rapfi/vcf-rapfi-vcf-standalone.cpp", ".github/workflows/rapfi-vcf-benchmark-ci.yml"]) {
+  assert.ok(!fs.existsSync(path.join(__dirname, "..", name)), "obsolete standalone Rapfi VCF file: " + name);
+}
 assert.ok(files.layout.includes('board.addEventListener("wheel"'), "VCF playback must support board wheel");
 assert.ok(files.layout.includes("window.VCFOverlayPlayback.step(delta)"), "single VCF must use native SVG playback");
 assert.ok(files.html.includes("window.VCFOverlayPlayback = {"), "SVG renderer must own current route and step position");
@@ -112,6 +119,7 @@ has("bitboardWorker", [
   'const assetRevision = moduleURL.searchParams.get("v")',
   'assetURL.searchParams.set("v", assetRevision)',
 ]);
+has("distanceSource", ["phase == 0 && candidateCount <= 2", "radius >= 0"]);
 has("dashboard", [
   "距離限制：", "未啟用（原始 DFS）",
   "distanceLimited && info?.distanceLimited !== true",

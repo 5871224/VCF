@@ -9,6 +9,8 @@ int distanceRadiusV1(int phase, int candidateCount)
     // Exploratory ranges inspired by VCF Helper's staged distance concept;
     // not claimed to be a literal reproduction of its proprietary engine.
     if (phase >= 2) return 9;
+    // Phase 1: with at most two candidates, do not prune by distance at all.
+    if (phase == 0 && candidateCount <= 2) return -1;
     int base = candidateCount > 20 ? 2 : candidateCount > 2 ? 4 : 5;
     return phase == 1 ? std::min(9, base + 2) : base;
 }
@@ -66,6 +68,7 @@ struct DistanceSearchRunnerV1 {
             // Only speculative intermediate one-defense attacks are restricted.
             if (ply > 0 && forcedPoint == NIL && !candidate.immediate
                 && candidate.defenseCount == 1
+                && radius >= 0
                 && !distanceAllowedV1(candidate.idx, previousAttack, radius))
                 continue;
             if (!ctx->touch(ply + 1))

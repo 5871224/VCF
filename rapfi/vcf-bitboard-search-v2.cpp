@@ -225,6 +225,12 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbScanPointsModeV3(const uint8_t *
 
 static int distanceSearchV1SelfTest()
 {
+    // Phase 1 must not apply any distance cap when <= 2 moves are available.
+    if (distanceRadiusV1(0, 0) != -1 || distanceRadiusV1(0, 1) != -1
+        || distanceRadiusV1(0, 2) != -1 || distanceRadiusV1(0, 3) != 4
+        || distanceRadiusV1(0, 21) != 2 || distanceRadiusV1(1, 2) != 7
+        || distanceRadiusV1(2, 2) != 9)
+        return 4;
     std::array<uint8_t, BOARD_CELLS> board {};
     for (int x : {5, 6, 7})
         board[7 * BOARD_SIZE + x] = BLACK;
