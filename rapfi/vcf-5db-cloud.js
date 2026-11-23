@@ -269,6 +269,10 @@
       #vcf-cloud-dialog .vcf-cloud-tree-toggle{flex:0 0 22px;min-height:26px;border:0;background:transparent;cursor:pointer;padding:0}
       #vcf-cloud-dialog .vcf-cloud-tree-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;text-align:left;min-height:29px;padding:4px 5px;border:0;border-radius:5px;background:transparent;color:#3d3a31;cursor:pointer;font:inherit}
       #vcf-cloud-dialog .vcf-cloud-tree-name:hover{background:#e9eef0}
+      #vcf-cloud-dialog .vcf-cloud-tree-name[draggable="true"]{cursor:grab}
+      #vcf-cloud-dialog .vcf-cloud-tree-name.vcf-cloud-drop-target{background:#bfe4c7;color:#164c32;outline:2px solid #329456;outline-offset:-2px}
+      #vcf-cloud-dialog .vcf-cloud-row[draggable="true"]{cursor:grab}
+      #vcf-cloud-dialog .vcf-cloud-row[draggable="true"]:active{cursor:grabbing}
       #vcf-cloud-dialog .vcf-cloud-tree-name[aria-current="true"]{background:#dce9f4;color:#1b4e75;font-weight:700}
       #vcf-cloud-dialog .vcf-cloud-files{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
       #vcf-cloud-dialog .vcf-cloud-files-toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;padding:8px 10px;flex-wrap:wrap;border-bottom:1px solid #ddd5c5;background:#fcfbf7}
@@ -367,6 +371,62 @@
     renderFolderTree(dialog);
     renderFolderContents(dialog);
   }
+  function isFolderDescendant(folderId, ancestorId) {
+    const seen = new Set();
+    let current = folderId;
+    while (current > 0 && !seen.has(current)) {
+      if (current === ancestorId) return true;
+      seen.add(current);
+      const folder = cloudFolders.find(entry => Number(entry.id) === current);
+      if (!folder) break;
+      current = Number(folder.parent_id || 0);
+    }
+    return false;
+  }
+  function canDropIntoFolder(destination) {
+    if (!activeDrag || moveBusy) return false;
+    if (activeDrag.kind === "records") {
+      return activeDrag.source !== destination && activeDrag.ids.length > 0;
+    }
+    if (activeDrag.kind === "folder") {
+      const folder = cloudFolders.find(entry => Number(entry.id) === activeDrag.id);
+      return !!folder && Number(folder.parent_id || 0) !== destination
+        && !isFolderDescendant(destination, activeDrag.id);
+    }
+    return false;
+  }
+  function clearCloudDrag(dialog) {
+    activeDrag = null;
+    const tree = dialog?.querySelector("[data-tree]");
+    for (const node of tree?.querySelectorAll?.(".vcf-cloud-drop-target") || []) {
+      node.classList.remove("vcf-cloud-drop-target");
+    }
+  }
+  async function dropIntoFolder(dialog, payload, destination) {
+    if (!payload) return;
+    if (payload.kind === "records") {
+      await moveSelectedToFolder(dialog, payload.ids, destination);
+      return;
+    }
+    if (payload.kind !== "folder") return;
+    const id = payload.id;
+    if (destination === id || isFolderDescendant(destination, id)) {
+      explorerNotice(dialog, "不能將資料夾移到自己或其子資料夾。");
+      return;
+    }
+    const folder = cloudFolders.find(entry => Number(entry.id) === id);
+    if (!folder || Number(folder.parent_id || 0) === destination) return;
+    if (moveBusy) return;
+    moveBusy = true;
+    try {
+      explorerNotice(dialog, "正在移動資料夾…");
+      const result = await moveFolder(id, destination);
+      folder.parent_id = Number(result.folder?.parent_id ?? destination);
+      expandedFolderIds.add(destination);
+      renderFolderTree(dialog);
+      explorerNotice(dialog, "資料夾已移動。");
+    } finally { moveBusy = false; }
+  }
   function renderFolderTree(dialog) {
     const tree = dialog.querySelector("[data-tree]");
     if (!tree) return;
@@ -420,6 +480,36 @@
       choose.title = name;
       choose.setAttribute("aria-current", String(id === activeFolderId));
       choose.addEventListener("click", () => selectFolder(dialog, id));
+      choose.draggable = id > 0;
+      if (id > 0) {
+        choose.title = name + "（可拖曳移動資料夾）";
+        choose.addEventListener("dragstart", event => {
+          if (moveBusy) { event.preventDefault(); return; }
+          activeDrag = { kind: "folder", id };
+          event.dataTransfer?.setData("text/plain", "VCF5DB_FOLDER");
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+          event.stopPropagation?.();
+        });
+        choose.addEventListener("dragend", () => clearCloudDrag(dialog));
+      }
+      choose.addEventListener("dragover", event => {
+        if (!canDropIntoFolder(id)) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        choose.classList?.add("vcf-cloud-drop-target");
+      });
+      choose.addEventListener("dragleave", event => {
+        if (!choose.contains?.(event.relatedTarget)) choose.classList?.remove("vcf-cloud-drop-target");
+      });
+      choose.addEventListener("drop", event => {
+        if (!canDropIntoFolder(id)) return;
+        event.preventDefault();
+        event.stopPropagation?.();
+        const payload = activeDrag;
+        clearCloudDrag(dialog);
+        void dropIntoFolder(dialog, payload, id).catch(error =>
+          explorerNotice(dialog, error.message || String(error)));
+      });
       const group = document.createElement("div");
       group.setAttribute("role", "group");
       group.hidden = !expandedFolderIds.has(id);
@@ -946,6 +1036,8 @@
       row.className = "vcf-cloud-row";
       row.dataset.recordId = String(recordId);
       row.tabIndex = 0;
+      row.draggable = true;
+      row.title = "可拖曳所選棋譜至左側資料夾";
       row.setAttribute("aria-selected", String(selectedRecordIds.has(recordId)));
       row.setAttribute("aria-label", fileName + ".5db");
       const previewBox = document.createElement("div");
@@ -1021,6 +1113,20 @@
       check.setAttribute("aria-label", "選取 " + fileName);
       check.addEventListener("click", event => event.stopPropagation?.());
       check.addEventListener("change", () => selectRecord(dialog, recordId, index, {}, check.checked));
+      row.addEventListener("dragstart", event => {
+        if (moveBusy || event.target?.closest?.("button, input")) {
+          event.preventDefault(); return;
+        }
+        if (!selectedRecordIds.has(recordId)) selectRecord(dialog, recordId, index, {});
+        activeDrag = {
+          kind: "records",
+          ids: Array.from(selectedRecordIds),
+          source: activeFolderId,
+        };
+        event.dataTransfer?.setData("text/plain", "VCF5DB_RECORDS");
+        if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      });
+      row.addEventListener("dragend", () => clearCloudDrag(dialog));
       row.addEventListener("click", event => {
         if (event.target === check || event.target?.closest?.("button")) return;
         selectRecord(dialog, recordId, index, event);
