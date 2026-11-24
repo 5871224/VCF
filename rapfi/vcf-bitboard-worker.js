@@ -142,6 +142,7 @@ async function findVCF(param) {
   let combinedDiagnostics = null;
   let searchAttempts = null;
   const distanceLimited = mode === 0 && param.distanceLimited === true;
+  const totalNodeLimit = distanceLimited && param.totalNodeLimit === true;
   const cooperativeStop = mode === 0 && param.cooperativeStop === true;
   const cooperativePause = cooperativeStop && param.cooperativePause === true;
   const findDistance = cooperativeStop ? api.findDistanceV1Async : api.findDistanceV1;
@@ -204,7 +205,7 @@ async function findVCF(param) {
 
     // The standalone probes use their own DFS and their own per-search TT
     // generations. They are *not* negative proofs. The unchanged full search
-    // is always attempted with its original maxNode budget if all probes fail.
+    // uses its original maxNode budget unless a benchmark requests a cumulative cap.
     combinedStats = { nodeCount: 0, elapsedMs: 0, routeCount: 0,
       candidateCount: 0, maxPly: 0, aborted: false, nodesPerSecond: 0 };
     combinedDiagnostics = { version: 1, countedNodes: 0, probes: 0,
@@ -238,23 +239,29 @@ async function findVCF(param) {
 
     const searchColor = Number(param.color) || 1;
     const searchRules = normalizeRules(param.rules ?? currentRules);
+    const remainingNodes = () => totalNodeLimit ? Math.max(0, maxNode - combinedStats.nodeCount) : maxNode;
     for (const [phase, budget] of [[0, 10000000], [1, 20000000], [2, 40000000]]) {
+      const stageBudget = totalNodeLimit ? Math.min(budget, remainingNodes()) : budget;
+      if (!stageBudget) break;
       stageName = "距離試探 " + (phase + 1);
       count = await findDistance(
         ptr.board, searchColor, searchRules, simplify ? 1 : 0, phase,
-        maxDepth, budget, ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
+        maxDepth, stageBudget, ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
       );
       accumulate("距離試探 " + (phase + 1), count);
       if (count > 0 || await checkStageStop()) break;
     }
-    if (count === 0 && !stopRequested()) {
+    if (count === 0 && !stopRequested() && remainingNodes() > 0) {
       stageName = "原始完整 DFS";
       count = await findModeV3(
         ptr.board, searchColor, searchRules, 0, simplify ? 1 : 0,
-        pruning, 1, maxDepth, maxNode,
+        pruning, 1, maxDepth, remainingNodes(),
         ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
       );
       accumulate("原始完整 DFS", count);
+    } else if (count === 0 && totalNodeLimit && remainingNodes() === 0) {
+      // A distance-only probe is never an exhaustive negative proof.
+      combinedStats.aborted = true;
     }
     combinedDiagnostics.depthNodes = Array.from(byDepth, ([attack, nodes]) => ({ attack, nodes }))
       .sort((a, b) => a.attack - b.attack);

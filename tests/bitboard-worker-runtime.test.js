@@ -188,6 +188,51 @@ function normalized(result) {
     searchAPI.findModeV3 = originalFull;
   }
 
+  // Benchmark limits are cumulative; normal interactive budgets above are unchanged.
+  const originalStats = vm.runInContext("readStats", context);
+  const originalDiag = vm.runInContext("readSingleDiagnostics", context);
+  let simulatedNodes = 0, simulatedAborted = false, smallProbe = false;
+  const batchBudgets = [];
+  context.mockBatchStats = () => ({ nodeCount: simulatedNodes, elapsedMs: 1,
+    routeCount: 0, candidateCount: 0, maxPly: 0, aborted: simulatedAborted });
+  context.mockBatchDiag = () => null;
+  vm.runInContext("readStats = mockBatchStats; readSingleDiagnostics = mockBatchDiag;", context);
+  searchAPI.findDistanceV1 = (...args) => {
+    batchBudgets.push([args[4], args[6]]);
+    simulatedNodes = smallProbe ? 7 : args[6];
+    simulatedAborted = !smallProbe;
+    return 0;
+  };
+  searchAPI.findModeV3 = (...args) => {
+    batchBudgets.push(["full", args[8]]);
+    simulatedNodes = smallProbe ? 3 : args[8];
+    simulatedAborted = !smallProbe;
+    return 0;
+  };
+  try {
+    for (const [maxNode, expected, small] of [
+      [1000000, [[0,1000000]], false],
+      [20000000, [[0,10000000],[1,10000000]], false],
+      [100000000, [[0,10000000],[1,20000000],[2,40000000],["full",30000000]], false],
+      [1000000, [[0,1000000],[1,999993],[2,999986],["full",999979]], true],
+    ]) {
+      batchBudgets.length = 0;
+      smallProbe = small;
+      const result = await call("findVCF", { arr: new Array(225).fill(0), color: 1,
+        rules: 2, mode: "single", distanceLimited: true, totalNodeLimit: true,
+        ttExponent: 20, maxDepth: 11, maxNode });
+      if (JSON.stringify(batchBudgets) !== JSON.stringify(expected)
+          || result.nodeCount !== (small ? 24 : maxNode) || result.aborted !== !small)
+        throw new Error("cumulative benchmark node limit mismatch: " + JSON.stringify({ batchBudgets, result }));
+    }
+  } finally {
+    searchAPI.findDistanceV1 = originalDistance;
+    searchAPI.findModeV3 = originalFull;
+    context.restoreBatchStats = originalStats;
+    context.restoreBatchDiag = originalDiag;
+    vm.runInContext("readStats = restoreBatchStats; readSingleDiagnostics = restoreBatchDiag;", context);
+  }
+
   // Stop at a stage boundary; no subsequent phase or full DFS may run.
   const cooperativeApi = vm.runInContext("api", context);
   const originalAsyncDistance = cooperativeApi.findDistanceV1Async;

@@ -335,7 +335,7 @@
       distanceLimited: $("vcf-batch-distance").checked,
     };
     if (![0, 1, 2].includes(settings.rules) || !Number.isSafeInteger(settings.maxNode)
-        || settings.maxNode < 1 || settings.maxNode > 0xffffffff
+        || settings.maxNode < 1 || settings.maxNode > 0x7fffffff
         || !Number.isInteger(settings.maxDepth) || settings.maxDepth < 1 || settings.maxDepth > 224)
       throw new Error("搜尋參數超出允許範圍");
     busy = true; stopped = false; syncControls();
@@ -361,7 +361,7 @@
           }
           const info = await callWorker("findVCF", {
             arr: Array.from(position.board, Number), color: side, rules: settings.rules,
-            mode: "single", maxVCF: 1, ...settings,
+            mode: "single", maxVCF: 1, ...settings, totalNodeLimit: true,
           });
           const attempts = info.searchAttempts || [];
           const last = attempts.find(x => x.found) || attempts.at(-1);

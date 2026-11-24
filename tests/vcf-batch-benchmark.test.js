@@ -46,6 +46,7 @@ for (const name of ["vcf-batch-run", "vcf-batch-upload", "vcf-batch-cloud", "vcf
   assert.ok(fs.readFileSync(path.join(__dirname, "../index.html"), "utf8").includes('id="' + name + '"'));
 }
 assert.ok(source.includes('new Worker(asset("rapfi/vcf-bitboard-worker.js"))'), "batch uses independent worker");
+assert.ok(source.includes("...settings, totalNodeLimit: true"), "batch opts into the cumulative node cap");
 assert.ok(source.includes("cloud.saveDocument(item.doc, item.fileName, destination)"), "cloud imports private 5DB");
 assert.ok(source.includes("descending = !descending"), "repeated table-heading clicks toggle sort order");
 assert.ok(source.includes("index + 1"), "folder-selected rows show sequential ordinals");

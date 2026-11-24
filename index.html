@@ -1348,7 +1348,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
           </div>
           <div class="vcf-batch-row">
             <label>規則 <select id="vcf-batch-rules"><option value="2">有禁</option><option value="1">無禁</option><option value="0">自由</option></select></label>
-            <label>節點限制（百萬） <input id="vcf-batch-nodes" type="number" min="1" max="4294" step="1" value="20"></label>
+            <label>總節點限制（百萬） <input id="vcf-batch-nodes" type="number" min="1" max="2147" step="1" value="20"></label>
             <label>最大深度 <input id="vcf-batch-depth" type="number" min="1" max="224" step="1" value="200"></label>
             <label>同型表 2^ <select id="vcf-batch-tt"><option>18</option><option>19</option><option>20</option><option>21</option><option selected>22</option></select></label>
             <label><input id="vcf-batch-distance" type="checkbox" checked>距離限制</label>
@@ -1553,8 +1553,8 @@ for (const tab of document.querySelectorAll(".vcf-tab")) {
   if (entryName.includes(".")) return;
 
   window.__vcfRootBitboardWorkbench = true;
-  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js?v=20261125-pause-resume"><\/script>');
-  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20261125-pause-resume"><\/script>');
+  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js?v=20261125-batch-node-limit"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20261125-batch-node-limit"><\/script>');
 })();
 </script>
 <script>
@@ -5025,7 +5025,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-layout.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-static-annotations.js?v=20261009-cloud2"></script>
 <script src="rapfi/5db-format.js?v=20261024-cloudpreview1"></script>
-<script src="rapfi/vcf-batch-benchmark.js?v=20261123-batchfolder2"></script>
+<script src="rapfi/vcf-batch-benchmark.js?v=20261125-batch-node-limit"></script>
 <script src="rapfi/rapfi-workbench-header.js?v=20261125-clear-import-marks"></script>
 <script src="rapfi/vcf-record-tools.js?v=20261113-5db-workbench"></script>
 <script src="makevcf-generator-settings-persistence.js?v=20260923-calculation-layout1"></script>
