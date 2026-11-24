@@ -1553,8 +1553,8 @@ for (const tab of document.querySelectorAll(".vcf-tab")) {
   if (entryName.includes(".")) return;
 
   window.__vcfRootBitboardWorkbench = true;
-  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js?v=20261123-distance-radius2"><\/script>');
-  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20261123-distance-radius2"><\/script>');
+  document.write('<script src="rapfi/engine/vcf-bitboard-engine.js?v=20261124-cooperative-stop"><\/script>');
+  document.write('<script src="rapfi/vcf-bitboard-main.js?v=20261124-cooperative-stop"><\/script>');
 })();
 </script>
 <script>
@@ -2151,6 +2151,11 @@ document.getElementById("btn-vcf-next").addEventListener("click", () => {
 
 document.getElementById("btn-stop").addEventListener("click", async () => {
   if (!searching) return;
+  if (window.engineAPI?.stopSingle?.()) {
+    document.getElementById("btn-stop").disabled = true;
+    setStatus("正在中止...");
+    return;
+  }
   setBusy(false);
   setStatus("正在中止...");
   await Promise.all([engine.cancel(), pool.cancel()]);
@@ -5007,7 +5012,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-generator-progress.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-status-detail.js?v=20261008-static-workbench1"></script>
 <!-- 正式 HTML 已包含完整版面；各模組只綁定功能與狀態。 -->
-<script src="rapfi/rapfi-bitboard-dashboard.js?v=20261123-distance-radius2"></script>
+<script src="rapfi/rapfi-bitboard-dashboard.js?v=20261124-cooperative-stop"></script>
 <script src="rapfi/vcf-shortest-vcf-ui.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-forbidden-overlay.js?v=20261008-static-workbench1"></script>
 <script src="makevcf-generator-open-four-stop.js?v=20261008-static-workbench1"></script>

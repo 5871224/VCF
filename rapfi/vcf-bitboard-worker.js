@@ -113,7 +113,7 @@ function pruningModeValue(pruning) {
   return pruning === "fast" || Number(pruning) === 1 ? 1 : 0;
 }
 
-function findVCF(param) {
+async function findVCF(param) {
   const board = toBoard(param.arr);
   writeBoard(board);
   const maxVCF = Math.max(1, Math.min(MAX_ROUTES, Number(param.maxVCF) || 1));
@@ -138,9 +138,18 @@ function findVCF(param) {
   let combinedDiagnostics = null;
   let searchAttempts = null;
   const distanceLimited = mode === 0 && param.distanceLimited === true;
+  const cooperativeStop = mode === 0 && param.cooperativeStop === true;
+  const findDistance = cooperativeStop ? api.findDistanceV1Async : api.findDistanceV1;
+  const findModeV3 = cooperativeStop ? api.findModeV3Async : api.findModeV3;
+  const stopRequested = () => cooperativeStop && moduleInstance["vcfSingleStopRequested"] === true;
+  const checkStageStop = async () => {
+    if (!cooperativeStop) return false;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return stopRequested();
+  };
 
   if (distanceLimited) {
-    if (!api.findDistanceV1 || !api.findModeV3) {
+    if (!findDistance || !findModeV3) {
       throw new Error("目前 VCF 引擎不支援距離限制搜尋");
     }
 
@@ -184,15 +193,15 @@ function findVCF(param) {
     const searchRules = normalizeRules(param.rules ?? currentRules);
     for (const [phase, cap] of [[0, 1200000], [1, 1300000], [2, 1500000]]) {
       const budget = Math.max(1, Math.min(cap, Math.floor(maxNode / 10)));
-      count = api.findDistanceV1(
+      count = await findDistance(
         ptr.board, searchColor, searchRules, simplify ? 1 : 0, phase,
         maxDepth, budget, ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
       );
       accumulate("距離試探 " + (phase + 1), count);
-      if (count > 0) break;
+      if (count > 0 || await checkStageStop()) break;
     }
-    if (count === 0) {
-      count = api.findModeV3(
+    if (count === 0 && !stopRequested()) {
+      count = await findModeV3(
         ptr.board, searchColor, searchRules, 0, simplify ? 1 : 0,
         pruning, 1, maxDepth, maxNode,
         ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
@@ -205,8 +214,8 @@ function findVCF(param) {
       .sort((a, b) => a.point - b.point);
     combinedStats.nodesPerSecond = combinedStats.elapsedMs > 0
       ? combinedStats.nodeCount * 1000 / combinedStats.elapsedMs : 0;
-  } else if (api.findModeV3) {
-    count = api.findModeV3(
+  } else if (findModeV3) {
+    count = await findModeV3(
       ptr.board,
       Number(param.color) || 1,
       normalizeRules(param.rules ?? currentRules),
@@ -260,6 +269,7 @@ function findVCF(param) {
   }
   return {
     ...(combinedStats || readStats()),
+    ...(count === 0 && stopRequested() ? { aborted: true, manualStopped: true } : {}),
     vcfCount: count,
     winMoves,
     searchMode: mode === 2 ? "shortest" : mode === 1 ? "multi" : "single",
@@ -882,6 +892,12 @@ async function init(url, runSmokeCheck = true) {
       findDistanceV1: moduleInstance._vcfBbFindDistanceV1
         ? moduleInstance.cwrap("vcfBbFindDistanceV1", "number", Array(11).fill("number"))
         : null,
+      findDistanceV1Async: moduleInstance._vcfBbFindDistanceV1
+        ? moduleInstance.cwrap("vcfBbFindDistanceV1", "number", Array(11).fill("number"), { async: true })
+        : null,
+      findModeV3Async: moduleInstance._vcfBbFindModeV3
+        ? moduleInstance.cwrap("vcfBbFindModeV3", "number", Array(13).fill("number"), { async: true })
+        : null,
       getSingleDiagnostics: moduleInstance._vcfBbGetSingleSearchDiagnostics
         ? moduleInstance.cwrap("vcfBbGetSingleSearchDiagnostics", "number", ["number", "number"])
         : null,
@@ -939,8 +955,30 @@ async function init(url, runSmokeCheck = true) {
   return readyPromise;
 }
 
-self.onmessage = async event => {
+// Asyncify suspends the Wasm stack; ordinary requests must not reenter it.
+// Only the dedicated stop message bypasses this serialized request queue.
+let requestChain = Promise.resolve();
+let activeSingleRequest = null;
+const queuedSingleRequests = new Set();
+const requestedStops = new Set();
+
+self.onmessage = event => {
   const { id, type, data } = event.data || {};
+  if (type === "stopSingle") {
+    const target = data?.requestId;
+    if (queuedSingleRequests.has(target)) {
+      requestedStops.add(target);
+      if (activeSingleRequest === target && moduleInstance)
+        moduleInstance["vcfSingleStopRequested"] = true;
+    }
+    return;
+  }
+  if (type === "findVCF" && data?.cooperativeStop === true)
+    queuedSingleRequests.add(id);
+  requestChain = requestChain.then(() => handleRequest(id, type, data));
+};
+
+async function handleRequest(id, type, data) {
   try {
     if (type === "init") {
       post(id, true, await init(data.moduleURL, data.runSmokeCheck !== false));
@@ -953,7 +991,24 @@ self.onmessage = async event => {
         currentRules = normalizeRules(data?.rules);
         result = true;
         break;
-      case "findVCF": result = findVCF(data || {}); break;
+      case "findVCF":
+        if (queuedSingleRequests.has(id)) {
+          activeSingleRequest = id;
+          moduleInstance["vcfSingleStopEnabled"] = true;
+          moduleInstance["vcfSingleStopRequested"] = requestedStops.has(id);
+        }
+        try {
+          result = await findVCF(data || {});
+        } finally {
+          if (activeSingleRequest === id) {
+            activeSingleRequest = null;
+            moduleInstance["vcfSingleStopEnabled"] = false;
+            moduleInstance["vcfSingleStopRequested"] = false;
+          }
+          queuedSingleRequests.delete(id);
+          requestedStops.delete(id);
+        }
+        break;
       case "findShortestVCF": result = findShortestVCF(data || {}); break;
       case "isVCF": result = validateRoute(data || {}); break;
       case "getBlockVCF": result = getBlockVCF(data || {}); break;
@@ -965,4 +1020,4 @@ self.onmessage = async event => {
   } catch (error) {
     post(id, false, null, error?.stack || error?.message || String(error));
   }
-};
+}

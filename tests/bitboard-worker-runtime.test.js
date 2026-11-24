@@ -182,6 +182,45 @@ function normalized(result) {
     searchAPI.findModeV3 = originalFull;
   }
 
+  // Stop at a stage boundary; no subsequent phase or full DFS may run.
+  const cooperativeApi = vm.runInContext("api", context);
+  const originalAsyncDistance = cooperativeApi.findDistanceV1Async;
+  const originalAsyncFull = cooperativeApi.findModeV3Async;
+  const stoppedPhases = [];
+  cooperativeApi.findDistanceV1Async = async (...args) => {
+    stoppedPhases.push(args[4]);
+    const result = await originalAsyncDistance(...args);
+    context.self.onmessage({ data: { type: "stopSingle", data: { requestId: stopId } } });
+    return result;
+  };
+  cooperativeApi.findModeV3Async = async (...args) => {
+    stoppedPhases.push("full");
+    return originalAsyncFull(...args);
+  };
+  const stopId = nextId;
+  try {
+    const stopped = await call("findVCF", {
+      arr: new Array(225).fill(0), color: 1, rules: 2, mode: "single",
+      distanceLimited: true, cooperativeStop: true, maxDepth: 11, maxNode: 20000000,
+    });
+    if (!stopped.manualStopped || !stopped.aborted || stopped.vcfCount ||
+        stopped.searchAttempts.length !== 1 || JSON.stringify(stoppedPhases) !== "[0]" ||
+        stopped.searchDiagnostics.countedNodes !== stopped.nodeCount ||
+        stopped.searchDiagnostics.rootNodes.reduce((n, x) => n + x.nodes, 0) !== stopped.nodeCount) {
+      throw new Error("cooperative cancellation lost statistics or continued another phase");
+    }
+  } finally {
+    cooperativeApi.findDistanceV1Async = originalAsyncDistance;
+    cooperativeApi.findModeV3Async = originalAsyncFull;
+  }
+  const afterStop = await call("findVCF", {
+    arr: singleBoard, color: 1, rules: 2, mode: "single",
+    cooperativeStop: true, maxDepth: 11, maxNode: 25000,
+  });
+  if (!afterStop.vcfCount || afterStop.manualStopped) {
+    throw new Error("cooperative stop leaked into a subsequent search");
+  }
+
   const catchFoul = new Array(225).fill(0);
   for (let x = 0; x <= 3; x++) catchFoul[7 * 15 + x] = 1;
   catchFoul[7 * 15 + 5] = 1;

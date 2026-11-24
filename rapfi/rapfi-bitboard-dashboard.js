@@ -177,7 +177,7 @@
           (attempt.elapsedMs / 1000).toFixed(3) + " 秒" +
           (attempt.found ? "，找到 VCF" : "，未找到"))),
       ] : []),
-      "狀態：" + (info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
+      "狀態：" + (info.manualStopped ? "手動中止，未完整搜尋" : info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
       "統計節點：" + format(d.countedNodes) + " / 引擎回報：" + format(info.nodeCount),
       "同型表容量：2^" + d.ttExponent + " = " + format(2 ** d.ttExponent) + " 筆",
       "同型表查詢：" + format(d.probes),
@@ -221,6 +221,7 @@
           simplify,
           ttExponent: selectedSingleTtExponent(),
           distanceLimited,
+          cooperativeStop: true,
           maxVCF: 1,
           maxDepth: 200,
           maxNode: 5000000,
@@ -229,7 +230,9 @@
           throw new Error("距離限制設定未生效，請重新整理頁面並確認新版引擎已載入");
         }
         renderSingleSearchDiagnostics(info);
-        if (info && info.winMoves && info.winMoves[0] && info.winMoves[0].length) {
+        if (info?.manualStopped) {
+          setStatus(`已手動中止，未完整搜尋（${window.vcfFormatPureEngineStats(info)}）`);
+        } else if (info && info.winMoves && info.winMoves[0] && info.winMoves[0].length) {
           lastVCFMoves = info.winMoves[0];
           window._showVCF(lastVCFMoves, color);
           const note = simplify ? "，已精簡手順" : "";
