@@ -10,19 +10,29 @@ const record = {
   root:{move:-1,stone:0,text:"",marks:[],children:[]},
 };
 const calls=[];
+const listenerMap = new Map();
+let imported = null;
 const fetch=async (url,options={})=>{
   calls.push({url:String(url),options});
   if(String(url).includes("auth_me")) return {ok:true,status:200,json:async()=>({ok:true,logged_in:true,data:{user_id:5,email:"test@example.com"}})};
   if(String(url).includes("public_config")) return {ok:true,status:200,json:async()=>({ok:true,data:{google_client_id:""}})};
-  if(String(url).includes("action=save")) return {ok:true,status:200,json:async()=>({ok:true,id:1})};
+  if(String(url).includes("action=get")) {
+    const bytes = FiveDB.encode(record);
+    return {ok:true,status:200,headers:{get(name){
+      return ({ "X-5DB-Title":encodeURIComponent(record.title), "X-5DB-File-Name":encodeURIComponent("原始檔名"),
+        "X-5DB-Folder-Id":"7", "X-5DB-Revision":"a".repeat(64), "X-5DB-Record-Count":"1" })[name] || null;
+    }},arrayBuffer:async()=>bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)};
+  }
+  if(String(url).includes("action=update")) return {ok:true,status:200,json:async()=>({ok:true,id:41,revision:"b".repeat(64)})};
+  if(String(url).includes("action=save")) return {ok:true,status:200,json:async()=>({ok:true,id:1,revision:"c".repeat(64)})};
   throw Error("unmocked "+url);
 };
 const window={
-  VCFWorkbenchRecord:{workspace:()=>({mode:"record"}),export5DBDocument:()=>{
+  VCFWorkbenchRecord:{workspace:()=>({mode:"record"}),import5DBDocument:async doc => {imported = doc; return true;},export5DBDocument:()=>{
     return structuredClone(record);
   }},
   FiveDB,
-  addEventListener(){},
+  addEventListener(type,fn){listenerMap.set(type,fn);},
 };
 const document={getElementById:()=>null,addEventListener(){}};
 vm.runInNewContext(source,{window,document,fetch,URLSearchParams,AbortController,
@@ -45,5 +55,27 @@ vm.runInNewContext(source,{window,document,fetch,URLSearchParams,AbortController
   const next=new URL(calls.at(-1).url,"https://example.test");
   assert.equal(next.searchParams.get("file_name"),"另一名稱");
   assert.equal(next.searchParams.get("title"),"棋盤內的標題");
-  console.log("5DB cloud file name and embedded title remain independent");
+  const loaded = await window.VCFCloud5DB.load(41);
+  assert.equal(loaded.meta.fileName, "原始檔名");
+  assert.equal(imported.title, "棋盤內的標題", "cloud get imports into editable 5DB workbench");
+  assert.equal(window.VCFCloud5DB.currentMeta.id, 41);
+  record.title = "修改後標題";
+  const updated = await window.VCFCloud5DB.saveCurrent();
+  assert.equal(updated.updated, true);
+  const updateUrl = new URL(calls.at(-1).url, "https://example.test");
+  assert.equal(updateUrl.searchParams.get("action"), "update");
+  assert.equal(updateUrl.searchParams.get("id"), "41");
+  assert.equal(updateUrl.searchParams.get("revision"), "a".repeat(64));
+  assert.equal(updateUrl.searchParams.get("title"), "修改後標題");
+  assert.equal(updateUrl.searchParams.has("file_name"), false, "in-place save keeps file name");
+  assert.equal(updateUrl.searchParams.has("folder_id"), false, "in-place save keeps folder");
+  assert.equal(window.VCFCloud5DB.currentMeta.revision, "b".repeat(64));
+  await window.VCFCloud5DB.saveCurrent();
+  assert.equal(new URL(calls.at(-1).url, "https://example.test").searchParams.get("revision"), "b".repeat(64),
+    "subsequent update uses server revision");
+  listenerMap.get("vcf-workspace-mode-changed")({detail:{source:"new-workspace"}});
+  assert.equal(window.VCFCloud5DB.currentMeta, null, "new workbench unlinks old cloud record");
+  await window.VCFCloud5DB.saveCurrent("新棋譜");
+  assert.equal(new URL(calls.at(-1).url, "https://example.test").searchParams.get("action"), "save");
+  console.log("5DB cloud editable loading, revision-safe overwrite and Save As passed");
 })().catch(error=>{console.error(error);process.exitCode=1});
