@@ -80,6 +80,7 @@ int findModeImpl(const uint8_t *board,
     std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>::clearTelemetry();
     const double start = legacyNowMs();
     SearchContext ctx;
+    ctx.startedMs = start;
     int rootCandidates = 0;
     if (!board || !outMoves || !outLengths || (attacker != BLACK && attacker != WHITE)
         || rule < FREESTYLE || rule > RENJU || maxRoutes <= 0 || maxMovesPerRoute <= 0) {

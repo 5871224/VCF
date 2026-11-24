@@ -15,7 +15,9 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #define VCF_LEGACY_SEARCH_KEEPALIVE EMSCRIPTEN_KEEPALIVE
-static double legacyNowMs() { return emscripten_get_now(); }
+static double legacyPausedMs = 0;
+static double legacyNowMs() { return emscripten_get_now() - legacyPausedMs; }
+extern "C" int vcfBbGetSingleSearchDiagnostics(uint32_t *out, int capacity);
 #else
 #define VCF_LEGACY_SEARCH_KEEPALIVE
 static double legacyNowMs()

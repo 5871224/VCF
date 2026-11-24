@@ -175,9 +175,9 @@
         ...((info.searchAttempts || []).map(attempt =>
           attempt.name + "：" + format(attempt.nodes) + " 節點、" +
           (attempt.elapsedMs / 1000).toFixed(3) + " 秒" +
-          (attempt.found ? "，找到 VCF" : "，未找到"))),
+          (attempt.paused ? "，已暫停" : attempt.found ? "，找到 VCF" : "，未找到"))),
       ] : []),
-      "狀態：" + (info.manualStopped ? "手動中止，未完整搜尋" : info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
+      "狀態：" + (info.paused ? "已暫停，可繼續搜尋" : info.manualStopped ? "手動中止，未完整搜尋" : info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
       "統計節點：" + format(d.countedNodes) + " / 引擎回報：" + format(info.nodeCount),
       "耗時：" + ((Number(info.elapsedMs) || 0) / 1000).toFixed(3) + " 秒；每秒節點：" + format(info.nodesPerSecond),
       "同型表容量：2^" + d.ttExponent + " = " + format(2 ** d.ttExponent) + " 筆",
@@ -199,9 +199,78 @@
     diagnosticText.textContent = currentDiagnosticText;
     diagnosticPanel.hidden = false;
     if (info.manualStopped) diagnosticPanel.open = true;
+    if (info.paused) diagnosticPanel.open = true;
   }
 
+  let singleSession = null;
+  let nextSingleToken = 0;
+  const singleFingerprint = arr => JSON.stringify([
+    Array.from(arr || []).slice(0, 225), simplifyCheck.checked, distanceCheck.checked,
+    selectedSingleTtExponent(), multiNodeInput.value,
+    document.querySelector('input[name="rules"]:checked')?.value,
+    document.querySelector('input[name="acolor"]:checked')?.value,
+  ]);
+  function discardPausedSearch(reason) {
+    const session = singleSession;
+    if (!session?.paused) return false;
+    window.engineAPI?.discardPausedSingle?.(session.token);
+    if (singleSession === session) singleSession = null;
+    lastParam = null;
+    diagnosticPanel.hidden = true;
+    if (reason) setStatus(reason);
+    return true;
+  }
+  window.addEventListener("vcf-single-paused", event => {
+    const session = singleSession;
+    if (!session || session.token !== event.detail?.token) return;
+    session.paused = true;
+    if (session.fingerprint !== singleFingerprint(window._getArr())) {
+      discardPausedSearch("盤面或設定已變更，搜尋進度已清除");
+      setBusy(false);
+      return;
+    }
+    renderSingleSearchDiagnostics(event.detail.result);
+    setBusy(false);
+    setStatus("已暫停，可繼續搜尋（" + window.vcfFormatPureEngineStats(event.detail.result) + "）");
+  });
+  window.addEventListener("vcf-single-discarded", event => {
+    if (singleSession?.token !== event.detail?.token) return;
+    singleSession = null;
+    lastParam = null;
+    diagnosticPanel.hidden = true;
+  });
+  window.vcfResumePausedSearch = () => {
+    const session = singleSession;
+    if (!session?.paused) return false;
+    if (session.fingerprint !== singleFingerprint(window._getArr())) {
+      discardPausedSearch("盤面或設定已變更，請重新搜尋");
+      return true;
+    }
+    if (!window.engineAPI?.resumeSingle?.(session.token)) {
+      discardPausedSearch("搜尋進度已失效，請重新搜尋");
+      return true;
+    }
+    session.paused = false;
+    setBusy(true);
+    setStatus("繼續搜尋 VCF...");
+    return true;
+  };
+  for (const name of ["vcf-board-changed", "vcf-rule-changed"])
+    window.addEventListener(name, () => {
+      if (singleSession?.paused && singleSession.fingerprint !== singleFingerprint(window._getArr()))
+        discardPausedSearch("盤面或設定已變更，搜尋進度已清除");
+    });
+  for (const input of [simplifyCheck, distanceCheck, multiNodeInput, singleTtExponentInput,
+      ...document.querySelectorAll('input[name="rules"], input[name="acolor"]')])
+    input.addEventListener("change", () => {
+      if (singleSession?.paused && singleSession.fingerprint !== singleFingerprint(window._getArr()))
+        discardPausedSearch("搜尋設定已變更，搜尋進度已清除");
+    });
+
   async function runSingleSearch(arr, color) {
+      discardPausedSearch();
+      const session = { token: ++nextSingleToken, paused: false, fingerprint: singleFingerprint(arr) };
+      singleSession = session;
       lastParam = { arr, color };
       lastVCFMoves = null;
       lastVCFColor = color;
@@ -224,10 +293,13 @@
           ttExponent: selectedSingleTtExponent(),
           distanceLimited,
           cooperativeStop: true,
+          cooperativePause: true,
+          pauseToken: session.token,
           maxVCF: 1,
           maxDepth: 200,
           maxNode: 5000000,
         });
+        if (singleSession !== session) return;
         if (distanceLimited && info?.distanceLimited !== true) {
           throw new Error("距離限制設定未生效，請重新整理頁面並確認新版引擎已載入");
         }
@@ -246,9 +318,12 @@
           setStatus(`${color===1?"黑子":"白子"} VCF ${info?.aborted ? "達搜尋限制，尚未找到" : "未找到"}（${window.vcfFormatPureEngineStats(info)}）`);
         }
       } catch (e) {
+        if (singleSession !== session) return;
         console.error(e);
         setStatus("搜索失敗：" + (e && e.message || String(e)));
       }
+      if (singleSession !== session) return;
+      singleSession = null;
       setBusy(false);
       notifyVcfResultChanged();
   }

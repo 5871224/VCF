@@ -65,8 +65,12 @@ function readSingleDiagnostics() {
   if (!api.getSingleDiagnostics || ptr.singleDiagnostics == null) return null;
   const length = api.getSingleDiagnostics(ptr.singleDiagnostics, SINGLE_DIAG_WORDS);
   if (length !== SINGLE_DIAG_WORDS) return null;
+  return decodeSingleDiagnostics(ptr.singleDiagnostics);
+}
+
+function decodeSingleDiagnostics(address) {
   const words = moduleInstance.HEAPU32.subarray(
-    ptr.singleDiagnostics >>> 2, (ptr.singleDiagnostics >>> 2) + SINGLE_DIAG_WORDS,
+    address >>> 2, (address >>> 2) + SINGLE_DIAG_WORDS,
   );
   if (words[0] !== 1) return null;
   const depthNodes = [];
@@ -139,12 +143,57 @@ async function findVCF(param) {
   let searchAttempts = null;
   const distanceLimited = mode === 0 && param.distanceLimited === true;
   const cooperativeStop = mode === 0 && param.cooperativeStop === true;
+  const cooperativePause = cooperativeStop && param.cooperativePause === true;
   const findDistance = cooperativeStop ? api.findDistanceV1Async : api.findDistanceV1;
   const findModeV3 = cooperativeStop ? api.findModeV3Async : api.findModeV3;
   const stopRequested = () => cooperativeStop && moduleInstance["vcfSingleStopRequested"] === true;
+  const byDepth = new Map();
+  const byRoot = new Map();
+  let stageName = "原始完整 DFS";
+  function pauseSnapshot(current, elapsedMs, root = -1, activeRootNodes = 0) {
+    const previous = combinedDiagnostics;
+    const diag = {
+      version: 1, ttExponent: requestedExponent,
+      countedNodes: (previous?.countedNodes || 0) + (current?.countedNodes || 0),
+      rootCandidates: Math.max(previous?.rootCandidates || 0, current?.rootCandidates || 0),
+      maxPly: Math.max(previous?.maxPly || 0, current?.maxPly || 0),
+    };
+    for (const key of ["probes", "hits", "writes", "replacements"])
+      diag[key] = (previous?.[key] || 0) + (current?.[key] || 0);
+    const depths = new Map(byDepth);
+    const roots = new Map(byRoot);
+    for (const item of current?.depthNodes || [])
+      depths.set(item.attack, (depths.get(item.attack) || 0) + item.nodes);
+    for (const item of current?.rootNodes || [])
+      roots.set(item.point, (roots.get(item.point) || 0) + item.nodes);
+    if (root >= 0 && activeRootNodes)
+      roots.set(root, (roots.get(root) || 0) + activeRootNodes);
+    diag.depthNodes = Array.from(depths, ([attack, nodes]) => ({ attack, nodes })).sort((a,b) => a.attack-b.attack);
+    diag.rootNodes = Array.from(roots, ([point, nodes]) => ({ point, nodes })).sort((a,b) => a.point-b.point);
+    const totalElapsed = (combinedStats?.elapsedMs || 0) + elapsedMs;
+    return {
+      paused: true, aborted: true, vcfCount: 0, winMoves: [],
+      nodeCount: diag.countedNodes, elapsedMs: totalElapsed,
+      nodesPerSecond: totalElapsed > 0 ? diag.countedNodes * 1000 / totalElapsed : 0,
+      searchMode: "single", searchDiagnostics: diag,
+      ...(distanceLimited ? { distanceLimited: true, searchAttempts: [
+        ...searchAttempts, ...(current ? [{ name: stageName, nodes: current.countedNodes,
+          elapsedMs, found: false, paused: true }] : []),
+      ] } : {}),
+    };
+  }
+  if (cooperativePause) {
+    moduleInstance["vcfSinglePause"] = (address, length, root, activeRootNodes, elapsedMs) => {
+      const diag = length === SINGLE_DIAG_WORDS ? decodeSingleDiagnostics(address) : null;
+      if (!diag) throw new Error("暫停時無法讀取搜尋統計");
+      return waitForSingleResume(pauseSnapshot(diag, elapsedMs, root, activeRootNodes));
+    };
+  }
   const checkStageStop = async () => {
     if (!cooperativeStop) return false;
     await new Promise(resolve => setTimeout(resolve, 0));
+    if (cooperativePause && !stopRequested() && moduleInstance["vcfSinglePauseRequested"])
+      await waitForSingleResume(pauseSnapshot(null, 0));
     return stopRequested();
   };
 
@@ -162,8 +211,6 @@ async function findVCF(param) {
       hits: 0, writes: 0, replacements: 0, rootCandidates: 0,
       maxPly: 0, depthNodes: [], rootNodes: [] };
     searchAttempts = [];
-    const byDepth = new Map();
-    const byRoot = new Map();
 
     const accumulate = (name, found) => {
       const stats = readStats();
@@ -192,6 +239,7 @@ async function findVCF(param) {
     const searchColor = Number(param.color) || 1;
     const searchRules = normalizeRules(param.rules ?? currentRules);
     for (const [phase, budget] of [[0, 10000000], [1, 20000000], [2, 40000000]]) {
+      stageName = "距離試探 " + (phase + 1);
       count = await findDistance(
         ptr.board, searchColor, searchRules, simplify ? 1 : 0, phase,
         maxDepth, budget, ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
@@ -200,6 +248,7 @@ async function findVCF(param) {
       if (count > 0 || await checkStageStop()) break;
     }
     if (count === 0 && !stopRequested()) {
+      stageName = "原始完整 DFS";
       count = await findModeV3(
         ptr.board, searchColor, searchRules, 0, simplify ? 1 : 0,
         pruning, 1, maxDepth, maxNode,
@@ -960,15 +1009,40 @@ let requestChain = Promise.resolve();
 let activeSingleRequest = null;
 const queuedSingleRequests = new Set();
 const requestedStops = new Set();
+const requestedPauses = new Set();
+let pausedSingle = null;
+
+function waitForSingleResume(snapshot) {
+  const id = activeSingleRequest;
+  const started = performance.now();
+  return new Promise(resolve => {
+    pausedSingle = { id, resolve: discard => {
+      pausedSingle = null;
+      requestedPauses.delete(id);
+      moduleInstance["vcfSinglePauseRequested"] = false;
+      const elapsed = Math.max(0.001, performance.now() - started);
+      resolve(discard ? -elapsed : elapsed);
+    } };
+    self.postMessage({ id, progress: "paused", result: snapshot });
+  });
+}
 
 self.onmessage = event => {
   const { id, type, data } = event.data || {};
-  if (type === "stopSingle") {
+  if (["stopSingle", "pauseSingle", "resumeSingle", "discardSingle"].includes(type)) {
     const target = data?.requestId;
-    if (queuedSingleRequests.has(target)) {
+    if (!queuedSingleRequests.has(target)) return;
+    if (type === "pauseSingle") {
+      requestedPauses.add(target);
+      if (activeSingleRequest === target && moduleInstance && moduleInstance["vcfSinglePause"])
+        moduleInstance["vcfSinglePauseRequested"] = true;
+    } else if (type === "resumeSingle") {
+      if (pausedSingle?.id === target) pausedSingle.resolve(false);
+    } else {
       requestedStops.add(target);
       if (activeSingleRequest === target && moduleInstance)
         moduleInstance["vcfSingleStopRequested"] = true;
+      if (pausedSingle?.id === target) pausedSingle.resolve(true);
     }
     return;
   }
@@ -995,6 +1069,7 @@ async function handleRequest(id, type, data) {
           activeSingleRequest = id;
           moduleInstance["vcfSingleStopEnabled"] = true;
           moduleInstance["vcfSingleStopRequested"] = requestedStops.has(id);
+          moduleInstance["vcfSinglePauseRequested"] = data?.cooperativePause === true && requestedPauses.has(id);
         }
         try {
           result = await findVCF(data || {});
@@ -1003,9 +1078,12 @@ async function handleRequest(id, type, data) {
             activeSingleRequest = null;
             moduleInstance["vcfSingleStopEnabled"] = false;
             moduleInstance["vcfSingleStopRequested"] = false;
+            moduleInstance["vcfSinglePauseRequested"] = false;
+            delete moduleInstance["vcfSinglePause"];
           }
           queuedSingleRequests.delete(id);
           requestedStops.delete(id);
+          requestedPauses.delete(id);
         }
         break;
       case "findShortestVCF": result = findShortestVCF(data || {}); break;

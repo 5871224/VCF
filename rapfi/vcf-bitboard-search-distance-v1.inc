@@ -78,6 +78,10 @@ struct DistanceSearchRunnerV1 {
             singleSearchDiagnostics.maxPly = uint32_t(
                 std::max<int>(singleSearchDiagnostics.maxPly, ply + 1));
             const uint32_t rootStartNodes = ctx->nodes - 1;
+            if (ply == 0) {
+                ctx->activeRoot = candidate.idx;
+                ctx->activeRootStart = rootStartNodes;
+            }
             const size_t oldSize = route.size();
             position.play(candidate.idx, attacker);
             route.push_back(candidate.idx);
@@ -103,8 +107,10 @@ struct DistanceSearchRunnerV1 {
 
             route.resize(oldSize);
             position.undo(candidate.idx);
-            if (ply == 0)
+            if (ply == 0) {
                 singleSearchDiagnostics.rootNodes[candidate.idx] += ctx->nodes - rootStartNodes;
+                ctx->activeRoot = -1;
+            }
             if (terminalWin || childWin)
                 return true;
             if (ctx->aborted)
@@ -129,6 +135,7 @@ extern "C" VCF_LEGACY_SEARCH_KEEPALIVE int vcfBbFindDistanceV1(
     std::VcfSingleFourWayTransTableV5<CompactPosition, CompactPositionHasher>::clearTelemetry();
     const double start = legacyNowMs();
     SearchContext ctx;
+    ctx.startedMs = start;
     int candidateCount = 0;
     if (!board || !outMoves || !outLengths || (attacker != BLACK && attacker != WHITE)
         || rule < FREESTYLE || rule > RENJU || phase < 0 || phase > 2
