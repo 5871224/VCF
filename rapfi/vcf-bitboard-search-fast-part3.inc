@@ -25,6 +25,17 @@ struct SingleSearchDiagnostics {
 };
 SingleSearchDiagnostics singleSearchDiagnostics {};
 
+// Only the interactive single search enables cooperative cancellation.
+// Asyncify lets the Worker receive a stop message at this sparse checkpoint,
+// even on sites without cross-origin isolation / SharedArrayBuffer.
+constexpr uint32_t SINGLE_STOP_INTERVAL = 2000000u;
+#ifdef __EMSCRIPTEN__
+EM_ASYNC_JS(int, vcfPollSingleStop, (), {
+    await new Promise(resolve => setTimeout(resolve, 0));
+    return Module["vcfSingleStopRequested"] ? 1 : 0;
+});
+#endif
+
 struct SearchContext {
     uint32_t maxNodes = 5000000;
     int maxDepth = 200;
@@ -39,6 +50,14 @@ struct SearchContext {
             aborted = true;
             return false;
         }
+#ifdef __EMSCRIPTEN__
+        if (nodes != 0 && nodes % SINGLE_STOP_INTERVAL == 0
+            && EM_ASM_INT({ return Module["vcfSingleStopEnabled"] ? 1 : 0; })
+            && vcfPollSingleStop()) {
+            aborted = true;
+            return false;
+        }
+#endif
         nodes++;
         return true;
     }

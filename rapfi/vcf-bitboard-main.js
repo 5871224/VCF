@@ -129,6 +129,7 @@
         const pending = {
           resolve: finish(resolve),
           reject: finish(reject),
+          cooperativeStop: type === "findVCF" && data?.cooperativeStop === true,
         };
         this.pending.set(id, pending);
         if (timeoutMs > 0) {
@@ -159,6 +160,15 @@
         return result;
       });
       return this.ruleChain;
+    }
+
+    requestStopSingle() {
+      for (const [id, pending] of this.pending) {
+        if (!pending.cooperativeStop) continue;
+        this.worker.postMessage({ type: "stopSingle", data: { requestId: id } });
+        return true;
+      }
+      return false;
     }
 
     terminate() {
@@ -431,6 +441,7 @@ return {
     workerCount: desiredWorkers,
     send: (cmd, param) => service.send(cmd, param),
     cancel: () => service.cancel(),
+    stopSingle: () => service.main.requestStopSingle(),
     poolGetLevelPoints: param => service.poolGetLevelPoints(param),
     poolCancel: () => service.cancel(),
     poolSetRules: rules => service.broadcastRules(rules),
