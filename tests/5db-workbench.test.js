@@ -69,12 +69,27 @@ function createWorkbench(savedDisk = null) {
   const bytes=FiveDB.encode(saved);
   const reload=createWorkbench();
   await new Promise(setImmediate);
+  assert.equal(reload.win.VCFWorkbenchRecord.startWorkspace("record"),true);
+  reload.win.VCFStaticAnnotations.setMark({type:"text",x:0,y:0,color:0,text:"A"});
   assert.equal(await reload.win.VCFWorkbenchRecord.import5DBDocument(FiveDB.decode(bytes)),true);
   const next=reload.win.VCFWorkbenchRecord;
   assert.equal(next.currentBoard()[97],2,"loaded board must retain its original direction");
   assert.equal(next.currentBoard()[113],0);
   assert.equal(next.currentRecordText(),"選定支線");
-  assert.equal(reload.win.VCFStaticAnnotations.count(),1);
+  assert.equal(reload.win.VCFStaticAnnotations.count(),0,"explicit imports clear previous and imported marks");
+  const pending = [next.export5DBDocument().root];
+  while (pending.length) {
+    const node = pending.pop();
+    assert.equal(node.marks.length,0,"all branches must be cleared");
+    pending.push(...node.children);
+  }
+  const restore = createWorkbench();
+  await new Promise(setImmediate);
+  assert.equal(await restore.win.VCFWorkbenchRecord.import5DBDocument(FiveDB.decode(bytes), {preserveMarks:true}),true);
+  assert.equal(restore.win.VCFStaticAnnotations.count(),1,"restoring a draft retains saved marks");
+  const refreshed = createWorkbench(restore.disk);
+  await new Promise(setImmediate);
+  assert.equal(refreshed.win.VCFStaticAnnotations.count(),1,"refreshing the page retains draft marks");
   assert.equal(next.navigateStep(-1),true);
   assert.equal(next.navigateStep(1),true);
   assert.equal(next.currentBoard()[97],2,"last selected route is restored after stepping back");

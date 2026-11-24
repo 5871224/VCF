@@ -380,7 +380,7 @@
             }
             if (valid) restored.currentPath = storedPath;
           }
-          return await global.VCFWorkbenchRecord.import5DBDocument(restored);
+          return await global.VCFWorkbenchRecord.import5DBDocument(restored, { preserveMarks: true });
         } catch (error) {
           // Never erase a corrupt or temporarily unreadable draft on startup.
           console.warn("5DB 工作區暫時無法還原，已顯示空白棋盤；原檔仍保留", error);
@@ -574,7 +574,7 @@
         if (workspaceMode === WORKSPACE_PUZZLE && puzzlePhase === PUZZLE_SETUP) copy.phase = PUZZLE_SETUP;
         return copy;
       },
-      async import5DBDocument(source) {
+      async import5DBDocument(source, { preserveMarks = false } = {}) {
         if (!global.FiveDB) return false;
         global.FiveDB.validate(source);
         if (source.width !== BOARD_SIZE || source.height !== BOARD_SIZE)
@@ -582,6 +582,15 @@
         suspendPersistence = true;
         try {
           fiveDBDoc = JSON.parse(JSON.stringify(source));
+          // Explicit record imports start with a clean annotation layer. Only local draft restoration retains marks.
+          if (!preserveMarks) {
+            const pending = [fiveDBDoc.root];
+            while (pending.length) {
+              const node = pending.pop();
+              node.marks = [];
+              for (const child of node.children) pending.push(child);
+            }
+          }
           fiveDBPath = [];
           fiveDBSavedBase64 = "";
           selected5DBBranches.clear();
