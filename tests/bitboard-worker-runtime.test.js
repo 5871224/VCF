@@ -149,6 +149,39 @@ function normalized(result) {
     throw new Error("distance probe did not fall back to the exhaustive single VCF engine");
   }
 
+  // Verify the actual ABI budgets without needing a million-node position.
+  const searchAPI = vm.runInContext("api", context);
+  const originalDistance = searchAPI.findDistanceV1;
+  const originalFull = searchAPI.findModeV3;
+  const budgets = [];
+  searchAPI.findDistanceV1 = (...args) => {
+    budgets.push([args[4], args[6]]);
+    return originalDistance(...args);
+  };
+  searchAPI.findModeV3 = (...args) => {
+    budgets.push(["full", args[8]]);
+    return originalFull(...args);
+  };
+  try {
+    for (const [maxNode, expected] of [
+      [20000000, [[0, 1200000], [1, 1300000], [2, 1500000], ["full", 20000000]]],
+      [12500000, [[0, 1200000], [1, 1250000], [2, 1250000], ["full", 12500000]]],
+      [25000, [[0, 2500], [1, 2500], [2, 2500], ["full", 25000]]],
+    ]) {
+      budgets.length = 0;
+      await call("findVCF", {
+        arr: new Array(225).fill(0), color: 1, rules: 2, mode: "single",
+        distanceLimited: true, ttExponent: 20, maxDepth: 11, maxNode,
+      });
+      if (JSON.stringify(budgets) !== JSON.stringify(expected)) {
+        throw new Error(`distance search budget mismatch: ${JSON.stringify(budgets)}`);
+      }
+    }
+  } finally {
+    searchAPI.findDistanceV1 = originalDistance;
+    searchAPI.findModeV3 = originalFull;
+  }
+
   const catchFoul = new Array(225).fill(0);
   for (let x = 0; x <= 3; x++) catchFoul[7 * 15 + x] = 1;
   catchFoul[7 * 15 + 5] = 1;
