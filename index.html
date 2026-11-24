@@ -1098,6 +1098,7 @@ html[data-vcf-multi-settings="1"] .vcf-multi-toggle { border-color: #7798b9; bac
 .vcf-batch-table thead th[data-sort]{cursor:pointer;user-select:none}
 .vcf-batch-table thead th[aria-sort="ascending"]::after{content:" ↑";color:#376783}
 .vcf-batch-table thead th[aria-sort="descending"]::after{content:" ↓";color:#376783}
+.vcf-batch-table tbody tr[data-batch-row]{cursor:pointer}
 .vcf-batch-table tbody tr:hover{background:#faf7ec}
 @media(max-width:600px){.vcf-tabs{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
@@ -5025,7 +5026,7 @@ document.querySelectorAll('input[name="rules"]').forEach(radio => {
 <script src="makevcf-layout.js?v=20261105-workbench2"></script>
 <script src="rapfi/vcf-static-annotations.js?v=20261009-cloud2"></script>
 <script src="rapfi/5db-format.js?v=20261024-cloudpreview1"></script>
-<script src="rapfi/vcf-batch-benchmark.js?v=20261125-batch-node-limit"></script>
+<script src="rapfi/vcf-batch-benchmark.js?v=20261125-load-row"></script>
 <script src="rapfi/rapfi-workbench-header.js?v=20261125-clear-import-marks"></script>
 <script src="rapfi/vcf-record-tools.js?v=20261113-5db-workbench"></script>
 <script src="makevcf-generator-settings-persistence.js?v=20260923-calculation-layout1"></script>

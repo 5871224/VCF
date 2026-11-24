@@ -11,6 +11,7 @@
   let cloudFolders = [];
   let sourceKind = "local";
   let cloudLoadPromise = null;
+  let loadingRow = false;
   let sortField = "order";
   let descending = false;
   const collator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
@@ -177,7 +178,7 @@
     const visible = currentItems();
     $("vcf-batch-table-body").innerHTML = visible.map((item, index) => {
       const result = results.get(item.key);
-      return "<tr><td><input type='checkbox' data-batch-id='" + escapeHtml(item.key) +
+      return "<tr data-batch-row='" + escapeHtml(item.key) + "'><td><input type='checkbox' data-batch-id='" + escapeHtml(item.key) +
         "' " + (selected.has(item.key) ? "checked" : "") + "></td><td>" + (index + 1) +
         "</td><td>" + escapeHtml(item.fileName) + "</td><td>" + escapeHtml(item.title) +
         "</td><td>" + escapeHtml(result?.status || "") + "</td><td>" +
@@ -241,6 +242,24 @@
     const doc = global.FiveDB.decode(record.bytes);
     if (doc.width !== 15 || doc.height !== 15) throw new Error("批次 VCF 僅支援 15×15 棋盤");
     return doc;
+  }
+
+  async function loadRow(item) {
+    if (loadingRow) return;
+    loadingRow = true;
+    try {
+      if (item.cloudId) {
+        if (!global.VCFCloud5DB?.load) throw new Error("雲端讀取功能未就緒");
+        await global.VCFCloud5DB.load(item.cloudId);
+      } else {
+        const doc = await getDocument(item);
+        if (!await global.VCFWorkbenchRecord?.import5DBDocument?.(doc))
+          throw new Error("無法將棋譜載入工作台");
+      }
+      $("vcf-tab-calculation").click();
+    } finally {
+      loadingRow = false;
+    }
   }
 
   async function uploadSelected() {
@@ -438,6 +457,13 @@
     if (field === sortField) descending = !descending;
     else { sortField = field; descending = false; }
     render();
+  });
+  $("vcf-batch-table-body").addEventListener("click", event => {
+    if (event.target.closest("input[type=checkbox]")) return;
+    const row = event.target.closest("tr[data-batch-row]");
+    if (!row) return;
+    const item = currentItems().find(entry => entry.key === row.dataset.batchRow);
+    if (item) action(() => loadRow(item));
   });
   $("vcf-batch-table-body").addEventListener("change", event => {
     const key = event.target.dataset.batchId;

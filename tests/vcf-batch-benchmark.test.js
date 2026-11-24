@@ -115,9 +115,10 @@ async function verifyLiveFolderSelector() {
       this.textContent = "";
     }
     addEventListener(type, handler) { (this.listeners[type] ||= []).push(handler); }
-    dispatch(type) {
-      for (const handler of this.listeners[type] || []) handler({ target: this, type });
+    dispatch(type, target = this) {
+      for (const handler of this.listeners[type] || []) handler({ target, type });
     }
+    click() { this.dispatch("click"); }
     appendChild(child) { this.children.push(child); }
     replaceChildren(...children) { this.children = children; }
     setAttribute(name, value) { this.attributes[name] = String(value); }
@@ -137,7 +138,9 @@ async function verifyLiveFolderSelector() {
       { id: 12, folder_id: 2, title: "第二層棋譜", file_name: "GRANDCHILD" }],
   };
   let cloudRequests = 0;
+  const loadedIds = [];
   const cloud = {
+    load: async id => { loadedIds.push(id); return { imported: true }; },
     authMe: async () => ({ id: 1 }),
     listCatalog: async () => { cloudRequests++; return mockCatalog; },
   };
@@ -182,6 +185,19 @@ async function verifyLiveFolderSelector() {
   getElementById("vcf-batch-include-subfolders").dispatch("change");
   assert.ok(table().includes("CHILD") && !table().includes("GRANDCHILD"),
     "unchecking descendant folders keeps only directly contained records");
+  const body = getElementById("vcf-batch-table-body");
+  const row = { dataset: { batchRow: "cloud:11" } };
+  let tabClicks = 0;
+  getElementById("vcf-tab-calculation").addEventListener("click", () => { tabClicks++; });
+  const checkedBefore = getElementById("vcf-batch-selected").textContent;
+  body.dispatch("click", { closest: selector => selector === "input[type=checkbox]" ? {} : row });
+  await flush();
+  assert.deepEqual(loadedIds, [], "checkbox clicks do not load records");
+  body.dispatch("click", { closest: selector => selector === "tr[data-batch-row]" ? row : null });
+  await flush();
+  assert.deepEqual(loadedIds, [11], "row click loads the record by stable cloud ID");
+  assert.equal(tabClicks, 1, "successful load opens calculation tab");
+  assert.equal(getElementById("vcf-batch-selected").textContent, checkedBefore, "row click leaves batch selection unchanged");
   document.documentElement.dataset.vcfTab = "calculation";
   global.emit("vcf-workbench-tab-changed", { tab: "calculation" });
   document.documentElement.dataset.vcfTab = "benchmark";
