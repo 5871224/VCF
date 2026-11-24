@@ -73,7 +73,9 @@ lacks("html",["VCFRapfiDB", "vcf-rapfi-db.js", "__vcfRapfiDbScheduled"]);
 lacks("builder",["vcf-rapfi-db"]);
 lacks("deploy",["vcf-rapfi-db", "Rapfi DB bridge"]);
 has("recordTools",['board.addEventListener("pointerdown"',
-  'board.addEventListener("contextmenu"', '!global.PointerEvent || event.pointerType === "touch"']);
+  'board.addEventListener("contextmenu"', '!global.PointerEvent || event.pointerType === "touch"',
+  'placeByMouse(point.index, workspace.mode === "puzzle" ? 0 : 1)',
+  'placeByMouse(point.index, 2)', 'placeByMouse(point.index, 1)']);
 has("srvbuild",['ROOT / "api" / "5db.php"','VCF_5DB_API_URL="/BD1/api/5db.php"']);
 has("deploy",["php -l api/5db.php","test -s _site/api/5db.php","npm run test:architecture"]);
 has("srvbuild",["window.VCF_CLOUD_API_URL=", "vcf-5db-cloud.js"]);

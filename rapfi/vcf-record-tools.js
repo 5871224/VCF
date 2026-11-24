@@ -499,7 +499,9 @@
     if (point.index >= 0) {
       event.preventDefault();
       event.stopImmediatePropagation();
-      placeByMouse(point.index, 1);
+      // In puzzle answers the workbench derives the next color from the
+      // chosen attacker and the current 5DB branch, including after undo.
+      placeByMouse(point.index, workspace.mode === "puzzle" ? 0 : 1);
     }
   }, true);
 
@@ -545,7 +547,12 @@
     if (!state.editMode) { state.markerMode = false; pendingStart = null; }
     persistSettings();
     syncUI();
-    status(state.editMode ? "編輯模式：左鍵黑子、右鍵白子、再點已有棋子清除；左下角可 PASS" : "瀏覽模式：左鍵次一手，右鍵前一手");
+    const workspace = global.VCFWorkbenchRecord?.workspace?.() || {};
+    const puzzleAnswer = workspace.mode === "puzzle" && workspace.puzzlePhase !== "setup";
+    status(state.editMode
+      ? (puzzleAnswer ? "解答編輯：左鍵依手順黑白交替、右鍵白子、再點已有手順棋子清除"
+        : "編輯模式：左鍵黑子、右鍵白子、再點已有棋子清除；左下角可 PASS")
+      : "瀏覽模式：左鍵次一手，右鍵前一手");
   });
 
   markerButton.addEventListener("click", () => {
