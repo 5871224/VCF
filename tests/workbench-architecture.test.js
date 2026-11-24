@@ -35,7 +35,7 @@ has("codec",["function validate(doc)","function encode(doc)","function decode(va
 lacks("codec",["constructDBKey(", "canonicalPosition(", "YXDBStorage(", "parseYXDB("]);
 has("header",["let fiveDBDoc = null","let fiveDBPath = []","const replay5DBPath = path =>",
   "const import5DBMarks = () =>","const capture5DBMarks = () =>","fiveDBNode(fiveDBPath)",
-  "global.FiveDB.encode(doc)","async import5DBDocument(source)",
+  "global.FiveDB.encode(doc)","async import5DBDocument(source, { preserveMarks = false } = {})",
   "export5DBDocument()","initialize5DB(","fiveDBDoc.currentPath",
   "setGeneratedPuzzleAnswer(moves, attacker)", 'doc.phase = PUZZLE_SETUP',
   'source.phase !== PUZZLE_SETUP',
@@ -96,7 +96,7 @@ for (const name of ["rapfi/vcf-rapfi-vcf-benchmark.js", "rapfi/vcf-rapfi-vcf-wor
 assert.ok(files.layout.includes('board.addEventListener("wheel"'), "VCF playback must support board wheel");
 assert.ok(files.layout.includes("window.VCFOverlayPlayback.step(delta)"), "single VCF must use native SVG playback");
 assert.ok(files.html.includes("window.VCFOverlayPlayback = {"), "SVG renderer must own current route and step position");
-assert.ok(files.html.includes("rapfi/rapfi-workbench-header.js?v=20261113-5db-workbench")
+assert.ok(files.html.includes("rapfi/rapfi-workbench-header.js?v=20261125-clear-import-marks")
   && files.html.includes("rapfi/vcf-record-tools.js?v=20261113-5db-workbench"),
   "new 5DB editor and right-click handler must invalidate the previous browser cache");
 // A newly deployed checkbox cannot work if the browser reuses an older
