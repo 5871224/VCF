@@ -30,9 +30,15 @@ vm.runInContext(
 );
 
 let nextId = 1;
-async function call(type, data) {
+async function call(type, data, onProgress) {
   const id = nextId++;
-  const response = new Promise(resolve => callbacks.set(id, resolve));
+  const response = new Promise(resolve => callbacks.set(id, message => {
+    if (message.progress === "paused") {
+      onProgress?.(message.result, id);
+      return;
+    }
+    resolve(message);
+  }));
   context.self.onmessage({ data: { id, type, data } });
   const message = await response;
   callbacks.delete(id);
@@ -255,6 +261,31 @@ function normalized(result) {
       throw new Error("real 2M-node cooperative stop lost diagnostics: " +
         JSON.stringify({ nodes: stopped.nodeCount, aborted: stopped.aborted, manualStopped: stopped.manualStopped }));
     }
+    // Compare the paused and uninterrupted real Wasm DFS at the same budget.
+    const params = { arr: hardBoard, color: 1, rules: 2, mode: "single",
+      cooperativeStop: true, cooperativePause: true, ttExponent: 18, maxDepth: 200, maxNode: 2000001 };
+    const baseline = await call("findVCF", { ...params, cooperativePause: false });
+    const pauseId = nextId;
+    let snapshot = null;
+    const pausedResult = call("findVCF", params, (progress, id) => {
+      snapshot = progress;
+      setTimeout(() => context.self.onmessage({ data: { type: "resumeSingle", data: { requestId: id } } }), 80);
+    });
+    const pauseTimer = setTimeout(() => context.self.onmessage({
+      data: { type: "pauseSingle", data: { requestId: pauseId } },
+    }), 0);
+    let resumed;
+    try { resumed = await pausedResult; }
+    finally { clearTimeout(pauseTimer); }
+    if (!snapshot?.paused || snapshot.nodeCount !== 2000000 ||
+        snapshot.searchDiagnostics.rootNodes.reduce((n,x) => n+x.nodes,0) !== snapshot.nodeCount ||
+        snapshot.searchDiagnostics.depthNodes.reduce((n,x) => n+x.nodes,0) !== snapshot.nodeCount ||
+        resumed.nodeCount !== baseline.nodeCount || resumed.manualStopped ||
+        JSON.stringify(resumed.winMoves) !== JSON.stringify(baseline.winMoves) ||
+        JSON.stringify(resumed.searchDiagnostics) !== JSON.stringify(baseline.searchDiagnostics)) {
+      throw new Error("pause/resume lost exact DFS progress or diagnostics");
+    }
+    console.log("Uninterrupted vs resumed VCF:", baseline.nodeCount, baseline.elapsedMs, resumed.elapsedMs);
     checkpointChecked = true;
     break;
   }

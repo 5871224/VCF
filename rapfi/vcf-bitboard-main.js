@@ -103,9 +103,18 @@
       this.worker = new Worker(workerURL);
       this.appliedRules = 2;
       this.worker.onmessage = event => {
-        const { id, ok, result, error } = event.data || {};
+        const { id, ok, result, error, progress } = event.data || {};
         const pending = this.pending.get(id);
         if (!pending) return;
+        if (progress === "paused") {
+          if (pending.pauseState !== "discarded") {
+            pending.pauseState = "paused";
+            global.dispatchEvent(new CustomEvent("vcf-single-paused", {
+              detail: { token: pending.pauseToken, result },
+            }));
+          }
+          return;
+        }
         this.pending.delete(id);
         ok ? pending.resolve(result) : pending.reject(new Error(error || "Bitboard Worker 失敗"));
       };
@@ -118,6 +127,7 @@
     }
 
     callRaw(type, data, timeoutMs = 0) {
+      this.discardPausedSingle();
       return new Promise((resolve, reject) => {
         const id = this.nextId++;
         let timer = null;
@@ -130,6 +140,9 @@
           resolve: finish(resolve),
           reject: finish(reject),
           cooperativeStop: type === "findVCF" && data?.cooperativeStop === true,
+          cooperativePause: type === "findVCF" && data?.cooperativePause === true,
+          pauseToken: data?.pauseToken,
+          pauseState: "running",
         };
         this.pending.set(id, pending);
         if (timeoutMs > 0) {
@@ -160,6 +173,28 @@
         return result;
       });
       return this.ruleChain;
+    }
+
+    controlPause(type, token) {
+      for (const [id, pending] of this.pending) {
+        if (!pending.cooperativePause || (token != null && pending.pauseToken !== token)) continue;
+        const state = pending.pauseState;
+        if (type === "pauseSingle" && state !== "running") continue;
+        if (type === "resumeSingle" && state !== "paused") continue;
+        if (type === "discardSingle" && state !== "paused" && state !== "requested") continue;
+        pending.pauseState = type === "pauseSingle" ? "requested" :
+          type === "resumeSingle" ? "running" : "discarded";
+        this.worker.postMessage({ type, data: { requestId: id } });
+        if (type === "discardSingle") global.dispatchEvent(new CustomEvent("vcf-single-discarded", {
+          detail: { token: pending.pauseToken },
+        }));
+        return true;
+      }
+      return false;
+    }
+
+    discardPausedSingle(token) {
+      return this.controlPause("discardSingle", token);
     }
 
     requestStopSingle() {
@@ -442,6 +477,9 @@ return {
     send: (cmd, param) => service.send(cmd, param),
     cancel: () => service.cancel(),
     stopSingle: () => service.main.requestStopSingle(),
+    pauseSingle: () => service.main.controlPause("pauseSingle"),
+    resumeSingle: token => service.main.controlPause("resumeSingle", token),
+    discardPausedSingle: token => service.main.discardPausedSingle(token),
     poolGetLevelPoints: param => service.poolGetLevelPoints(param),
     poolCancel: () => service.cancel(),
     poolSetRules: rules => service.broadcastRules(rules),

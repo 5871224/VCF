@@ -32,7 +32,12 @@ constexpr uint32_t SINGLE_STOP_INTERVAL = 2000000u;
 #ifdef __EMSCRIPTEN__
 EM_ASYNC_JS(int, vcfPollSingleStop, (), {
     await new Promise(resolve => setTimeout(resolve, 0));
-    return Module["vcfSingleStopRequested"] ? 1 : 0;
+    return Module["vcfSingleStopRequested"] ? 1 :
+        Module["vcfSinglePauseRequested"] ? 2 : 0;
+});
+EM_ASYNC_JS(double, vcfWaitSingleResume, (const uint32_t *words, int length,
+                                        int root, uint32_t activeRootNodes, double elapsedMs), {
+    return await Module["vcfSinglePause"](words, length, root, activeRootNodes >>> 0, elapsedMs);
 });
 #endif
 
@@ -42,6 +47,9 @@ struct SearchContext {
     uint32_t nodes = 0;
     int maxPlySeen = 0;
     bool aborted = false;
+    double startedMs = 0;
+    int activeRoot = -1;
+    uint32_t activeRootStart = 0;
 
     bool touch(int ply)
     {
@@ -52,10 +60,25 @@ struct SearchContext {
         }
 #ifdef __EMSCRIPTEN__
         if (nodes != 0 && nodes % SINGLE_STOP_INTERVAL == 0
-            && EM_ASM_INT({ return Module["vcfSingleStopEnabled"] ? 1 : 0; })
-            && vcfPollSingleStop()) {
-            aborted = true;
-            return false;
+            && EM_ASM_INT({ return Module["vcfSingleStopEnabled"] ? 1 : 0; })) {
+            const int action = vcfPollSingleStop();
+            if (action == 1) {
+                aborted = true;
+                return false;
+            }
+            if (action == 2) {
+                constexpr int WORDS = 8 + SINGLE_SEARCH_DEPTH_BUCKETS + BOARD_CELLS;
+                std::array<uint32_t, WORDS> snapshot {};
+                ::vcfBbGetSingleSearchDiagnostics(snapshot.data(), WORDS);
+                const double paused = vcfWaitSingleResume(snapshot.data(), WORDS,
+                    activeRoot, activeRoot >= 0 ? nodes - activeRootStart : 0,
+                    legacyNowMs() - startedMs);
+                legacyPausedMs += std::abs(paused);
+                if (paused < 0) {
+                    aborted = true;
+                    return false;
+                }
+            }
         }
 #endif
         nodes++;
@@ -258,6 +281,10 @@ struct SearchRunner {
             singleSearchDiagnostics.depthNodes[ply / 2]++;
             singleSearchDiagnostics.maxPly = uint32_t(std::max<int>(singleSearchDiagnostics.maxPly, ply + 1));
             const uint32_t rootStartNodes = ctx->nodes - 1;
+            if (ply == 0) {
+                ctx->activeRoot = candidate.idx;
+                ctx->activeRootStart = rootStartNodes;
+            }
             const size_t oldSize = route.size();
             position.play(candidate.idx, attacker);
             route.push_back(candidate.idx);
@@ -286,8 +313,10 @@ struct SearchRunner {
             }
             route.resize(oldSize);
             position.undo(candidate.idx);
-            if (ply == 0)
+            if (ply == 0) {
                 singleSearchDiagnostics.rootNodes[candidate.idx] += ctx->nodes - rootStartNodes;
+                ctx->activeRoot = -1;
+            }
 
             if (maxRoutes == 1 && foundAny)
                 return true;
