@@ -179,6 +179,7 @@
       ] : []),
       "狀態：" + (info.manualStopped ? "手動中止，未完整搜尋" : info.aborted ? "達搜尋限制，未完整搜尋" : info.vcfCount ? "找到 VCF" : "完整搜尋，未找到 VCF"),
       "統計節點：" + format(d.countedNodes) + " / 引擎回報：" + format(info.nodeCount),
+      "耗時：" + ((Number(info.elapsedMs) || 0) / 1000).toFixed(3) + " 秒；每秒節點：" + format(info.nodesPerSecond),
       "同型表容量：2^" + d.ttExponent + " = " + format(2 ** d.ttExponent) + " 筆",
       "同型表查詢：" + format(d.probes),
       "同型表命中：" + format(d.hits) + "（" + percentage(d.hits, d.probes) + "）",
@@ -197,6 +198,7 @@
     currentDiagnosticText = lines.join("\n");
     diagnosticText.textContent = currentDiagnosticText;
     diagnosticPanel.hidden = false;
+    if (info.manualStopped) diagnosticPanel.open = true;
   }
 
   async function runSingleSearch(arr, color) {
@@ -228,6 +230,9 @@
         });
         if (distanceLimited && info?.distanceLimited !== true) {
           throw new Error("距離限制設定未生效，請重新整理頁面並確認新版引擎已載入");
+        }
+        if (info?.manualStopped && !info.searchDiagnostics) {
+          throw new Error("已中止，但引擎沒有回傳搜尋統計，請重新整理頁面確認新版引擎已載入");
         }
         renderSingleSearchDiagnostics(info);
         if (info?.manualStopped) {

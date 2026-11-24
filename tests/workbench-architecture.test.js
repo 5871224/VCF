@@ -125,6 +125,7 @@ has("distanceSource", ["phase == 0 && candidateCount <= 2", "radius >= 0"]);
 has("dashboard", [
   "距離限制：", "未啟用（原始 DFS）",
   "distanceLimited && info?.distanceLimited !== true",
+  "if (info.manualStopped) diagnosticPanel.open = true",
 ]);
 
 // Image import: DOM alignment, drag/drop, pointer zoom and mouse-only white stones.

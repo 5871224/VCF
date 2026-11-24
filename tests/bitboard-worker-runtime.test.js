@@ -221,6 +221,45 @@ function normalized(result) {
     throw new Error("cooperative stop leaked into a subsequent search");
   }
 
+  // Exercise the real Wasm checkpoint on a dense, difficult 41+41 position.
+  // Do not mock the engine or inject the stop flag directly.
+  const hardBlack = "G15 J15 O15 B14 F14 L14 M14 A13 G13 J12 M12 O12 P12 P11 C10 H10 P9 A8 C8 H8 N8 F7 P7 A6 L6 L5 A4 C4 K4 O4 F3 B2 C2 F2 L2 N2 O2 E1 G1 J1 O1".split(" ");
+  const hardWhite = "A15 D15 F15 M15 N15 A14 C14 E14 H14 K14 C13 D13 L13 A12 A11 K11 A10 K10 A9 G8 K8 L7 M7 B6 C6 F6 H6 K6 B5 M5 G4 P4 D3 J3 K3 H2 J2 P2 B1 M1 N1".split(" ");
+  let checkpointChecked = false;
+  for (const mirror of [false, true]) {
+    const hardBoard = new Array(225).fill(0);
+    for (const [color, stones] of [[1, hardBlack], [2, hardWhite]]) {
+      for (const point of stones) {
+        const x = "ABCDEFGHJKLMNOP".indexOf(point[0]);
+        const y = 15 - Number(point.slice(1));
+        hardBoard[y * 15 + (mirror ? 14 - x : x)] = color;
+      }
+    }
+    const hardId = nextId;
+    const hardResult = call("findVCF", {
+      arr: hardBoard, color: 1, rules: 2, mode: "single",
+      cooperativeStop: true, ttExponent: 18, maxDepth: 200, maxNode: 2000001,
+    });
+    const stopTimer = setTimeout(() => context.self.onmessage({
+      data: { type: "stopSingle", data: { requestId: hardId } },
+    }), 0);
+    let stopped;
+    try { stopped = await hardResult; }
+    finally { clearTimeout(stopTimer); }
+    if (stopped.nodeCount < 2000000 && !stopped.aborted) continue;
+    const diag = stopped.searchDiagnostics;
+    if (!stopped.manualStopped || !stopped.aborted || stopped.vcfCount ||
+        stopped.nodeCount !== 2000000 || diag.countedNodes !== stopped.nodeCount ||
+        diag.rootNodes.reduce((n, x) => n + x.nodes, 0) !== stopped.nodeCount ||
+        diag.depthNodes.reduce((n, x) => n + x.nodes, 0) !== stopped.nodeCount) {
+      throw new Error("real 2M-node cooperative stop lost diagnostics: " +
+        JSON.stringify({ nodes: stopped.nodeCount, aborted: stopped.aborted, manualStopped: stopped.manualStopped }));
+    }
+    checkpointChecked = true;
+    break;
+  }
+  if (!checkpointChecked) throw new Error("hard position did not reach the real 2M-node checkpoint");
+
   const catchFoul = new Array(225).fill(0);
   for (let x = 0; x <= 3; x++) catchFoul[7 * 15 + x] = 1;
   catchFoul[7 * 15 + 5] = 1;
