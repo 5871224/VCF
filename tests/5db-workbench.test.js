@@ -142,6 +142,34 @@ function createWorkbench(savedDisk = null) {
   assert.equal(solved.win.VCFWorkbenchRecord.workspace().puzzlePhase, "tree");
   assert.equal(solved.win.VCFWorkbenchRecord.navigateStep(1), true);
   assert.equal(solved.win.VCFWorkbenchRecord.currentBoard()[112], 2);
+
+  // A left click in puzzle answer editing passes color 0 (automatic).
+  // The first move follows the configured attacker, not the setup stone count.
+  for (const attacker of [1, 2]) {
+    const answerEdit = createWorkbench();
+    await new Promise(setImmediate);
+    const editor = answerEdit.win.VCFWorkbenchRecord;
+    assert.equal(editor.startWorkspace("puzzle"), true);
+    assert.equal(editor.placePuzzleSetupStone(80, 1), true);
+    assert.equal(editor.setPuzzleAttacker(attacker), true);
+    assert.equal(editor.commitPuzzleSetup(), true);
+    assert.equal(editor.playAt(100, "manual", 0), true);
+    assert.equal(editor.currentBoard()[100], attacker);
+    assert.equal(editor.playAt(101, "manual", 0), true);
+    assert.equal(editor.currentBoard()[101], 3 - attacker);
+    assert.equal(editor.navigateStep(-1), true);
+    assert.equal(editor.playAt(102, "manual", 0), true);
+    assert.equal(editor.currentBoard()[102], 3 - attacker, "alternate correctly after branching");
+    assert.equal(editor.playAt(103, "manual", 0), true);
+    assert.equal(editor.currentBoard()[103], attacker);
+    const restored = createWorkbench();
+    await new Promise(setImmediate);
+    assert.equal(await restored.win.VCFWorkbenchRecord.import5DBDocument(
+      FiveDB.decode(FiveDB.encode(editor.export5DBDocument()))), true);
+    assert.equal(restored.win.VCFWorkbenchRecord.playAt(104, "manual", 0), true);
+    assert.equal(restored.win.VCFWorkbenchRecord.currentBoard()[104], 3 - attacker,
+      "the next color follows the imported solution branch");
+  }
   const explicit = createWorkbench();
   await new Promise(setImmediate);
   const boardEditor = explicit.win.VCFWorkbenchRecord;
