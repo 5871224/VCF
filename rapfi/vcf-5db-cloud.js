@@ -14,6 +14,7 @@
   let activePreviewObserver = null;
   let previewGeneration = 0;
   let activeFolderId = 0;
+  let currentCloudRecord = null;
   let cloudFolders = [];
   let cloudRecords = [];
   const selectedRecordIds = new Set();
@@ -74,6 +75,7 @@
     cloudRecords = [];
     cloudFolders = [];
     activeFolderId = 0;
+    currentCloudRecord = null;
     authUser = null;
     refreshAuthUI();
     status("已登出協會會員帳號。");
@@ -90,24 +92,52 @@
     const d = new Date(), p = n => String(n).padStart(2, "0");
     return `5db-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
   }
-  async function saveCurrent(fileName = "") {
-    if (!authUser) throw new Error("請先登入協會會員帳號");
-    const record = global.VCFWorkbenchRecord;
-    if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
-    const doc = record.export5DBDocument();
-    return saveDocument(doc, fileName, activeFolderId);
-  }
-  // Save a self-contained 5DB document without changing the live board.
-  async function saveDocument(doc, fileName = "", folderId = 0) {
-    if (!authUser) throw new Error("請先登入協會會員帳號");
+  function encodeDocument(doc) {
     if (!global.FiveDB) throw new Error("5DB 編碼器未載入");
     const bytes = global.FiveDB.encode(doc);
     const info = global.FiveDB.validate(doc);
     const shot = global.FiveDB.preview(doc);
     const thumbnail = shot.width <= 25 && shot.height <= 25
       ? `${shot.width}x${shot.height}:${shot.board}` : "";
+    return { bytes, info, thumbnail };
+  }
+  async function saveCurrent(fileName = "") {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    const record = global.VCFWorkbenchRecord;
+    if (!record?.export5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
+    const doc = record.export5DBDocument();
+    if (currentCloudRecord && !fileName) {
+      const result = await updateDocument(doc, currentCloudRecord.id, currentCloudRecord.revision);
+      currentCloudRecord = { ...currentCloudRecord, revision: result.revision };
+      refreshAuthUI();
+      return { ...result, updated: true };
+    }
+    const name = normalizeFileName(fileName, defaultFileName());
+    const result = await saveDocument(doc, name, activeFolderId);
+    currentCloudRecord = { id: Number(result.id), fileName: name, folderId: activeFolderId, revision: result.revision };
+    refreshAuthUI();
+    return { ...result, updated: false };
+  }
+  // Save a self-contained 5DB document without changing the live board.
+  async function saveDocument(doc, fileName = "", folderId = 0) {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    const { bytes, info, thumbnail } = encodeDocument(doc);
     const name = normalizeFileName(fileName, defaultFileName());
     const params = new URLSearchParams({ action: "save", file_name: name, title: doc.title || "", folder_id: String(folderId) });
+    const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
+      method: "POST", cache: "no-store", credentials: "same-origin",
+      headers: { "Content-Type": "application/octet-stream", "X-5DB-Preview": thumbnail },
+      body: bytes,
+    });
+    const saved = await jsonResponse(response);
+    return { ...saved, recordCount: info.nodeCount, compressedSize: bytes.length, annotationCount: info.markCount };
+  }
+  async function updateDocument(doc, id, revision) {
+    if (!authUser) throw new Error("請先登入協會會員帳號");
+    if (!/^[a-f0-9]{64}$/.test(String(revision || "")))
+      throw new Error("缺少原棋譜版本資訊，請重新從雲端載入後再儲存");
+    const { bytes, info, thumbnail } = encodeDocument(doc);
+    const params = new URLSearchParams({ action: "update", id: String(id), revision, title: doc.title || "" });
     const response = await cloudFetch(`${FIVE_DB_API_URL}?${params}`, {
       method: "POST", cache: "no-store", credentials: "same-origin",
       headers: { "Content-Type": "application/octet-stream", "X-5DB-Preview": thumbnail },
@@ -208,6 +238,8 @@
         fileName: decodeURIComponent(response.headers.get("X-5DB-File-Name") || ""),
         recordCount: Number(response.headers.get("X-5DB-Record-Count") || 0),
         compressedSize: bytes.length,
+        folderId: Number(response.headers.get("X-5DB-Folder-Id") || 0),
+        revision: response.headers.get("X-5DB-Revision") || "",
       },
     };
   }
@@ -218,13 +250,21 @@
     const response = await cloudFetch(`${FIVE_DB_API_URL}?action=delete&id=${recordId}`, {
       method: "POST", cache: "no-store", credentials: "same-origin",
     });
-    return jsonResponse(response);
+    const result = await jsonResponse(response);
+    if (currentCloudRecord?.id === recordId) { currentCloudRecord = null; refreshAuthUI(); }
+    return result;
   }
   async function load(id) {
     const result = await fetchRecord(id);
-    const importer = global.VCFRecordImportAPI;
-    if (!importer?.loadBytes) throw new Error("5DB 載入模組尚未就緒");
-    const imported = await importer.loadBytes(result.bytes, `cloud-${id}.5db`);
+    const record = global.VCFWorkbenchRecord;
+    if (!record?.import5DBDocument || !global.FiveDB) throw new Error("5DB 工作台尚未就緒");
+    const imported = await record.import5DBDocument(global.FiveDB.decode(result.bytes));
+    if (!imported) throw new Error("無法將雲端棋譜載入工作台");
+    currentCloudRecord = {
+      id: result.meta.id, fileName: result.meta.fileName,
+      folderId: result.meta.folderId, revision: result.meta.revision,
+    };
+    refreshAuthUI();
     return { ...result, imported };
   }
   function formatBytes(v) {
@@ -1079,7 +1119,7 @@
         loadButton.disabled = true;
         try {
           const loaded = await load(recordId);
-          status("已載入「" + fileName + ".5db」：" + (loaded.imported?.nodeCount ?? record.record_count ?? 0) + " 個局面");
+          status("已載入「" + fileName + ".5db」，可編輯後按「儲存變更」。");
           dialog.close();
         } catch (error) { status(error.message || String(error)); }
         finally { loadButton.disabled = false; }
@@ -1249,13 +1289,18 @@
   }
   function refreshAuthUI() {
     const login = document.getElementById("vcf-shared-login"), user = document.getElementById("bb-cloud-user"), logoutButton = document.getElementById("bb-cloud-logout");
-    const saveButton = document.getElementById("bb-cloud-save"), openButton = document.getElementById("bb-cloud-open");
+    const saveButton = document.getElementById("bb-cloud-save"), saveAsButton = document.getElementById("bb-cloud-save-as"), openButton = document.getElementById("bb-cloud-open");
     if (user) user.textContent = authUser ? (authUser.name || authUser.email) : "未登入";
     if (login) login.hidden = Boolean(authUser);
     if (logoutButton) logoutButton.hidden = !authUser;
     if (saveButton) {
       saveButton.disabled = !authUser || !global.VCFWorkbenchRecord?.workspace?.()?.mode;
-      saveButton.title = "將完整 5DB 1.0 棋譜儲存到目前登入的協會會員帳號";
+      saveButton.textContent = currentCloudRecord ? "儲存變更" : "雲端儲存";
+      saveButton.title = currentCloudRecord ? "覆寫目前載入的雲端棋譜，不改變檔名及資料夾" : "將完整 5DB 1.0 棋譜儲存到目前登入的協會會員帳號";
+    }
+    if (saveAsButton) {
+      saveAsButton.hidden = !currentCloudRecord;
+      saveAsButton.disabled = !authUser || !global.VCFWorkbenchRecord?.workspace?.()?.mode;
     }
     if (openButton) { openButton.disabled = !authUser; openButton.title = "查看此帳號的 5DB 1.0 棋譜"; }
   }
@@ -1268,18 +1313,31 @@
     const auth = document.createElement("div"); auth.id = "bb-cloud-auth";
     auth.innerHTML = '<button id="vcf-shared-login" class="bb-cloud-btn" type="button">登入</button><span id="bb-cloud-user"></span><button id="bb-cloud-logout" class="bb-cloud-btn" type="button" hidden>登出</button>';
     const saveButton = document.createElement("button"); saveButton.id = "bb-cloud-save"; saveButton.className = "bb-cloud-btn"; saveButton.textContent = "雲端儲存";
+    const saveAsButton = document.createElement("button"); saveAsButton.id = "bb-cloud-save-as"; saveAsButton.className = "bb-cloud-btn"; saveAsButton.textContent = "另存新檔"; saveAsButton.hidden = true;
     const openButton = document.createElement("button"); openButton.id = "bb-cloud-open"; openButton.className = "bb-cloud-btn"; openButton.textContent = "我的雲端棋譜";
     accountSlot.appendChild(auth);
-    panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null);
+    panel.insertBefore(saveButton, exportStatus || null); panel.insertBefore(saveAsButton, exportStatus || null); panel.insertBefore(openButton, exportStatus || null);
     auth.querySelector("#vcf-shared-login").addEventListener("click", openSharedLogin);
     auth.querySelector("#bb-cloud-logout").addEventListener("click", () => { void logout().catch(e => status(e.message || String(e))); });
     saveButton.addEventListener("click", async () => {
-      saveButton.disabled = true; status("正在建立雲端棋譜及標記……");
+      saveButton.disabled = true; status("正在儲存雲端棋譜……");
       try {
-        const fileName = prompt("檔案名稱（不影響棋譜標題）", defaultFileName());
+        let fileName = "";
+        if (!currentCloudRecord) {
+          fileName = prompt("檔案名稱（不影響棋譜標題）", defaultFileName());
+          if (fileName === null) return;
+        }
+        const result = await saveCurrent(fileName);
+        status(`${result.updated ? "已更新原雲端棋譜" : "已存入雲端棋譜"} #${result.id}：${result.recordCount} 局面${result.annotationCount ? `、${result.annotationCount} 個標記` : ''} / ${formatBytes(result.compressedSize)}`);
+      } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
+    });
+    saveAsButton.addEventListener("click", async () => {
+      saveAsButton.disabled = true;
+      try {
+        const fileName = prompt("新檔案名稱（不影響棋譜標題）", (currentCloudRecord?.fileName || defaultFileName()) + "-副本");
         if (fileName === null) return;
         const result = await saveCurrent(fileName);
-        status(`已存入你的帳號 #${result.id}：${result.recordCount} 局面${result.annotationCount ? `、${result.annotationCount} 個標記` : ''} / ${formatBytes(result.compressedSize)}`);
+        status(`已另存新棋譜 #${result.id}：${result.recordCount} 個局面`);
       } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); }
     });
     openButton.addEventListener("click", async () => { openButton.disabled = true; try { const dialog = ensureDialog(); dialog.showModal(); await refreshDialog(dialog); } catch (e) { status(e.message || String(e)); } finally { refreshAuthUI(); } });
@@ -1292,7 +1350,8 @@
     API_URL, FIVE_DB_API_URL,
     publicConfig, authMe, logout, saveCurrent, saveDocument, fetchRecord, list, listCatalog, load, remove,
     createFolder, renameFolder, moveFolder, deleteFolder, moveRecord, moveRecords,
-    currentBytes: null, currentMeta: null,
+    currentBytes: null,
+    get currentMeta() { return currentCloudRecord && { ...currentCloudRecord }; },
     get authUser() { return authUser; },
   };
   global.VCFCloud5DB = api;
@@ -1300,7 +1359,11 @@
   if (typeof document === "undefined") return;
 
   installUI();
-  global.addEventListener("vcf-workspace-mode-changed", refreshAuthUI);
+  global.addEventListener("vcf-workspace-mode-changed", event => {
+    if (["new-workspace", "5db-import", "replace-position", "replace-history"].includes(event?.detail?.source))
+      currentCloudRecord = null;
+    refreshAuthUI();
+  });
   authMe().catch(e => status(e.message || String(e)));
   global.addEventListener("focus", () => { void authMe().catch(() => {}); });
   document.addEventListener("visibilitychange", () => {

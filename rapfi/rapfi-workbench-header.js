@@ -184,10 +184,11 @@
       return bytes;
     };
     const documentTitle = () => document.getElementById("vcf-record-title");
-    const emitWorkspaceChanged = () => {
+    const emitWorkspaceChanged = (source = "") => {
       global.dispatchEvent(new CustomEvent("vcf-workspace-mode-changed", {
         detail: {
           mode: workspaceMode,
+          source,
           puzzlePhase,
           attacker: puzzleAttacker,
           setupTool: puzzleSetupTool,
@@ -318,7 +319,7 @@
       puzzleAttacker = nextSide;
       initialize5DB(board, nextSide);
       exact = true;
-      emitWorkspaceChanged();
+      emitWorkspaceChanged("replace-position");
       return applyCurrentBoard(true, options.source || "replace-position");
     };
     const replaceHistoryInternal = (nextHistory, options = {}) => {
@@ -345,7 +346,7 @@
       fiveDBDoc.currentPath = fiveDBPath.slice();
       puzzlePhase = PUZZLE_SETUP;
       exact = true;
-      emitWorkspaceChanged();
+      emitWorkspaceChanged("replace-history");
       return applyCurrentBoard(true, options.source || "replace-history");
     };
     const resetToEmptyBoard = () => {
@@ -443,7 +444,7 @@
         exact = true;
         global.VCFStaticAnnotations?.reset?.();
         initialize5DB();
-        emitWorkspaceChanged();
+        emitWorkspaceChanged("new-workspace");
         return applyCurrentBoard(true, mode === WORKSPACE_RECORD ? "new-record" : "new-puzzle");
       },
       setPuzzleSetupTool(stone) {
@@ -603,7 +604,7 @@
             title.value = String(source.title || "").slice(0, 250);
             title.dispatchEvent(new Event("input", { bubbles: true }));
           }
-          emitWorkspaceChanged();
+          emitWorkspaceChanged("5db-import");
           suspendPersistence = false;
           return applyCurrentBoard(true, "5db-import");
         } finally {

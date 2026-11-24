@@ -162,7 +162,7 @@ if (($origin !== '' && $origin !== $expectedOrigin) ||
     fail5('不允許的請求來源', 403);
 $action = (string)($_GET['action'] ?? '');
 $method = (string)($_SERVER['REQUEST_METHOD'] ?? '');
-if (!in_array($action, ['list','get','save','delete','folder_create','folder_rename','folder_move','folder_delete','record_move','records_move'], true)) fail5('不支援的 5DB 操作', 404);
+if (!in_array($action, ['list','get','save','update','delete','folder_create','folder_rename','folder_move','folder_delete','record_move','records_move'], true)) fail5('不支援的 5DB 操作', 404);
 if (($action === 'list' || $action === 'get') && $method !== 'GET') fail5('HTTP 方法錯誤', 405);
 if (!in_array($action, ['list','get'], true) && $method !== 'POST') fail5('HTTP 方法錯誤', 405);
 $user = authenticate5();
@@ -197,18 +197,34 @@ if ($action === 'get') {
     header('X-5DB-File-Name: '.rawurlencode((string)($record['file_name'] ?? $record['title'] ?? '')));
     header('X-5DB-Record-Count: '.(int)$record['record_count']);
     header('X-5DB-Size: '.strlen($payload));
+    header('X-5DB-Folder-Id: '.(int)($record['folder_id'] ?? 0));
+    header('X-5DB-Revision: '.hash('sha256', $payload));
     header('Content-Length: '.strlen($payload));
     echo $payload;
     exit;
 }
-if ($action === 'save') {
+if ($action === 'save' || $action === 'update') {
+    $updating = $action === 'update';
+    $id = $updating ? positiveId5() : (int)($manifest['next_id'] ?? 1);
+    if ($id <= 0 || $id >= 2147483647) fail5('棋譜編號已達上限');
+    $prior = $updating ? ($records[(string)$id] ?? null) : null;
+    if ($updating && !$prior) fail5('找不到要更新的雲端棋譜', 404);
+    $file = $dir.DIRECTORY_SEPARATOR.$id.'.5db';
+    if ($updating) {
+        // Avoid losing changes from another browser tab or device.
+        $expected = (string)($_GET['revision'] ?? '');
+        if (!preg_match('/^[a-f0-9]{64}$/D', $expected)) fail5('缺少原棋譜版本資訊');
+        $actual = @hash_file('sha256', $file);
+        if (!is_string($actual)) fail5('原雲端棋譜檔案不存在', 503);
+        if (!hash_equals($actual, $expected))
+            fail5('棋譜已由其他視窗更新，請重新載入後再儲存（原檔未覆寫）', 409);
+    }
     $size = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
     if ($size > FIVE_DB_MAX_FILE) fail5('5DB 超過 64 MB 上限', 413);
     $payload = file_get_contents('php://input');
     if (!is_string($payload)) fail5('無法讀取 5DB 檔案');
     $nodeCount = verify5($payload);
-    // The small list-only preview is derived from the already-validated
-    // document on the client; it is never used as a file path or game data.
+    // The small list-only preview is derived from the validated document.
     $preview = (string)($_SERVER['HTTP_X_5DB_PREVIEW'] ?? '');
     if ($preview !== '') {
         if (strlen($preview) > 700
@@ -219,21 +235,25 @@ if ($action === 'save') {
             fail5('5DB 棋盤縮圖資料不合法');
     }
     $total = array_sum(array_map(static fn($r) => (int)($r['compressed_size'] ?? 0), $records));
-    if ($total + strlen($payload) > FIVE_DB_MAX_ACCOUNT)
+    $replacedSize = $updating ? (int)($prior['compressed_size'] ?? 0) : 0;
+    if ($total - $replacedSize + strlen($payload) > FIVE_DB_MAX_ACCOUNT)
         fail5('雲端已達 128 MB 容量上限', 413);
     $title = trim((string)($_GET['title'] ?? ''));
     if (strlen($title) > 1000 || preg_match_all('/./us', $title, $matches) === false
         || count($matches[0]) > 250) fail5('棋譜標題過長');
-    $fileName = trim((string)($_GET['file_name'] ?? ''));
-    if (preg_match('/\\.5db$/i', $fileName)) $fileName = substr($fileName, 0, -4);
-    if ($fileName === '' || strlen($fileName) > 1000
-        || preg_match('~[\\\\/:*?"<>|\\x00-\\x1f]~', $fileName)
-        || preg_match_all('/./us', $fileName, $fileChars) === false
-        || count($fileChars[0]) > 250) fail5('檔案名稱不合法');
-    $folderId = folderId5($manifest, 'folder_id');
-    $id = (int)($manifest['next_id'] ?? 1);
-    if ($id <= 0 || $id >= 2147483647) fail5('棋譜編號已達上限');
-    $file = $dir.DIRECTORY_SEPARATOR.$id.'.5db';
+    if ($updating) {
+        // Updating keeps the record ID, file name, folder and creation time.
+        $fileName = (string)($prior['file_name'] ?? $prior['title'] ?? '棋譜-'.$id);
+        $folderId = (int)($prior['folder_id'] ?? 0);
+    } else {
+        $fileName = trim((string)($_GET['file_name'] ?? ''));
+        if (preg_match('/\.5db$/i', $fileName)) $fileName = substr($fileName, 0, -4);
+        if ($fileName === '' || strlen($fileName) > 1000
+            || preg_match('~[\\\\/:*?"<>|\\x00-\\x1f]~', $fileName)
+            || preg_match_all('/./us', $fileName, $fileChars) === false
+            || count($fileChars[0]) > 250) fail5('檔案名稱不合法');
+        $folderId = folderId5($manifest, 'folder_id');
+    }
     $tmp = $dir.DIRECTORY_SEPARATOR.'.'.$id.'.'.bin2hex(random_bytes(8)).'.tmp';
     if (file_put_contents($tmp, $payload, LOCK_EX) !== strlen($payload)
         || !@chmod($tmp, 0600) || !rename($tmp, $file)) {
@@ -241,16 +261,18 @@ if ($action === 'save') {
         fail5('5DB 寫入失敗', 503);
     }
     $now = gmdate('Y-m-d\TH:i:s\Z');
-    $item = [
+    $item = array_merge($prior ?? [], [
         'id' => $id, 'file_name' => $fileName, 'title' => $title, 'record_count' => $nodeCount,
-        'compressed_size' => strlen($payload), 'created_at' => $now, 'updated_at' => $now,
-        'preview' => $preview, 'folder_id' => $folderId,
-    ];
-    $manifest['next_id'] = $id + 1;
+        'compressed_size' => strlen($payload),
+        'created_at' => $updating ? ($prior['created_at'] ?? $now) : $now,
+        'updated_at' => $now, 'preview' => $preview, 'folder_id' => $folderId,
+    ]);
+    if (!$updating) $manifest['next_id'] = $id + 1;
     $manifest['records'][(string)$id] = $item;
     writeManifest5($fp, $manifest);
     flock($fp, LOCK_UN); fclose($fp);
-    reply5(['id' => $id, 'record_count' => $nodeCount, 'compressed_size' => strlen($payload)]);
+    reply5(['id' => $id, 'record_count' => $nodeCount,
+        'compressed_size' => strlen($payload), 'revision' => hash('sha256', $payload)]);
 }
 if (str_starts_with($action, 'folder_') || $action === 'record_move' || $action === 'records_move') {
     $folders = $manifest['folders'];
