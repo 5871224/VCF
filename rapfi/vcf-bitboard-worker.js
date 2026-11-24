@@ -191,8 +191,7 @@ async function findVCF(param) {
 
     const searchColor = Number(param.color) || 1;
     const searchRules = normalizeRules(param.rules ?? currentRules);
-    for (const [phase, cap] of [[0, 1200000], [1, 1300000], [2, 1500000]]) {
-      const budget = Math.max(1, Math.min(cap, Math.floor(maxNode / 10)));
+    for (const [phase, budget] of [[0, 10000000], [1, 20000000], [2, 40000000]]) {
       count = await findDistance(
         ptr.board, searchColor, searchRules, simplify ? 1 : 0, phase,
         maxDepth, budget, ptr.moves, ptr.lengths, MAX_ROUTE_PLY, ptr.stats,
